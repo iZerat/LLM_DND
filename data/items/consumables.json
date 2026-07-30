@@ -1,0 +1,121 @@
+{
+  "consumable_potion_healing": {
+    "name": "治疗药水",
+    "type": "consumable",
+    "tags": [
+      "药水",
+      "治疗"
+    ],
+    "aliases": [
+      "治疗药剂",
+      "红药水",
+      "生命药水",
+      "healing potion",
+      "potion of healing"
+    ],
+    "description": "一瓶可以恢复生命值的药水",
+    "value_cp": 5000,
+    "heal_dice": "2d4",
+    "heal_bonus": 2,
+    "effect": "heal",
+    "name_en": "Potion of Healing"
+  },
+  "consumable_antidote": {
+    "name": "解毒剂",
+    "type": "consumable",
+    "tags": [
+      "药水",
+      "治疗",
+      "毒素"
+    ],
+    "aliases": [
+      "解毒药",
+      "antidote",
+      "anti-toxin"
+    ],
+    "description": "一瓶可以中和毒素的药水",
+    "value_cp": 5000,
+    "effect": "cure_poison",
+    "name_en": "Antidote"
+  },
+  "consumable_rations": {
+    "name": "口粮",
+    "type": "consumable",
+    "tags": [
+      "食物",
+      "补给"
+    ],
+    "aliases": [
+      "干粮",
+      "rrations",
+      "food",
+      "provisions"
+    ],
+    "description": "可供一天食用的干粮",
+    "value_cp": 50,
+    "name_en": "Rations"
+  },
+  "consumable_torch": {
+    "name": "火把",
+    "type": "consumable",
+    "tags": [
+      "工具",
+      "照明"
+    ],
+    "aliases": [
+      "torch",
+      "火把"
+    ],
+    "description": "一支燃烧的火把，提供明亮照明",
+    "value_cp": 1,
+    "name_en": "Torch"
+  },
+  "consumable_arrows": {
+    "name": "箭矢",
+    "type": "ammunition",
+    "tags": [
+      "弹药",
+      "弓箭"
+    ],
+    "aliases": [
+      "箭",
+      "羽箭",
+      "arrows",
+      "ammunition"
+    ],
+    "description": "一束弓用箭矢",
+    "value_cp": 5,
+    "name_en": "Arrows (20)"
+  },
+  "consumable_crossbow_bolts": {
+    "name": "弩矢",
+    "type": "ammunition",
+    "tags": [
+      "弹药",
+      "弩箭"
+    ],
+    "aliases": [
+      "弩箭",
+      "crossbow bolts",
+      "bolts"
+    ],
+    "description": "一束弩用矢",
+    "value_cp": 5,
+    "name_en": "Crossbow Bolts"
+  },
+  "consumable_sling_bullets": {
+    "name": "投石弹",
+    "type": "ammunition",
+    "tags": [
+      "弹药",
+      "投石"
+    ],
+    "aliases": [
+      "sling bullets",
+      "弹丸"
+    ],
+    "description": "一袋投石索用的弹丸",
+    "value_cp": 1,
+    "name_en": "Sling Bullets (20)"
+  }
+}

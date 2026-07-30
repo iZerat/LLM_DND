@@ -1,0 +1,315 @@
+{
+  "equip_backpack": {
+    "name": "背包",
+    "type": "equipment",
+    "tags": [
+      "容器",
+      "冒险装备"
+    ],
+    "aliases": [
+      "backpack",
+      "包",
+      "行囊"
+    ],
+    "description": "一个标准的冒险背包",
+    "value_cp": 200,
+    "name_en": "Backpack"
+  },
+  "equip_waterskin": {
+    "name": "水袋",
+    "type": "equipment",
+    "tags": [
+      "容器",
+      "冒险装备"
+    ],
+    "aliases": [
+      "waterskin",
+      "water skin",
+      "水囊",
+      "水壶"
+    ],
+    "description": "一个装水的皮袋",
+    "value_cp": 20,
+    "name_en": "Waterskin"
+  },
+  "equip_quiver": {
+    "name": "箭袋",
+    "type": "equipment",
+    "tags": [
+      "容器",
+      "弓箭",
+      "冒险装备"
+    ],
+    "aliases": [
+      "quiver",
+      "箭筒",
+      "箭囊"
+    ],
+    "description": "一个装箭的皮袋，可挂在腰间或背上",
+    "value_cp": 100,
+    "name_en": "Quiver"
+  },
+  "equip_bedroll": {
+    "name": "铺盖卷",
+    "type": "equipment",
+    "tags": [
+      "休息",
+      "冒险装备"
+    ],
+    "aliases": [
+      "bedroll",
+      "睡袋",
+      "被褥"
+    ],
+    "description": "一套便携的睡眠铺盖",
+    "value_cp": 100,
+    "name_en": "Bedroll"
+  },
+  "equip_rope_hemp": {
+    "name": "麻绳",
+    "type": "equipment",
+    "tags": [
+      "工具",
+      "冒险装备"
+    ],
+    "aliases": [
+      "绳子",
+      "rope",
+      "hemp rope"
+    ],
+    "description": "一根50尺长的麻绳",
+    "value_cp": 100,
+    "name_en": "Hempen Rope (50 ft.)"
+  },
+  "equip_tinderbox": {
+    "name": "打火匣",
+    "type": "equipment",
+    "tags": [
+      "工具",
+      "冒险装备"
+    ],
+    "aliases": [
+      "tinderbox",
+      "火绒盒",
+      "打火石"
+    ],
+    "description": "用于生火的工具套装",
+    "value_cp": 50,
+    "name_en": "Tinderbox"
+  },
+  "equip_candle": {
+    "name": "蜡烛",
+    "type": "equipment",
+    "tags": [
+      "照明",
+      "冒险装备"
+    ],
+    "aliases": [
+      "candle"
+    ],
+    "description": "一支可以燃烧1小时的蜡烛",
+    "value_cp": 1,
+    "name_en": "Candle"
+  },
+  "equip_healers_kit": {
+    "name": "医疗包",
+    "type": "equipment",
+    "tags": [
+      "工具",
+      "医疗",
+      "治疗"
+    ],
+    "aliases": [
+      "healers kit",
+      "healer's kit",
+      "急救包"
+    ],
+    "description": "一个用于稳定伤者伤势的医疗包",
+    "value_cp": 500,
+    "name_en": "Healer's Kit"
+  },
+  "equip_crowbar": {
+    "name": "撬棍",
+    "type": "equipment",
+    "tags": [
+      "工具",
+      "冒险装备"
+    ],
+    "aliases": [
+      "crowbar",
+      "铁撬",
+      "撬杠"
+    ],
+    "description": "一根结实的铁撬棍",
+    "value_cp": 200,
+    "name_en": "Crowbar"
+  },
+  "equip_climbers_kit": {
+    "name": "攀爬工具包",
+    "type": "equipment",
+    "tags": [
+      "工具",
+      "冒险装备"
+    ],
+    "aliases": [
+      "climbers kit",
+      "climber's kit"
+    ],
+    "description": "一套帮助攀爬的工具",
+    "value_cp": 2500,
+    "name_en": "Climbers Kit"
+  },
+  "equip_fishing_tackle": {
+    "name": "钓具",
+    "type": "equipment",
+    "tags": [
+      "工具",
+      "食物"
+    ],
+    "aliases": [
+      "fishing tackle",
+      "鱼竿",
+      "渔具"
+    ],
+    "description": "一套简单的钓鱼工具",
+    "value_cp": 100,
+    "name_en": "Fishing Tackle"
+  },
+  "equip_lantern_hooded": {
+    "name": "提灯",
+    "type": "equipment",
+    "tags": [
+      "照明",
+      "冒险装备"
+    ],
+    "aliases": [
+      "hooded lantern",
+      "lantern",
+      "油灯"
+    ],
+    "description": "一盏可调节光线的提灯",
+    "value_cp": 500,
+    "name_en": "Hooded Lantern"
+  },
+  "equip_lantern_bullseye": {
+    "name": "牛眼提灯",
+    "type": "equipment",
+    "tags": [
+      "照明",
+      "冒险装备"
+    ],
+    "aliases": [
+      "bullseye lantern",
+      "spotlight lantern"
+    ],
+    "description": "一盏可以投射定向光束的提灯",
+    "value_cp": 1000,
+    "name_en": "Bullseye Lantern"
+  },
+  "equip_oil_flask": {
+    "name": "油瓶",
+    "type": "equipment",
+    "tags": [
+      "燃料",
+      "照明"
+    ],
+    "aliases": [
+      "oil",
+      "灯油",
+      "oil flask"
+    ],
+    "description": "一瓶可供提灯燃烧4小时的灯油",
+    "value_cp": 10,
+    "name_en": "Oil Flask"
+  },
+  "equip_whetstone": {
+    "name": "磨刀石",
+    "type": "equipment",
+    "tags": [
+      "工具",
+      "维护"
+    ],
+    "aliases": [
+      "whetstone",
+      "磨石"
+    ],
+    "description": "一块用于磨利刀刃的石头",
+    "value_cp": 1,
+    "name_en": "Whetstone"
+  },
+  "equip_ink": {
+    "name": "墨水",
+    "type": "equipment",
+    "tags": [
+      "文具",
+      "施法材料"
+    ],
+    "aliases": [
+      "ink",
+      "ink bottle"
+    ],
+    "description": "一小瓶书写用的墨水",
+    "value_cp": 1000,
+    "name_en": "Ink (1 oz.)"
+  },
+  "equip_parchment": {
+    "name": "羊皮纸",
+    "type": "equipment",
+    "tags": [
+      "文具"
+    ],
+    "aliases": [
+      "parchment",
+      "纸"
+    ],
+    "description": "一张空白羊皮纸",
+    "value_cp": 10,
+    "name_en": "Parchment (sheet)"
+  },
+  "equip_druidic_focus": {
+    "name": "德鲁伊法器",
+    "type": "equipment",
+    "tags": [
+      "法器",
+      "施法"
+    ],
+    "aliases": [
+      "druidic focus",
+      "德鲁伊圣徽",
+      "槲寄生"
+    ],
+    "description": "德鲁伊用于施法的法器，可能是槲寄生或冬青",
+    "value_cp": 100,
+    "name_en": "Druidic Focus"
+  },
+  "equip_explorers_pack": {
+    "name": "探险家套装",
+    "type": "equipment",
+    "tags": [
+      "套装",
+      "冒险装备"
+    ],
+    "aliases": [
+      "explorers pack",
+      "explorer's pack",
+      "探险套装"
+    ],
+    "description": "一套适合探索的冒险装备组合",
+    "value_cp": 1000,
+    "name_en": "Explorers Pack"
+  },
+  "weapon_druidic_focus": {
+    "name": "德鲁伊法器",
+    "type": "equipment",
+    "tags": [
+      "法器",
+      "施法"
+    ],
+    "aliases": [
+      "druidic focus"
+    ],
+    "description": "德鲁伊用于施法的法器",
+    "value_cp": 100,
+    "name_en": "Druidic Focus"
+  }
+}

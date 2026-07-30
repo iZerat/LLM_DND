@@ -10,9 +10,9 @@ from rich.text import Text
 from rich.theme import Theme
 from rich import box
 
-from config import Config
-from character import Character, mod_str
-from game_master import GameMaster, ABILITY_CN_TO_EN, parse_check_from_text
+from core.config import Config
+from core.character import Character, mod_str
+from core.game_master import GameMaster, ABILITY_CN_TO_EN, parse_check_from_text
 
 theme = Theme({
     "prompt": "grey82",
@@ -186,96 +186,113 @@ def show_help():
     console.print(f"  [grey82]/bag[/grey82]      查看背包与金钱")
     console.print(f"  [grey82]/skill[/grey82]    查看技能")
     console.print(f"  [grey82]/time[/grey82]    查看当前时间")
+    console.print(f"  [grey82]/help[/grey82]    帮助")
     console.print(f"  [grey82]/save[/grey82]    保存")
     console.print(f"  [grey82]/load[/grey82]    读档")
     console.print(f"  [grey82]/menu[/grey82]    返回主菜单")
-    console.print(f"  [grey82]/help[/grey82]    帮助")
     console.print(f"  [grey82]/quit[/grey82]    退出")
 
 
 def show_status(char: Character):
-    console.print(f"\n[steel_blue]{char.name}[/steel_blue]  Lv.{char.level} {char.race} {char.char_class}")
-    console.print(f"[grey50]HP:[/grey50] {char.hp}/{char.max_hp}  [grey50]AC:[/grey50] {char.ac}  [grey50]熟练:[/grey50] {char.prof_bonus:+d}")
+    from loc import tr
+    console.print(f"\n[steel_blue]{char.name}[/steel_blue]  Lv.{char.level} {char.race_cn} {char.class_cn}")
+    console.print(f"[grey50]{tr('general:hp')}:[/grey50] {char.hp}/{char.max_hp}  "
+                  f"[grey50]{tr('general:ac')}:[/grey50] {char.ac}  "
+                  f"[grey50]{tr('general:prof_bonus')}:[/grey50] {char.prof_bonus:+d}")
     console.print(Panel(
         "[grey50]增益:[/grey50] 无\n"
         "[grey50]减益:[/grey50] 无\n"
         "[grey50]状态:[/grey50] 正常\n"
         "[grey50]临时HP:[/grey50] 0",
-        title="[steel_blue]状态[/steel_blue]",
+        title="[steel_blue]" + tr("general:status_title") + "[/steel_blue]",
         border_style="steel_blue",
         box=box.SQUARE,
     ))
 
 
 def show_info(char: Character):
+    from loc import tr
+    gender_cn = tr(f"gender:{char.gender}")
+    race_cn = char.race_cn
+    class_cn = char.class_cn
+    bg_cn = char.bg_cn
     console.print(Panel(
-        f"名称: {char.name}\n"
-        f"性别: {char.gender}  年龄: {char.age}\n"
-        f"种族: {char.race}  职业: {char.char_class}  背景: {char.background}\n"
-        f"等级: {char.level}  HP: {char.hp}/{char.max_hp}  AC: {char.ac}\n"
-        f"熟练加值: {char.prof_bonus:+d}\n"
-        f"力量: {char.strength} ({mod_str(char.strength)})  "
-        f"敏捷: {char.dexterity} ({mod_str(char.dexterity)})  "
-        f"体质: {char.constitution} ({mod_str(char.constitution)})\n"
-        f"智力: {char.intelligence} ({mod_str(char.intelligence)})  "
-        f"感知: {char.wisdom} ({mod_str(char.wisdom)})  "
-        f"魅力: {char.charisma} ({mod_str(char.charisma)})",
-        title="[grey58]角色信息[/grey58]",
-        border_style="grey58",
-        box=box.SQUARE,
-    ))
-
-
-def show_equip(char: Character):
-    slots_lines = []
-    for slot in ["武器", "副手", "头部", "身体", "背部", "项链", "戒指1", "戒指2"]:
-        item = char.equipment.get(slot, "")
-        if item:
-            slots_lines.append(f"  {slot}: {item}")
-        else:
-            slots_lines.append(f"  [grey50]{slot}: 空[/grey50]")
-    console.print(Panel(
-        "\n".join(slots_lines),
-        title="[grey58]装备[/grey58]",
-        border_style="grey58",
-        box=box.SQUARE,
-    ))
-
-
-def show_inventory(char: Character):
-    if not char.inventory:
-        console.print("[grey50]背包为空[/grey50]")
-        return
-    items = "\n".join(f"  • {item}" for item in char.inventory)
-    console.print(Panel(
-        items,
-        title="[grey58]背包[/grey58]",
+        f"{tr('general:name')}: {char.name}\n"
+        f"{tr('general:gender')}: {gender_cn}  {tr('general:age')}: {char.age}\n"
+        f"{tr('general:race')}: {race_cn}  {tr('general:class')}: {class_cn}  "
+        f"{tr('general:bg')}: {bg_cn}\n"
+        f"{tr('general:level')}: {char.level}  "
+        f"{tr('general:hp')}: {char.hp}/{char.max_hp}  "
+        f"{tr('general:ac')}: {char.ac}\n"
+        f"{tr('general:prof_bonus')}: {char.prof_bonus:+d}\n"
+        f"{tr('stat:strength')}: {char.strength} ({mod_str(char.strength)})  "
+        f"{tr('stat:dexterity')}: {char.dexterity} ({mod_str(char.dexterity)})  "
+        f"{tr('stat:constitution')}: {char.constitution} ({mod_str(char.constitution)})\n"
+        f"{tr('stat:intelligence')}: {char.intelligence} ({mod_str(char.intelligence)})  "
+        f"{tr('stat:wisdom')}: {char.wisdom} ({mod_str(char.wisdom)})  "
+        f"{tr('stat:charisma')}: {char.charisma} ({mod_str(char.charisma)})",
+        title="[grey58]" + tr("general:info_title") + "[/grey58]",
         border_style="grey58",
         box=box.SQUARE,
     ))
 
 
 def show_bag(char: Character):
-    money = f"  金钱: {char.currency_str()}"
-    items = "\n".join(f"  • {item}" for item in char.inventory) if char.inventory else "  [grey50]空[/grey50]"
+    from loc import tr
+    from resource.item_db import item_db
+    money = f"  {tr('general:money')}: {char.currency_str()}"
+    bag_insts = char.inventory.all_instances()
+    if bag_insts:
+        lines = []
+        for inst in bag_insts:
+            item_def = item_db.get(inst.guid)
+            name = item_def.name if item_def else inst.guid
+            tag = f"  [{name}]" + f"[grey50]#{inst.instance_id[:6]}[/grey50]"
+            lines.append(f"  • {name}")
+        items = "\n".join(lines)
+    else:
+        items = "  [grey50]" + tr("general:empty") + "[/grey50]"
     console.print(Panel(
         f"{money}\n\n{items}",
-        title="[grey58]背包[/grey58]",
+        title="[grey58]" + tr("general:bag") + "[/grey58]",
+        border_style="grey58",
+        box=box.SQUARE,
+    ))
+
+
+def show_equip(char: Character):
+    from loc import tr
+    from resource.item_db import item_db
+    lines = []
+    for slot_key in ["weapon", "off_hand", "head", "body", "back", "neck", "ring1", "ring2"]:
+        slot_cn = tr(f"slot:{slot_key}")
+        guid = char.inventory.equipped.get(slot_key)
+        if guid:
+            item_def = item_db.get(guid)
+            name = item_def.name if item_def else guid
+        else:
+            name = tr("general:empty")
+        lines.append(f"  {slot_cn}: {name}")
+    console.print(Panel(
+        "\n".join(lines),
+        title="[grey58]" + tr("general:equip") + "[/grey58]",
         border_style="grey58",
         box=box.SQUARE,
     ))
 
 
 def show_skills(char: Character):
+    from loc import tr
     if not char.skills:
-        console.print("[grey50]未习得技能[/grey50]")
+        console.print("[grey50]" + tr("general:no_skill") + "[/grey50]")
         return
     skill_lines = []
     for s in char.skills:
-        skill_lines.append(f"  • {s}")
+        cn = tr(f"skill:{s}")
+        skill_lines.append(f"  • {cn}")
     console.print(Panel(
         "\n".join(skill_lines),
-        title="[grey58]技能[/grey58]",
+        title="[grey58]" + tr("general:skill") + "[/grey58]",
         border_style="grey58",
         box=box.SQUARE,
     ))

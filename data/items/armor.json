@@ -1,0 +1,258 @@
+{
+  "armor_padded": {
+    "name": "棉甲",
+    "type": "armor",
+    "tags": [
+      "轻甲",
+      "护甲"
+    ],
+    "aliases": [
+      "padded",
+      "padded armor",
+      "棉布甲"
+    ],
+    "description": "一件填充了棉花的布甲",
+    "value_cp": 500,
+    "base_ac": 11,
+    "dex_cap": 99,
+    "stealth_disadvantage": true,
+    "armor_category": "light",
+    "name_en": "Padded Armor"
+  },
+  "armor_leather": {
+    "name": "皮甲",
+    "type": "armor",
+    "tags": [
+      "轻甲",
+      "护甲"
+    ],
+    "aliases": [
+      "leather",
+      "leather armor",
+      "皮衣"
+    ],
+    "description": "一件经过鞣制的皮甲",
+    "value_cp": 1000,
+    "base_ac": 11,
+    "dex_cap": 99,
+    "armor_category": "light",
+    "name_en": "Leather Armor"
+  },
+  "armor_studded_leather": {
+    "name": "镶钉皮甲",
+    "type": "armor",
+    "tags": [
+      "轻甲",
+      "护甲"
+    ],
+    "aliases": [
+      "studded leather",
+      "studded leather armor",
+      "铆钉皮甲"
+    ],
+    "description": "一件镶有金属铆钉的强化皮甲",
+    "value_cp": 4500,
+    "base_ac": 12,
+    "dex_cap": 99,
+    "armor_category": "light",
+    "name_en": "Studded Leather Armor"
+  },
+  "armor_hide": {
+    "name": "兽皮甲",
+    "type": "armor",
+    "tags": [
+      "中甲",
+      "护甲"
+    ],
+    "aliases": [
+      "hide",
+      "hide armor",
+      "毛皮甲"
+    ],
+    "description": "一件用厚兽皮制成的铠甲",
+    "value_cp": 1000,
+    "base_ac": 12,
+    "dex_cap": 2,
+    "armor_category": "medium",
+    "name_en": "Hide Armor"
+  },
+  "armor_chain_shirt": {
+    "name": "链甲衫",
+    "type": "armor",
+    "tags": [
+      "中甲",
+      "护甲"
+    ],
+    "aliases": [
+      "chain shirt",
+      "chainmail shirt",
+      "锁甲衫"
+    ],
+    "description": "一件由金属环编织的短甲衫",
+    "value_cp": 5000,
+    "base_ac": 13,
+    "dex_cap": 2,
+    "armor_category": "medium",
+    "name_en": "Chain Shirt"
+  },
+  "armor_scale_mail": {
+    "name": "鳞甲",
+    "type": "armor",
+    "tags": [
+      "中甲",
+      "护甲"
+    ],
+    "aliases": [
+      "scale mail",
+      "scale",
+      "鳞甲"
+    ],
+    "description": "一件覆盖着金属鳞片的铠甲",
+    "value_cp": 5000,
+    "base_ac": 14,
+    "dex_cap": 2,
+    "stealth_disadvantage": true,
+    "armor_category": "medium",
+    "name_en": "Scale Mail"
+  },
+  "armor_breastplate": {
+    "name": "胸甲",
+    "type": "armor",
+    "tags": [
+      "中甲",
+      "护甲"
+    ],
+    "aliases": [
+      "breastplate",
+      "胸板甲"
+    ],
+    "description": "一件覆盖胸部的金属板甲",
+    "value_cp": 40000,
+    "base_ac": 14,
+    "dex_cap": 2,
+    "armor_category": "medium",
+    "name_en": "Breastplate"
+  },
+  "armor_half_plate": {
+    "name": "半身板甲",
+    "type": "armor",
+    "tags": [
+      "中甲",
+      "护甲"
+    ],
+    "aliases": [
+      "half plate",
+      "半板甲"
+    ],
+    "description": "一件覆盖躯干和大腿的板甲",
+    "value_cp": 75000,
+    "base_ac": 15,
+    "dex_cap": 2,
+    "stealth_disadvantage": true,
+    "armor_category": "medium",
+    "name_en": "Half Plate"
+  },
+  "armor_ring_mail": {
+    "name": "环甲",
+    "type": "armor",
+    "tags": [
+      "重甲",
+      "护甲"
+    ],
+    "aliases": [
+      "ring mail",
+      "ringmail",
+      "环链甲"
+    ],
+    "description": "一件由金属环缝合在布面上的铠甲",
+    "value_cp": 3000,
+    "base_ac": 14,
+    "dex_cap": 0,
+    "stealth_disadvantage": true,
+    "armor_category": "heavy",
+    "name_en": "Ring Mail"
+  },
+  "armor_chain_mail": {
+    "name": "链甲",
+    "type": "armor",
+    "tags": [
+      "重甲",
+      "护甲"
+    ],
+    "aliases": [
+      "chain mail",
+      "chainmail",
+      "锁甲"
+    ],
+    "description": "一件由金属环编织的全套铠甲",
+    "value_cp": 7500,
+    "base_ac": 16,
+    "dex_cap": 0,
+    "strength_req": 13,
+    "stealth_disadvantage": true,
+    "armor_category": "heavy",
+    "name_en": "Chain Mail"
+  },
+  "armor_splint": {
+    "name": "板条甲",
+    "type": "armor",
+    "tags": [
+      "重甲",
+      "护甲"
+    ],
+    "aliases": [
+      "splint",
+      "splint armor",
+      "条板甲"
+    ],
+    "description": "一件由金属板条铆接而成的铠甲",
+    "value_cp": 20000,
+    "base_ac": 17,
+    "dex_cap": 0,
+    "strength_req": 15,
+    "stealth_disadvantage": true,
+    "armor_category": "heavy",
+    "name_en": "Splint Armor"
+  },
+  "armor_plate": {
+    "name": "全身板甲",
+    "type": "armor",
+    "tags": [
+      "重甲",
+      "护甲"
+    ],
+    "aliases": [
+      "plate",
+      "plate armor",
+      "full plate",
+      "板甲"
+    ],
+    "description": "一件覆盖全身的精钢板甲",
+    "value_cp": 150000,
+    "base_ac": 18,
+    "dex_cap": 0,
+    "strength_req": 15,
+    "stealth_disadvantage": true,
+    "armor_category": "heavy",
+    "name_en": "Plate Armor"
+  },
+  "armor_shield": {
+    "name": "盾牌",
+    "type": "shield",
+    "tags": [
+      "盾",
+      "防具"
+    ],
+    "aliases": [
+      "小盾",
+      "大盾",
+      "shield",
+      "buckler"
+    ],
+    "description": "一面坚固的盾牌",
+    "value_cp": 1000,
+    "base_ac": 2,
+    "armor_category": "shield",
+    "name_en": "Shield"
+  }
+}

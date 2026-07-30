@@ -9,9 +9,9 @@ from rich.markup import escape
 from rich.panel import Panel
 from rich import box
 
-from config import Config
-from character import Character, modifier
-from game_master import GameMaster, ABILITY_CN_TO_EN, parse_check_from_text
+from core.config import Config
+from core.character import Character, modifier
+from core.game_master import GameMaster, ABILITY_CN_TO_EN, parse_check_from_text
 from core.ui import (
     console, render_dm_output, show_status, show_info,
     show_equip, show_bag, show_skills, show_time, show_help,
@@ -45,37 +45,202 @@ def save_game(gm: GameMaster, name: str = None):
     char_dir = SAVE_DIR / name
     char_dir.mkdir(parents=True, exist_ok=True)
 
+    # info.json — character static stats only
+    info_data = gm.character.to_dict()
     (char_dir / "info.json").write_text(
-        json.dumps(gm.character.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8"
+        json.dumps(info_data, ensure_ascii=False, indent=2), encoding="utf-8"
     )
+
+    # bag.json — inventory items (instance_id + guid)
+    bag_data = [
+        {"instance_id": inst.instance_id, "guid": inst.guid}
+        for inst in gm.character.inventory.all_instances()
+    ]
+    (char_dir / "bag.json").write_text(
+        json.dumps(bag_data, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+    # equip.json — equipped items (slot -> guid)
+    equip_data = {
+        slot: guid for slot, guid in gm.character.inventory.equipped.items() if guid
+    }
     (char_dir / "equip.json").write_text(
-        json.dumps(gm.character.inventory, ensure_ascii=False, indent=2), encoding="utf-8"
+        json.dumps(equip_data, ensure_ascii=False, indent=2), encoding="utf-8"
     )
+
+    # money.json — currency (copper only)
+    money_data = {"copper": gm.character.inventory.currency.copper}
+    (char_dir / "money.json").write_text(
+        json.dumps(money_data, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+    # skill.json — skills
     (char_dir / "skill.json").write_text(
         json.dumps(gm.character.skills, ensure_ascii=False, indent=2), encoding="utf-8"
     )
-    history_meta = {"last_scene": gm.last_scene, "last_scene_detail": gm.last_scene_detail, "last_time": gm.last_time, "setting_stem": gm.setting_stem}
+
+    # history.json — game history
+    history_meta = {
+        "last_scene": gm.last_scene,
+        "last_scene_detail": gm.last_scene_detail,
+        "last_time": gm.last_time,
+        "setting_stem": gm.setting_stem,
+    }
     (char_dir / "history.json").write_text(
-        json.dumps({"meta": history_meta, "compressed": gm.compressed_history, "last_assistant": gm.last_assistant}, ensure_ascii=False, indent=2), encoding="utf-8"
+        json.dumps({
+            "meta": history_meta,
+            "compressed": gm.compressed_history,
+            "last_assistant": gm.last_assistant,
+        }, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
     console.print(f"[grey50]已保存: {name}[/grey50]")
+    console.print()
 
 
-def _migrate_char_data(data: dict) -> dict:
-    if "gold" in data and "gp" not in data:
-        data["gp"] = data.pop("gold")
-    if "equipment" not in data:
-        data["equipment"] = {"武器": "", "副手": "", "头部": "", "身体": "", "背部": "", "项链": "", "戒指1": "", "戒指2": ""}
-    if "inventory" not in data:
-        data["inventory"] = []
-    if "gp" not in data:
-        data["gp"] = 0
-    if "sp" not in data:
-        data["sp"] = 0
-    if "cp" not in data:
-        data["cp"] = 0
-    return data
+_SLOT_CN_TO_EN = {
+    "武器": "weapon", "副手": "off_hand", "头部": "head", "身体": "body",
+    "背部": "back", "项链": "neck", "戒指1": "ring1", "戒指2": "ring2",
+}
+
+_SKILL_CN_TO_EN = {
+    "特技": "acrobatics", "驯兽": "animal_handling", "奥秘": "arcana",
+    "运动": "athletics", "欺瞒": "deception", "历史": "history",
+    "洞察": "insight", "威吓": "intimidation", "调查": "investigation",
+    "医药": "medicine", "自然": "nature", "察觉": "perception",
+    "表演": "performance", "游说": "persuasion", "宗教": "religion",
+    "巧手": "sleight_of_hand", "隐匿": "stealth", "生存": "survival",
+}
+
+_RACE_CN_TO_EN = {
+    "龙裔": "dragonborn", "矮人": "dwarf", "精灵": "elf",
+    "半身人": "halfling", "侏儒": "gnome", "哥利亚": "goliath",
+    "人类": "human", "兽人": "orc", "提夫林": "tiefling",
+}
+
+_CLASS_CN_TO_EN = {
+    "野蛮人": "barbarian", "吟游诗人": "bard", "牧师": "cleric",
+    "德鲁伊": "druid", "战士": "fighter", "武僧": "monk",
+    "圣骑士": "paladin", "游侠": "ranger", "盗贼": "rogue",
+    "术士": "sorcerer", "邪术师": "warlock", "法师": "wizard",
+}
+
+_BG_CN_TO_EN = {
+    "贵族": "noble", "流浪儿": "urchin", "学者": "sage",
+    "士兵": "soldier", "罪犯": "criminal", "艺人": "entertainer",
+    "水手": "sailor", "隐士": "hermit", "商贩": "merchant",
+    "工匠": "artisan",
+}
+
+_GENDER_CN_TO_EN = {"男": "male", "女": "female"}
+
+
+def _cn_to_en(val: str, table: dict) -> str:
+    return table.get(val, val)
+
+
+def _migrate_char_data(info: dict) -> dict:
+    info.pop("inventory", None)
+    info.pop("equipment", None)
+
+    # age: "中年" -> 30
+    if isinstance(info.get("age"), str):
+        age_map = {"少年": 16, "青年": 22, "壮年": 30, "中年": 35, "老年": 55}
+        info["age"] = age_map.get(info["age"], 30)
+
+    # gender
+    if info.get("gender") in _GENDER_CN_TO_EN:
+        info["gender"] = _GENDER_CN_TO_EN[info["gender"]]
+
+    # race / class / background
+    if info.get("race") in _RACE_CN_TO_EN:
+        info["race"] = _RACE_CN_TO_EN[info["race"]]
+    if info.get("char_class") in _CLASS_CN_TO_EN:
+        info["char_class"] = _CLASS_CN_TO_EN[info["char_class"]]
+    if info.get("background") in _BG_CN_TO_EN:
+        info["background"] = _BG_CN_TO_EN[info["background"]]
+
+    # skills
+    if "skills" in info and isinstance(info["skills"], list):
+        info["skills"] = [_cn_to_en(s, _SKILL_CN_TO_EN) for s in info["skills"]]
+
+    # saving_throws
+    if "saving_throws" in info and isinstance(info["saving_throws"], list):
+        info["saving_throws"] = [_cn_to_en(s, _SKILL_CN_TO_EN) for s in info["saving_throws"]]
+
+    return info
+
+
+def _migrate_load_inventory(char_dir: Path, char: Character):
+    from resource.models import Inventory, Currency
+
+    inv = Inventory()
+
+    bag_path = char_dir / "bag.json"
+    if bag_path.exists():
+        bag_data = json.loads(bag_path.read_text(encoding="utf-8"))
+        for entry in bag_data:
+            if "instance_id" in entry:
+                inst = __import__("resource.models", fromlist=["ItemInstance"]).ItemInstance(
+                    instance_id=entry["instance_id"], guid=entry["guid"], quantity=1
+                )
+                inv.items[inst.instance_id] = inst
+            else:
+                inv.add_item(entry["guid"], entry.get("quantity", 1))
+
+    equip_path = char_dir / "equip.json"
+    if equip_path.exists():
+        equip_data = json.loads(equip_path.read_text(encoding="utf-8"))
+        for slot, guid in equip_data.items():
+            slot_en = _cn_to_en(slot, _SLOT_CN_TO_EN)
+            inv.equipped[slot_en] = guid
+
+    money_path = char_dir / "money.json"
+    if money_path.exists():
+        money_data = json.loads(money_path.read_text(encoding="utf-8"))
+        inv.currency = Currency(copper=money_data.get("copper", 0))
+
+    char.inventory = inv
+
+
+def _migrate_old_inventory(char: Character):
+    from resource.models import Inventory, Currency
+    from resource.item_db import item_db
+
+    inv = Inventory()
+
+    if hasattr(char, "equipment") and char.equipment:
+        for slot_cn, name in char.equipment.items():
+            if name:
+                slot_en = _cn_to_en(slot_cn, _SLOT_CN_TO_EN)
+                item_def = item_db.find_by_name(name) or item_db.find_best(name)
+                if item_def:
+                    inv.equipped[slot_en] = item_def.guid
+
+    old_inv = getattr(char, "inventory", [])
+    if isinstance(old_inv, list):
+        for entry in old_inv:
+            if isinstance(entry, str):
+                qty = 1
+                name = entry
+                m = __import__("re").match(r"(.+)x(\d+)", entry)
+                if m:
+                    name = m.group(1)
+                    qty = int(m.group(2))
+                item_def = item_db.find_by_name(name) or item_db.find_best(name)
+                if item_def:
+                    inv.add_item(item_def.guid, qty)
+
+    old_gp = getattr(char, "gp", 0) or 0
+    old_sp = getattr(char, "sp", 0) or 0
+    old_cp = getattr(char, "cp", 0) or 0
+    inv.currency = Currency(copper=old_gp * 100 + old_sp * 10 + old_cp)
+
+    for attr in ["gp", "sp", "cp", "equipment"]:
+        if hasattr(char, attr):
+            delattr(char, attr)
+
+    char.inventory = inv
 
 
 def load_game(save_path: str) -> GameMaster:
@@ -84,6 +249,7 @@ def load_game(save_path: str) -> GameMaster:
         info = json.loads((path / "info.json").read_text(encoding="utf-8"))
         info = _migrate_char_data(info)
         char = Character(**info)
+        _migrate_load_inventory(path, char)
         gm = GameMaster(char)
         history_path = path / "history.json"
         if history_path.exists():
@@ -101,8 +267,9 @@ def load_game(save_path: str) -> GameMaster:
                 gm.setting_content = load_setting(setting_stem)
     else:
         data = json.loads(path.read_text(encoding="utf-8"))
-        char_data = _migrate_char_data(data["character"])
+        char_data = _migrate_char_data(data.get("character", data))
         char = Character(**char_data)
+        _migrate_old_inventory(char)
         gm = GameMaster(char)
         if "history" in data:
             gm.set_history(data["history"])
@@ -345,6 +512,10 @@ def game_loop(gm: GameMaster):
             ))
 
         try:
+            from core.prompt_lib import build_prompt_suffix
+            prompt_reminder = build_prompt_suffix(player_input)
+            if prompt_reminder:
+                player_input += prompt_reminder
             response_parts = []
             _t0 = _time.time()
             console.print()
@@ -354,6 +525,52 @@ def game_loop(gm: GameMaster):
             _elapsed = _time.time() - _t0
 
             full = "".join(response_parts).replace("（无需检定）", "")
+
+            # ── 资源变更处理（银行柜台） ──
+            from resource.manager import ResourceManager
+            from resource.llm_parser import parse_item_changes
+            manager = ResourceManager(gm.character.inventory)
+            retries = 0
+            max_retries = 3
+            while retries < max_retries:
+                requests = parse_item_changes(full)
+                if requests is None:
+                    break
+                unknown = [r for r in requests if r["action"] == "unknown"]
+                if not unknown:
+                    results = manager.process_requests(requests)
+                    # strip block from text
+                    full = re.sub(
+                        r'\n?\[物品变更\].*?(?=\n\[|\Z)',
+                        '', full, count=1, flags=re.DOTALL
+                    ).strip()
+                    for r in results:
+                        if r.success:
+                            console.print(f"[grey50]{r.message}[/grey50]")
+                        else:
+                            console.print(f"[indian_red]{r.message}[/indian_red]")
+                    break
+                # unknown items found — retry
+                retries += 1
+                missing = "、".join(r["name"] for r in unknown)
+                if retries >= max_retries:
+                    # fallback: tell LLM to revise, strip the block
+                    console.print(f"[indian_red]物品库中不存在: {missing}，已忽略相关变更，故事由 DM 自行圆场[/indian_red]")
+                    full = re.sub(
+                        r'\n?\[物品变更\].*?(?=\n\[|\Z)',
+                        '', full, count=1, flags=re.DOTALL
+                    ).strip()
+                    break
+                console.print(f"[gold1]物品库中不存在: {missing}，DM 正在调整故事…[/gold1]")
+                # send correction prompt to LLM
+                correction_prompt = f"[系统] 注意：以下物品不在游戏资源库中：{missing}。请修改你的输出，改用库中存在的物品，或修改叙事让这些物品不可获得。保留其他内容不变。请重新输出完整回答。"
+                try:
+                    retry_parts = []
+                    for chunk in gm.send_message_stream(correction_prompt):
+                        retry_parts.append(chunk)
+                    full = "".join(retry_parts).replace("（无需检定）", "")
+                except Exception:
+                    break
 
             log_dm_response(get_round_counter() + 1, player_input, full)
 

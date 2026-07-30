@@ -7,13 +7,13 @@ from rich.prompt import Prompt
 from rich.markup import escape
 from rich import box
 
-from config import Config
-from character import Character, RACES, CLASSES, BACKGROUNDS, HIT_DICE
-from srd_data import (
+from core.config import Config
+from core.character import Character, RACES, CLASSES, BACKGROUNDS, HIT_DICE
+from rules.srd_data import (
     SPECIES_LIST, CLASS_LIST, BACKGROUND_LIST, SKILLS,
     find_species, find_class, find_background, calc_ac,
 )
-from game_master import GameMaster
+from core.game_master import GameMaster
 from core.ui import console, render_dm_output
 from core.game_loop import (
     game_loop, save_game, load_game, log_dm_response,
@@ -103,34 +103,39 @@ def create_character() -> Character:
     return _detailed_character()
 
 
-def _choose_lineage(species_name: str) -> str:
-    sp = find_species(species_name)
+def _choose_lineage(species_name_cn: str) -> str:
+    sp = find_species(species_name_cn)
     if not sp or not sp.lineages:
         return ""
-    console.print(f"\n[bold]选择 {species_name} 的流派:[/bold]")
+    console.print(f"\n[bold]选择 {species_name_cn} 的流派:[/bold]")
     for i, lin in enumerate(sp.lineages, 1):
         console.print(f"  {i}. {lin.name}")
         for t in lin.traits:
             console.print(f"     - {t}")
     lin = _menu_choice([l.name for l in sp.lineages], "流派")
+    for l in sp.lineages:
+        if l.name == lin:
+            return l.name_en or l.name
     return lin
 
 
-def _choose_skills(prompt_label: str, options: list, count: int, already_chosen: list = None) -> list:
-    chosen = list(already_chosen) if already_chosen else []
-    available = [s for s in options if s not in chosen]
-    while len(chosen) < count and available:
-        console.print(f"\n[bold]{prompt_label}（还需选 {count - len(chosen)} 项）[/bold]")
+def _choose_skills(prompt_label: str, options_cn: list, count: int, already_chosen_cn: list = None) -> list:
+    from rules.srd_data import SKILL_BY_EN
+    chosen_cn = list(already_chosen_cn) if already_chosen_cn else []
+    available = [s for s in options_cn if s not in chosen_cn]
+    while len(chosen_cn) < count and available:
+        console.print(f"\n[bold]{prompt_label}（还需选 {count - len(chosen_cn)} 项）[/bold]")
         for i, s in enumerate(available, 1):
             console.print(f"  {i}. {s}")
         pick = _menu_choice(available, "技能")
-        chosen.append(pick)
+        chosen_cn.append(pick)
         available.remove(pick)
-    return chosen
+    return [SKILL_BY_EN.get(s, s) for s in chosen_cn]
 
 
 def _quick_character() -> Character:
     import random
+    from rules.srd_data import SKILL_BY_EN
     name = Prompt.ask("角色名称（留空回车随机）")
     if not name:
         confirm = Prompt.ask("是否随机生成名字？（再次回车确认随机，或直接输入名字）")
@@ -140,51 +145,56 @@ def _quick_character() -> Character:
             name = _rand.choice(fantasy_names)
         else:
             name = confirm
-    species = random.choice(RACES)
-    sp = find_species(species)
+
+    species_cn = random.choice(RACES)
+    sp = find_species(species_cn)
+    race_en = sp.name_en if sp else species_cn
     lineage = ""
     if sp and sp.lineages:
-        lineage = random.choice(sp.lineages).name
+        lin = random.choice(sp.lineages)
+        lineage = lin.name_en or lin.name
 
-    char_class = random.choice(CLASSES)
-    cd = find_class(char_class)
+    class_cn = random.choice(CLASSES)
+    cd = find_class(class_cn)
+    class_en = cd.name_en if cd else class_cn
 
-    background = random.choice(BACKGROUNDS)
-    bg = find_background(background)
+    bg_cn = random.choice(BACKGROUNDS)
+    bg = find_background(bg_cn)
+    bg_en = bg.name_en if bg else bg_cn
 
     attrs = ["力量", "敏捷", "体质", "智力", "感知", "魅力"]
     vals = [15, 14, 13, 12, 10, 8]
     random.shuffle(vals)
     stats = dict(zip(attrs, vals))
 
-    hd = HIT_DICE.get(char_class, 10)
+    hd = HIT_DICE.get(class_cn, 10)
     con_mod = (stats["体质"] - 10) // 2
     hp = hd + con_mod
 
-    skills = list(cd.skill_options[:cd.skill_choices]) if cd else []
-    saving_throws = list(cd.saving_throws) if cd else []
+    skills_cn = list(cd.skill_options[:cd.skill_choices]) if cd else []
+    skills = [SKILL_BY_EN.get(s, s) for s in skills_cn]
+    saving_throws_cn = list(cd.saving_throws) if cd else []
+    saving_throws = [SKILL_BY_EN.get(s, s) for s in saving_throws_cn]
     feats = [bg.feat] if bg else []
 
-    desc = f"一位{species}{char_class}，背景是{background}。"
+    desc = f"一位{species_cn}{class_cn}，背景是{bg_cn}。"
 
     console.print(f"\n[steel_blue]角色已生成！[/steel_blue]")
-    console.print(f"  {species} {char_class} | 背景: {background}")
+    console.print(f"  {species_cn} {class_cn} | 背景: {bg_cn}")
     console.print(f"  HP:{hp} AC:{calc_ac((stats['体质']-10)//2)}")
     stats_line = "  ".join(f"{k}:{v}" for k, v in stats.items())
     console.print(f"  {stats_line}")
 
     char = Character(
-        name=name, race=species, lineage=lineage, char_class=char_class,
-        background=background, description=desc, level=1,
+        name=name, race=race_en, lineage=lineage, char_class=class_en,
+        background=bg_en, description=desc, level=1,
         hp=hp, max_hp=hp,
         strength=stats["力量"], dexterity=stats["敏捷"],
         constitution=stats["体质"], intelligence=stats["智力"],
         wisdom=stats["感知"], charisma=stats["魅力"],
         skills=skills, saving_throws=saving_throws, feats=feats,
-        inventory=[],
-        gender=random.choice(["男", "女"]),
-        age=random.choice(["少年", "青年", "壮年", "中年"]),
-        gp=30,
+        gender=random.choice(["male", "female"]),
+        age=random.randint(18, 45),
     )
     _init_equipment(char)
     return char
@@ -193,37 +203,41 @@ def _quick_character() -> Character:
 def _detailed_character() -> Character:
     name = Prompt.ask("角色名称")
 
-    # 种族选择
+    from rules.srd_data import SKILL_BY_EN
+
     console.print("\n[bold]选择种族:[/bold]")
     for i, s in enumerate(RACES, 1):
         sp = find_species(s)
         info = f"  {i}. {s}（速度{sp.speed}尺，{'/'.join(sp.size_options)}）" if sp else f"  {i}. {s}"
         console.print(info)
-    race = _menu_choice(RACES, "种族")
-    lineage = _choose_lineage(race)
+    race_cn = _menu_choice(RACES, "种族")
+    sp = find_species(race_cn)
+    race_en = sp.name_en if sp else race_cn
+    lineage = _choose_lineage(race_cn)
 
-    # 背景选择（展示专长和技能）
     console.print("\n[bold]选择背景:[/bold]")
     for i, bg_name in enumerate(BACKGROUNDS, 1):
         bg = find_background(bg_name)
         if bg:
             console.print(f"  {i}. {bg_name}（专长: {bg.feat}，技能: {'/'.join(bg.skill_proficiencies)}）")
-    background = _menu_choice(BACKGROUNDS, "背景")
-    bg_data = find_background(background)
+    bg_cn = _menu_choice(BACKGROUNDS, "背景")
+    bg_data = find_background(bg_cn)
+    bg_en = bg_data.name_en if bg_data else bg_cn
 
-    # 职业选择
     console.print("\n[bold]选择职业:[/bold]")
     for i, cn in enumerate(CLASSES, 1):
         cd = find_class(cn)
         if cd:
             console.print(f"  {i}. {cn}（生命骰d{cd.hit_die}，豁免: {'/'.join(cd.saving_throws)}）")
-    char_class = _menu_choice(CLASSES, "职业")
-    cd = find_class(char_class)
+    class_cn = _menu_choice(CLASSES, "职业")
+    cd = find_class(class_cn)
+    class_en = cd.name_en if cd else class_cn
 
     console.print("\n[bold]选择性别:[/bold]")
     console.print("  1. 男")
     console.print("  2. 女")
-    gender = _menu_choice(["男", "女"], "性别")
+    gender_cn = _menu_choice(["男", "女"], "性别")
+    gender = "male" if gender_cn == "男" else "female"
 
     while True:
         try:
@@ -236,7 +250,6 @@ def _detailed_character() -> Character:
 
     desc = Prompt.ask("角色描述（外貌、性格等）")
 
-    # 属性分配（标准阵列: 15,14,13,12,10,8）
     console.print("\n[bold]分配属性点（标准阵列: 15,14,13,12,10,8）[/bold]")
     console.print("[grey50]将以下数值依次分配到各项属性中[/grey50]")
     stats = {"力量": 0, "敏捷": 0, "体质": 0, "智力": 0, "感知": 0, "魅力": 0}
@@ -254,34 +267,33 @@ def _detailed_character() -> Character:
             except ValueError:
                 pass
 
-    # 职业技能选择
-    base_skills = []
+    base_skills_cn = []
     if bg_data:
-        base_skills = list(bg_data.skill_proficiencies)
+        base_skills_cn = list(bg_data.skill_proficiencies)
     if cd:
         sk_opts = cd.skill_options
         if sk_opts == SKILLS:
             sk_opts = [s for s in SKILLS]
-        skills = _choose_skills(f"选择 {char_class} 的职业技能", sk_opts, cd.skill_choices, base_skills)
+        skills = _choose_skills(f"选择 {class_cn} 的职业技能", sk_opts, cd.skill_choices, base_skills_cn)
     else:
-        skills = base_skills
+        skills = [SKILL_BY_EN.get(s, s) for s in base_skills_cn]
 
-    hd = HIT_DICE.get(char_class, 10)
+    hd = HIT_DICE.get(class_cn, 10)
     con_mod = (stats["体质"] - 10) // 2
     hp = hd + con_mod
 
     feats = [bg_data.feat] if bg_data else []
-    saving_throws = list(cd.saving_throws) if cd else []
+    saving_throws_cn = list(cd.saving_throws) if cd else []
+    saving_throws = [SKILL_BY_EN.get(s, s) for s in saving_throws_cn]
 
     char = Character(
-        name=name, race=race, lineage=lineage, char_class=char_class,
-        background=background, gender=gender, age=age,
+        name=name, race=race_en, lineage=lineage, char_class=class_en,
+        background=bg_en, gender=gender, age=age,
         description=desc, level=1, hp=hp, max_hp=hp,
         skills=skills, saving_throws=saving_throws, feats=feats,
         strength=stats["力量"], dexterity=stats["敏捷"],
         constitution=stats["体质"], intelligence=stats["智力"],
         wisdom=stats["感知"], charisma=stats["魅力"],
-        inventory=[], gp=30,
     )
     _init_equipment(char)
     return char
@@ -299,33 +311,41 @@ def _menu_choice(options: list, label: str) -> str:
 
 
 def _init_equipment(char: Character):
-    from srd_data import find_armor
-    char.equipment["身体"] = "旅行者服装"
-    base_inv = ["背包", "水袋", "口粮x5"]
+    from resource.models import Inventory, Currency
+    from resource.item_db import item_db
+    inv = Inventory()
+
     cd = find_class(char.char_class)
     if cd:
         eq = cd.starting_equipment_a
-        armor_names = {"链甲", "皮甲", "镶钉皮甲", "链甲衫", "兽皮甲", "棉甲", "鳞甲", "胸甲", "半身板甲", "环甲", "板条甲", "全身板甲"}
-        weapon_names = {"巨剑", "长剑", "巨斧", "战斧", "链枷", "硬头锤", "短矛",
-                        "长矛", "刺叉", "战锤", "巨锤", "三叉戟", "镰刀", "木棍",
-                        "细剑", "弯刀", "短剑", "巨棒", "手斧", "长弓", "短弓"}
-        for item in eq:
-            if "金币" in item:
+        for entry in eq:
+            if "金币" in entry:
                 continue
-            if item in armor_names:
-                char.equipment["身体"] = item
-            elif "盾牌" in item:
-                char.equipment["副手"] = "盾牌"
-            elif item in weapon_names:
-                if not char.equipment["武器"]:
-                    char.equipment["武器"] = item
+            name = entry
+            item_def = item_db.find_by_name(name) or item_db.find_best(name)
+            if item_def:
+                if item_def.type.value == "armor":
+                    inv.equipped["body"] = item_def.guid
+                elif "盾" in name and item_db.find_by_name("盾牌"):
+                    shield = item_db.find_by_name("盾牌")
+                    inv.equipped["off_hand"] = shield.guid
+                elif item_def.type.value == "weapon" and not inv.equipped.get("weapon"):
+                    inv.equipped["weapon"] = item_def.guid
                 else:
-                    base_inv.append(item)
-            else:
-                base_inv.append(item)
-    else:
-        char.equipment["武器"] = "匕首"
-    char.inventory = base_inv
+                    inv.add_item(item_def.guid)
+
+    if not inv.equipped.get("body"):
+        travel = item_db.find_by_name("旅行者服装") or item_db.find_by_name("棉甲")
+        if travel:
+            inv.equipped["body"] = travel.guid
+
+    for gear_name in ["背包", "水袋"]:
+        d = item_db.find_by_name(gear_name)
+        if d:
+            inv.add_item(d.guid)
+
+    inv.currency = Currency(copper=3000)
+    char.inventory = inv
 
 
 # ---------- 主菜单 ----------

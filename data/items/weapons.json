@@ -1,0 +1,540 @@
+{
+  "weapon_dagger": {
+    "name": "匕首",
+    "type": "weapon",
+    "tags": [
+      "近战",
+      "简易",
+      "穿刺"
+    ],
+    "aliases": [
+      "小刀",
+      "短刃",
+      "dagger",
+      "knife"
+    ],
+    "description": "一把锋利的短匕首",
+    "value_cp": 200,
+    "damage_dice": "1d4",
+    "damage_type": "穿刺",
+    "weapon_category": "simple",
+    "weapon_range": "melee",
+    "properties": [
+      "灵巧",
+      "轻",
+      "投掷"
+    ],
+    "name_en": "Dagger"
+  },
+  "weapon_shortsword": {
+    "name": "短剑",
+    "type": "weapon",
+    "tags": [
+      "近战",
+      "军用",
+      "穿刺"
+    ],
+    "aliases": [
+      "短刃剑",
+      "shortsword",
+      "short sword"
+    ],
+    "description": "一柄锋利的短剑",
+    "value_cp": 1000,
+    "damage_dice": "1d6",
+    "damage_type": "穿刺",
+    "weapon_category": "martial",
+    "weapon_range": "melee",
+    "properties": [
+      "灵巧",
+      "轻"
+    ],
+    "name_en": "Shortsword"
+  },
+  "weapon_longsword": {
+    "name": "长剑",
+    "type": "weapon",
+    "tags": [
+      "近战",
+      "军用",
+      "挥砍"
+    ],
+    "aliases": [
+      "长刃",
+      "阔剑",
+      "longsword",
+      "long sword"
+    ],
+    "description": "一柄标准的长剑",
+    "value_cp": 1500,
+    "damage_dice": "1d8",
+    "damage_type": "挥砍",
+    "weapon_category": "martial",
+    "weapon_range": "melee",
+    "properties": [
+      "多用"
+    ],
+    "name_en": "Longsword"
+  },
+  "weapon_greatsword": {
+    "name": "巨剑",
+    "type": "weapon",
+    "tags": [
+      "近战",
+      "军用",
+      "挥砍"
+    ],
+    "aliases": [
+      "大剑",
+      "双手剑",
+      "greatsword",
+      "great sword",
+      "claymore"
+    ],
+    "description": "一把巨大的双手剑",
+    "value_cp": 5000,
+    "damage_dice": "2d6",
+    "damage_type": "挥砍",
+    "weapon_category": "martial",
+    "weapon_range": "melee",
+    "properties": [
+      "重型",
+      "双手"
+    ],
+    "name_en": "Greatsword"
+  },
+  "weapon_greataxe": {
+    "name": "巨斧",
+    "type": "weapon",
+    "tags": [
+      "近战",
+      "军用",
+      "挥砍"
+    ],
+    "aliases": [
+      "大斧",
+      "战斧",
+      "greataxe",
+      "great axe"
+    ],
+    "description": "一把沉重的巨斧",
+    "value_cp": 3000,
+    "damage_dice": "1d12",
+    "damage_type": "挥砍",
+    "weapon_category": "martial",
+    "weapon_range": "melee",
+    "properties": [
+      "重型",
+      "双手"
+    ],
+    "name_en": "Greataxe"
+  },
+  "weapon_battleaxe": {
+    "name": "战斧",
+    "type": "weapon",
+    "tags": [
+      "近战",
+      "军用",
+      "挥砍"
+    ],
+    "aliases": [
+      "battleaxe",
+      "battle axe"
+    ],
+    "description": "一柄可以单双手使用的战斧",
+    "value_cp": 1000,
+    "damage_dice": "1d8",
+    "damage_type": "挥砍",
+    "weapon_category": "martial",
+    "weapon_range": "melee",
+    "properties": [
+      "多用"
+    ],
+    "name_en": "Battleaxe"
+  },
+  "weapon_handaxe": {
+    "name": "手斧",
+    "type": "weapon",
+    "tags": [
+      "近战",
+      "简易",
+      "挥砍"
+    ],
+    "aliases": [
+      "handaxe",
+      "hand axe",
+      "小斧"
+    ],
+    "description": "一柄轻便的手斧",
+    "value_cp": 500,
+    "damage_dice": "1d6",
+    "damage_type": "挥砍",
+    "weapon_category": "simple",
+    "weapon_range": "melee",
+    "properties": [
+      "轻",
+      "投掷"
+    ],
+    "name_en": "Handaxe"
+  },
+  "weapon_mace": {
+    "name": "硬头锤",
+    "type": "weapon",
+    "tags": [
+      "近战",
+      "简易",
+      "钝击"
+    ],
+    "aliases": [
+      "钉头锤",
+      "锤",
+      "mace",
+      "club"
+    ],
+    "description": "一柄沉重的硬头锤",
+    "value_cp": 500,
+    "damage_dice": "1d6",
+    "damage_type": "钝击",
+    "weapon_category": "simple",
+    "weapon_range": "melee",
+    "properties": [],
+    "name_en": "Mace"
+  },
+  "weapon_quarterstaff": {
+    "name": "木棍",
+    "type": "weapon",
+    "tags": [
+      "近战",
+      "简易",
+      "钝击"
+    ],
+    "aliases": [
+      "长棍",
+      "法杖",
+      "quarterstaff",
+      "staff",
+      "stick"
+    ],
+    "description": "一根结实的木棍",
+    "value_cp": 20,
+    "damage_dice": "1d6",
+    "damage_type": "钝击",
+    "weapon_category": "simple",
+    "weapon_range": "melee",
+    "properties": [
+      "多用"
+    ],
+    "name_en": "Quarterstaff"
+  },
+  "weapon_rapier": {
+    "name": "细剑",
+    "type": "weapon",
+    "tags": [
+      "近战",
+      "军用",
+      "穿刺"
+    ],
+    "aliases": [
+      "刺剑",
+      "rapier"
+    ],
+    "description": "一柄优雅的细剑",
+    "value_cp": 2500,
+    "damage_dice": "1d8",
+    "damage_type": "穿刺",
+    "weapon_category": "martial",
+    "weapon_range": "melee",
+    "properties": [
+      "灵巧"
+    ],
+    "name_en": "Rapier"
+  },
+  "weapon_scimitar": {
+    "name": "弯刀",
+    "type": "weapon",
+    "tags": [
+      "近战",
+      "军用",
+      "挥砍"
+    ],
+    "aliases": [
+      "scimitar",
+      "sabre",
+      "军刀"
+    ],
+    "description": "一柄弯曲的轻刀",
+    "value_cp": 2500,
+    "damage_dice": "1d6",
+    "damage_type": "挥砍",
+    "weapon_category": "martial",
+    "weapon_range": "melee",
+    "properties": [
+      "灵巧",
+      "轻"
+    ],
+    "name_en": "Scimitar"
+  },
+  "weapon_spear": {
+    "name": "长矛",
+    "type": "weapon",
+    "tags": [
+      "近战",
+      "简易",
+      "穿刺"
+    ],
+    "aliases": [
+      "矛",
+      "spear",
+      "lance"
+    ],
+    "description": "一柄标准的长矛",
+    "value_cp": 100,
+    "damage_dice": "1d6",
+    "damage_type": "穿刺",
+    "weapon_category": "simple",
+    "weapon_range": "melee",
+    "properties": [
+      "投掷",
+      "多用"
+    ],
+    "name_en": "Spear"
+  },
+  "weapon_longbow": {
+    "name": "长弓",
+    "type": "weapon",
+    "tags": [
+      "远程",
+      "军用",
+      "穿刺"
+    ],
+    "aliases": [
+      "longbow",
+      "long bow",
+      "大弓"
+    ],
+    "description": "一把需要力量的长弓",
+    "value_cp": 5000,
+    "damage_dice": "1d8",
+    "damage_type": "穿刺",
+    "weapon_category": "martial",
+    "weapon_range": "ranged",
+    "properties": [
+      "弹药",
+      "重型",
+      "双手"
+    ],
+    "name_en": "Longbow"
+  },
+  "weapon_shortbow": {
+    "name": "短弓",
+    "type": "weapon",
+    "tags": [
+      "远程",
+      "简易",
+      "穿刺"
+    ],
+    "aliases": [
+      "shortbow",
+      "short bow"
+    ],
+    "description": "一把轻便的短弓",
+    "value_cp": 2500,
+    "damage_dice": "1d6",
+    "damage_type": "穿刺",
+    "weapon_category": "simple",
+    "weapon_range": "ranged",
+    "properties": [
+      "弹药",
+      "双手"
+    ],
+    "name_en": "Shortbow"
+  },
+  "weapon_light_crossbow": {
+    "name": "轻弩",
+    "type": "weapon",
+    "tags": [
+      "远程",
+      "简易",
+      "穿刺"
+    ],
+    "aliases": [
+      "轻型十字弩",
+      "轻十字弓",
+      "light crossbow",
+      "light cross bow"
+    ],
+    "description": "一把轻型的十字弩",
+    "value_cp": 2500,
+    "damage_dice": "1d8",
+    "damage_type": "穿刺",
+    "weapon_category": "simple",
+    "weapon_range": "ranged",
+    "properties": [
+      "弹药",
+      "装填",
+      "双手"
+    ],
+    "name_en": "Light Crossbow"
+  },
+  "weapon_sling": {
+    "name": "投石索",
+    "type": "weapon",
+    "tags": [
+      "远程",
+      "简易",
+      "钝击"
+    ],
+    "aliases": [
+      "sling",
+      "弹弓"
+    ],
+    "description": "一条简单的投石索",
+    "value_cp": 10,
+    "damage_dice": "1d4",
+    "damage_type": "钝击",
+    "weapon_category": "simple",
+    "weapon_range": "ranged",
+    "properties": [
+      "弹药"
+    ],
+    "name_en": "Sling"
+  },
+  "weapon_whip": {
+    "name": "鞭子",
+    "type": "weapon",
+    "tags": [
+      "近战",
+      "军用",
+      "挥砍"
+    ],
+    "aliases": [
+      "长鞭",
+      "whip"
+    ],
+    "description": "一条长皮鞭",
+    "value_cp": 200,
+    "damage_dice": "1d4",
+    "damage_type": "挥砍",
+    "weapon_category": "martial",
+    "weapon_range": "melee",
+    "properties": [
+      "灵巧",
+      "触及"
+    ],
+    "name_en": "Whip"
+  },
+  "weapon_trident": {
+    "name": "三叉戟",
+    "type": "weapon",
+    "tags": [
+      "近战",
+      "军用",
+      "穿刺"
+    ],
+    "aliases": [
+      "叉",
+      "trident"
+    ],
+    "description": "一柄三叉戟",
+    "value_cp": 500,
+    "damage_dice": "1d6",
+    "damage_type": "穿刺",
+    "weapon_category": "martial",
+    "weapon_range": "melee",
+    "properties": [
+      "投掷",
+      "多用"
+    ],
+    "name_en": "Trident"
+  },
+  "weapon_flail": {
+    "name": "链枷",
+    "type": "weapon",
+    "tags": [
+      "近战",
+      "军用",
+      "钝击"
+    ],
+    "aliases": [
+      "flail"
+    ],
+    "description": "一柄带链的钉头锤",
+    "value_cp": 1000,
+    "damage_dice": "1d8",
+    "damage_type": "钝击",
+    "weapon_category": "martial",
+    "weapon_range": "melee",
+    "properties": [],
+    "name_en": "Flail"
+  },
+  "weapon_warhammer": {
+    "name": "战锤",
+    "type": "weapon",
+    "tags": [
+      "近战",
+      "军用",
+      "钝击"
+    ],
+    "aliases": [
+      "warhammer",
+      "war hammer"
+    ],
+    "description": "一柄沉重的战锤",
+    "value_cp": 1500,
+    "damage_dice": "1d8",
+    "damage_type": "钝击",
+    "weapon_category": "martial",
+    "weapon_range": "melee",
+    "properties": [
+      "多用"
+    ],
+    "name_en": "Warhammer"
+  },
+  "weapon_greatclub": {
+    "name": "巨棒",
+    "type": "weapon",
+    "tags": [
+      "近战",
+      "简易",
+      "钝击"
+    ],
+    "aliases": [
+      "大棒",
+      "greatclub",
+      "great club"
+    ],
+    "description": "一根粗大的木棒",
+    "value_cp": 20,
+    "damage_dice": "1d8",
+    "damage_type": "钝击",
+    "weapon_category": "simple",
+    "weapon_range": "melee",
+    "properties": [
+      "双手"
+    ],
+    "name_en": "Greatclub"
+  },
+  "weapon_javelin": {
+    "name": "标枪",
+    "type": "weapon",
+    "tags": [
+      "近战",
+      "简易",
+      "穿刺"
+    ],
+    "aliases": [
+      "投枪",
+      "javelin"
+    ],
+    "description": "一柄轻巧的投掷标枪",
+    "value_cp": 50,
+    "damage_dice": "1d6",
+    "damage_type": "穿刺",
+    "weapon_category": "simple",
+    "weapon_range": "melee",
+    "properties": [
+      "投掷"
+    ],
+    "name_en": "Javelin"
+  }
+}
