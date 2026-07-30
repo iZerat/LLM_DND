@@ -620,6 +620,15 @@ def game_loop(gm: GameMaster):
             )
             if status_match and world_state:
                 status_text = status_match.group(1)
+                # ── 清理因 xN 格式产生的垃圾实体 ──
+                for pool_name in ("active", "nearby", "distant"):
+                    pool = getattr(world_state, pool_name, {})
+                    garbage_ids = [
+                        eid for eid, e in pool.items()
+                        if re.search(r'\s*x\d+\s*$', e.name)
+                    ]
+                    for eid in garbage_ids:
+                        world_state.remove(eid)
                 # Parse player HP
                 player_hp_m = re.search(r'HP:\s*(\d+)/(\d+)', status_text)
                 if player_hp_m:
@@ -641,14 +650,49 @@ def game_loop(gm: GameMaster):
                         ac = int(npc_m.group(3))
                         hp = int(npc_m.group(4))
                         max_hp = int(npc_m.group(5))
+
+                        # ── 展开 xN 为独立实例 ──
+                        x_m = re.search(r'\s*x(\d+)(?:\s|$)', name)
+                        if x_m:
+                            base = name[:x_m.start()].strip()
+                            count = int(x_m.group(1))
+                            # Remove garbage "base xN" entity if it exists
+                            garbage = world_state.get_by_name(name)
+                            if garbage:
+                                world_state.remove(garbage.id)
+                            for i in range(count):
+                                ind_name = f"{base}{i+1}"
+                                existing = world_state.get_by_name(ind_name)
+                                if existing:
+                                    if ind_name not in changed_npcs:
+                                        if existing.hp != hp:
+                                            diff = hp - existing.hp
+                                            change_messages.append(f"目标 {ind_name} HP {'+' if diff > 0 else ''}{diff}点")
+                                        existing.hp = hp
+                                        existing.max_hp = max_hp
+                                        existing.ac = ac
+                                    world_state.touch(existing.id)
+                                else:
+                                    from world.entity import NPC as _NPC2
+                                    attitude_map = {"敌对": "hostile", "中立": "neutral", "友方": "friendly"}
+                                    attitude = attitude_map.get(tag, "neutral")
+                                    new_npc = _NPC2(
+                                        id=f"npc_{abs(hash(ind_name)) % 1000000:x}",
+                                        name=ind_name, ac=ac, hp=hp, max_hp=max_hp,
+                                        attitude=attitude
+                                    )
+                                    world_state.add_active(new_npc)
+                            continue
+
                         existing = world_state.get_by_name(name)
                         if existing:
-                            if existing.hp != hp and name not in changed_npcs:
-                                diff = hp - existing.hp
-                                change_messages.append(f"目标 {name} HP {'+' if diff > 0 else ''}{diff}点")
-                            existing.hp = hp
-                            existing.max_hp = max_hp
-                            existing.ac = ac
+                            if name not in changed_npcs:
+                                if existing.hp != hp:
+                                    diff = hp - existing.hp
+                                    change_messages.append(f"目标 {name} HP {'+' if diff > 0 else ''}{diff}点")
+                                existing.hp = hp
+                                existing.max_hp = max_hp
+                                existing.ac = ac
                             world_state.touch(existing.id)
                         else:
                             from world.entity import NPC as _NPC
