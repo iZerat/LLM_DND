@@ -208,7 +208,7 @@ def parse_sections(text: str) -> dict:
 _round_counter = 0
 
 
-def render_dm_output(full_text: str, elapsed: float = 0):
+def render_dm_output(full_text: str, gm=None, elapsed: float = 0):
     global _round_counter
     _round_counter += 1
 
@@ -216,6 +216,16 @@ def render_dm_output(full_text: str, elapsed: float = 0):
     console.print(f"[grey50]━━━ 第{_round_counter}轮{timing} ━━━[/grey50]")
 
     sections = parse_sections(full_text)
+
+    # 保存选项映射（供上轮记录显示完整文本）
+    if gm and "选择" in sections:
+        mapping = {}
+        for line in sections["选择"].strip().split("\n"):
+            line = line.strip()
+            m = re.match(r"^(\d+)[.)]\s*(.+)", line)
+            if m:
+                mapping[m.group(1)] = line
+        gm.last_choices_map = mapping
 
     # 场景
     if "场景" in sections:
@@ -246,12 +256,25 @@ def render_dm_output(full_text: str, elapsed: float = 0):
         else:
             left = status_text
 
+        def style_target(t: str) -> tuple:
+            hostility_colors = {
+                "敌对": "indian_red",
+                "中立": "warm_grey",
+                "友方": "light_sea_green",
+            }
+            for tag, color in hostility_colors.items():
+                label = f"[{tag}]"
+                if label in t:
+                    return t.replace(label, "").strip(), color
+            return t, "grey58"
+
         if right:
+            right_text, right_color = style_target(right)
             left_p = Panel(left, title="[grey58]玩家[/grey58]", border_style="grey58", box=box.SQUARE)
-            right_p = Panel(right, title="[grey58]目标[/grey58]", border_style="grey58", box=box.SQUARE)
+            right_p = Panel(right_text, title=f"[{right_color}]目标[/{right_color}]", border_style=right_color, box=box.SQUARE)
             console.print(Columns([left_p, right_p]))
         else:
-            console.print(Panel(left, title="[grey58]状态[/grey58]", border_style="grey58", box=box.SQUARE))
+            console.print(Panel(left, title="[grey58]玩家[/grey58]", border_style="grey58", box=box.SQUARE))
 
     # 选择
     if "选择" in sections:
@@ -370,7 +393,7 @@ def game_loop(gm: GameMaster):
         if cmd == "/quit":
             console.print("冒险结束！")
             break
-        elif cmd == "/help":
+        elif cmd in ("/help", "/"):
             show_help()
             continue
         elif cmd == "/status":
@@ -414,11 +437,11 @@ def game_loop(gm: GameMaster):
 
         # 记录上轮选择
         if not cmd.startswith("/"):
-            last_choice_record = player_input.strip()
-
-        # 如果是纯数字，带上选择上下文给 AI
-        if player_input.strip().isdigit():
-            player_input = f"[选择选项{player_input.strip()}] {player_input.strip()}"
+            raw = player_input.strip()
+            if raw in gm.last_choices_map:
+                last_choice_record = gm.last_choices_map[raw]
+            else:
+                last_choice_record = raw
 
         # 显示上轮选择记录
         if last_choice_record:
@@ -428,6 +451,10 @@ def game_loop(gm: GameMaster):
                 border_style="grey54",
                 box=box.SQUARE,
             ))
+
+        # 如果是纯数字，带上选择上下文给 AI
+        if player_input.strip().isdigit():
+            player_input = f"[选择选项{player_input.strip()}] {player_input.strip()}"
 
         # 发送给 DM
         try:
@@ -449,7 +476,7 @@ def game_loop(gm: GameMaster):
             if "场景" in sections:
                 gm.last_scene = sections["场景"]
 
-            render_dm_output(full, _elapsed)
+            render_dm_output(full, gm, _elapsed)
 
         except KeyboardInterrupt:
             console.print("\n[grey50]中断[/grey50]")
@@ -462,6 +489,14 @@ def game_loop(gm: GameMaster):
 def main():
     Config.load()
     check_config()
+
+    console.print(Panel(
+        "[bold]大模型地下城[/bold]\n"
+        "一个由 AI 驱动的 D&D 5e 终端游戏",
+        title="[steel_blue]LLM DND[/steel_blue]",
+        border_style="steel_blue",
+        box=box.SQUARE,
+    ))
 
     SAVE_DIR.mkdir(parents=True, exist_ok=True)
     saves = list(SAVE_DIR.glob("*.json"))
@@ -490,7 +525,7 @@ def main():
         parts = []
         for chunk in gm.send_message_stream("DM，请开始我的冒险吧！"):
             parts.append(chunk)
-        render_dm_output("".join(parts))
+        render_dm_output("".join(parts), gm)
     except Exception as e:
         console.print(f"[indian_red]错误: {e}[/indian_red]")
 

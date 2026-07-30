@@ -13,15 +13,14 @@ SYSTEM_PROMPT = """你是龙与地下城（D&D）5e 的地下城主（DM），�
 每一轮都必须严格按照以下格式输出（使用方括号标注区块）：
 
 [场景]
-地点、时间、天气/温度、海拔、湿度等环境描述。简短有力。
+只描述环境本身：地点、时间、温度、天气。不要写人物行为或事件。1-2句话。
 
 [事件]
-描述当前发生了什么。如果是新一轮的第一条事件，需要承接上一轮玩家的选择结果。描述要有画面感，但保持精炼。
+描述当前发生了什么。承接上一轮玩家的选择结果。描述要有画面感，但保持精炼。3-5句话。
 
-[状态]
-左侧 | 右侧
-玩家: 名称 Lv.X 种族 职业, AC:X, HP:X/X | 目标: (如果有敌人/NPC则显示) 名称, AC:X, HP:X/X
-如果当前没有目标，右侧留空。
+[状态] 必须包含 | 分隔符
+正确示例: 玩家: 荷鲁斯 Lv.1 龙裔 邪术师, AC:13, HP:8/8 | [敌对]活化盔甲, AC:15, HP:12/12
+规则: 场景中有任何敌人/NPC就必须列在 | 右侧，并用[敌对][中立][友方]标注态度。无目标时 | 右侧留空。
 
 [选择]
 1. 选项一
@@ -58,7 +57,8 @@ SYSTEM_PROMPT = """你是龙与地下城（D&D）5e 的地下城主（DM），�
 1. 语言精炼，描述生动，拒绝长篇大论
 2. 每一轮都必须给出[选择]
 3. 用中文
-4. 保持冒险节奏紧凑"""
+4. 保持冒险节奏紧凑
+5. [状态]必须包含 | 分隔符，有敌人/NPC必须写在 | 右侧，这是硬性要求"""
 
 
 class GameMaster:
@@ -68,6 +68,7 @@ class GameMaster:
         self.history: list = []
         self._init_client()
         self.last_choices: list = []
+        self.last_choices_map: dict = {}
         self.last_scene: str = ""
 
     def _init_client(self):
@@ -81,7 +82,7 @@ class GameMaster:
         char_summary = self.character.summary()
         messages = [
             {"role": "system",
-             "content": SYSTEM_PROMPT + f"\n\n## 当前角色信息\n{char_summary}\n性别/年龄/金币只用于玩家查询，无需在故事中重复。\n在[场景]中提供地点、时间、天气、温度、海拔、湿度等细节。"},
+             "content": SYSTEM_PROMPT + f"\n\n## 当前角色信息\n{char_summary}\n注意：场景中如果存在敌人/NPC，[状态]的目标侧必须列出。不要省略。用[敌对][中立][友方]标注。"},
         ]
         for h in self.history:
             messages.append(h)
