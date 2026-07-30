@@ -39,7 +39,7 @@ def _setup_interactive():
     console.print("\n[steel_blue]首次运行：配置 API[/steel_blue]")
     console.print("输入你的 LLM API 信息（支持 OpenAI / DeepSeek / 任何兼容服务）\n")
 
-    base_url = Prompt.ask("API 地址（回车用默认 https://api.deepseek.com）")
+    base_url = Prompt.ask("API 地址")
     if not base_url:
         base_url = "https://api.deepseek.com"
 
@@ -63,17 +63,17 @@ def _setup_interactive():
 
 def _detect_model(base_url: str) -> str:
     url_lower = base_url.lower()
-    if "openai" in url_lower:
-        return "gpt-4o"
     if "deepseek" in url_lower:
         return "deepseek-chat"
+    if "openai" in url_lower:
+        return "gpt-4o"
     if "anthropic" in url_lower or "claude" in url_lower:
-        return "claude-sonnet-4-20250514"
+        return "claude"
     if "groq" in url_lower:
-        return "llama-3.3-70b-versatile"
+        return "llama"
     if "googleapis" in url_lower or "gemini" in url_lower:
-        return "gemini-2.0-flash"
-    return "deepseek-chat"
+        return "gemini"
+    return "other"
 
 
 def check_config():
