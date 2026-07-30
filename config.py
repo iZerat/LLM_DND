@@ -5,6 +5,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def reload_dotenv():
+    load_dotenv(override=True)
+
+
 class Config:
     API_BASE_URL: str = ""
     API_KEY: str = ""
@@ -13,6 +17,7 @@ class Config:
 
     @classmethod
     def load(cls):
+        reload_dotenv()
         cls.API_BASE_URL = os.getenv("API_BASE_URL", "").rstrip("/")
         cls.API_KEY = os.getenv("API_KEY", "")
         cls.MODEL_NAME = os.getenv("MODEL_NAME", "")

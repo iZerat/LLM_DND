@@ -41,14 +41,12 @@ def _setup_interactive():
 
     base_url = Prompt.ask("API 地址", default="https://api.deepseek.com")
     api_key = Prompt.ask("API 密钥")
-    model = Prompt.ask("模型名称", default="deepseek-v4-flash")
-    save_dir = Prompt.ask("存档目录", default="./saves")
+    model = Prompt.ask("模型名称（回车用默认）", default="deepseek-chat")
 
     lines = [
         f"API_BASE_URL={base_url}",
         f"API_KEY={api_key}",
         f"MODEL_NAME={model}",
-        f"SAVE_DIR={save_dir}",
     ]
     Path(".env").write_text("\n".join(lines) + "\n", encoding="utf-8")
     console.print("[grey50]已写入 .env，继续启动...[/grey50]")
