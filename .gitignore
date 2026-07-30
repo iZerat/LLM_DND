@@ -1,3 +1,5 @@
 /design
 .env
 saves/
+/logs
+/__pycache__

@@ -15,12 +15,16 @@ SYSTEM_PROMPT = """你是龙与地下城（D&D）5e 的地下城主（DM），�
 [场景]
 只描述环境本身：地点、时间、温度、天气。不要写人物行为或事件。1-2句话。
 
+[场景细节]
+额外列出海拔、湿度、光照、风速等物理环境参数，供 /scene 命令使用。如果没有则不写。
+
 [事件]
 描述当前发生了什么。承接上一轮玩家的选择结果。描述要有画面感，但保持精炼。3-5句话。
 
-[状态] 必须包含 | 分隔符
-正确示例: 玩家: 荷鲁斯 Lv.1 龙裔 邪术师, AC:13, HP:8/8 | [敌对]活化盔甲, AC:15, HP:12/12
-规则: 场景中有任何敌人/NPC就必须列在 | 右侧，并用[敌对][中立][友方]标注态度。无目标时 | 右侧留空。
+[状态] 严格按以下格式填表——每行一个字段，不要用 |
+玩家: 荷鲁斯 Lv.1 龙裔 邪术师, AC:13, HP:8/8
+目标: [敌对]活化盔甲, AC:15, HP:12/12   ← 无目标则写：目标: 无
+标签说明：[敌对]敌人 [中立]中立NPC [友方]友方NPC  —— 必须存在
 
 [选择]
 1. 选项一
@@ -34,6 +38,7 @@ SYSTEM_PROMPT = """你是龙与地下城（D&D）5e 的地下城主（DM），�
 ## 字数控制
 - 每轮总输出控制在200字以内
 - [场景] 1-2句话
+- [场景细节] 可选，3-5个参数
 - [事件] 3-5句话
 - [状态] 1行
 - [选择] 3个选项，每个一行
@@ -80,13 +85,14 @@ class GameMaster:
 
     def _build_messages(self, player_input: str) -> list:
         char_summary = self.character.summary()
+        format_rule = "\n\n[记住] [状态]必须包含'玩家:'和'目标:'两行。有敌人/NPC就写目标行并加[敌对][中立][友方]标签。无目标写'目标: 无'。"
         messages = [
             {"role": "system",
-             "content": SYSTEM_PROMPT + f"\n\n## 当前角色信息\n{char_summary}\n注意：场景中如果存在敌人/NPC，[状态]的目标侧必须列出。不要省略。用[敌对][中立][友方]标注。"},
+             "content": SYSTEM_PROMPT + f"\n\n## 当前角色信息\n{char_summary}" + format_rule},
         ]
         for h in self.history:
             messages.append(h)
-        messages.append({"role": "user", "content": player_input})
+        messages.append({"role": "user", "content": player_input + format_rule})
         return messages
 
     def _handle_dice_roll(self, player_input: str) -> Optional[str]:
@@ -150,6 +156,77 @@ class GameMaster:
 
         except Exception as e:
             yield f"API 请求失败: {e}"
+
+    def needs_repair(self, response_text: str) -> bool:
+        sections = {}
+        for name, content in re.findall(r"\[(场景|场景细节|事件|状态|选择|历史)\]\s*(.*?)(?=\[.*?\]|\Z)", response_text, re.DOTALL):
+            sections[name] = content.strip()
+        status_text = sections.get("状态", "")
+        event_text = sections.get("事件", "")
+        has_target = bool(re.search(r"目标\s*:", status_text))
+        has_enemy = any(w in event_text for w in ["攻击", "敌人", "敌对", "战斗", "拔刀", "挥剑", "敌对", "追", "冲突"])
+        return not has_target and has_enemy
+
+    def repair_status(self, response_text: str) -> str:
+        """反问DM补全目标信息，返回修复后的完整文本"""
+        follow_up = (
+            "你上一轮回复中[状态]缺少目标信息。请只输出补充后的[状态]区块。"
+        )
+        messages = [{"role": "user", "content": follow_up}]
+        try:
+            r = self.client.chat.completions.create(
+                model=Config.MODEL_NAME,
+                messages=messages,
+                stream=False,
+                temperature=0.3,
+                max_tokens=300,
+            )
+            repair = r.choices[0].message.content or ""
+            m = re.search(r"\[状态\].*?(?=\[|\Z)", repair, re.DOTALL)
+            if m:
+                new_status = m.group(0).strip()
+                response_text = re.sub(r"\[状态\].*?(?=\[|\Z)", new_status, response_text, count=1, flags=re.DOTALL)
+                self.history.append({"role": "assistant", "content": "\n（补全的目标信息）\n" + repair})
+        except:
+            pass
+        return response_text
+
+    def _repair_status(self, response_text: str) -> str:
+        """检查[状态]是否缺目标信息，缺则反问DM补全"""
+        sections = {}
+        pattern = r"\[(场景|场景细节|事件|状态|选择|历史)\]\s*(.*?)(?=\[.*?\]|\Z)"
+        for name, content in re.findall(pattern, response_text, re.DOTALL):
+            sections[name] = content.strip()
+
+        status_text = sections.get("状态", "")
+        event_text = sections.get("事件", "")
+
+        has_target_line = bool(re.search(r"目标\s*:", status_text))
+        has_enemy_keywords = any(w in event_text for w in ["攻击", "敌人", "敌对", "战斗", "拔刀", "挥剑", "射击", "敌对"])
+
+        if has_target_line or not has_enemy_keywords:
+            return response_text
+
+        follow_up = (
+            "你的[状态]区块缺少目标信息。请重新输出[状态]区块（只输出[状态]），"
+            "包含'玩家:'和'目标:'两行。如果当前场景确实没有敌人/NPC，目标行写'目标: 无'。"
+        )
+        messages = [{"role": "user", "content": follow_up}]
+        try:
+            r = self.client.chat.completions.create(
+                model=Config.MODEL_NAME,
+                messages=messages,
+                temperature=0.3,
+                max_tokens=300,
+            )
+            repair = r.choices[0].message.content or ""
+            m = re.search(r"\[状态\].*?(?=\[|\Z)", repair, re.DOTALL)
+            if m:
+                new_status = m.group(0).strip()
+                response_text = re.sub(r"\[状态\].*?(?=\[|\Z)", new_status, response_text, count=1, flags=re.DOTALL)
+        except:
+            pass
+        return response_text
 
     def to_dict(self) -> dict:
         return {

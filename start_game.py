@@ -30,6 +30,7 @@ theme = Theme({
 })
 console = Console(theme=theme)
 SAVE_DIR = Path("./saves")
+LOG_DIR = Path("./logs")
 
 
 # ---------- 配置检查 ----------
@@ -193,7 +194,7 @@ SECTION_ORDER = ["场景", "事件", "状态", "选择", "历史"]
 
 def parse_sections(text: str) -> dict:
     sections = {}
-    pattern = r"\[(场景|事件|状态|选择|历史)\]\s*(.*?)(?=\[.*?\]|\Z)"
+    pattern = r"\[(场景|场景细节|事件|状态|选择|历史)\]\s*(.*?)(?=\[.*?\]|\Z)"
     matches = re.findall(pattern, text, re.DOTALL)
     for name, content in matches:
         sections[name] = content.strip()
@@ -248,13 +249,14 @@ def render_dm_output(full_text: str, gm=None, elapsed: float = 0):
     # 状态
     if "状态" in sections:
         status_text = sections["状态"]
-        left = right = ""
-        if "|" in status_text:
-            parts = status_text.split("|", 1)
-            left = parts[0].strip()
-            right = parts[1].strip()
-        else:
-            left = status_text
+        left = ""
+        right = ""
+        player_match = re.search(r"玩家\s*:\s*(.+)", status_text)
+        target_match = re.search(r"目标\s*:\s*(.+)", status_text)
+        if player_match:
+            left = player_match.group(1).strip()
+        if target_match:
+            right = target_match.group(1).strip()
 
         def style_target(t: str) -> tuple:
             hostility_colors = {
@@ -268,7 +270,7 @@ def render_dm_output(full_text: str, gm=None, elapsed: float = 0):
                     return t.replace(label, "").strip(), color
             return t, "grey58"
 
-        if right:
+        if right and right != "无":
             right_text, right_color = style_target(right)
             left_p = Panel(left, title="[grey58]玩家[/grey58]", border_style="grey58", box=box.SQUARE)
             right_p = Panel(right_text, title=f"[{right_color}]目标[/{right_color}]", border_style=right_color, box=box.SQUARE)
@@ -323,6 +325,17 @@ def load_game(path: str) -> GameMaster:
         gm.last_scene = data["last_scene"]
     console.print(f"[grey50]已加载: {Path(path).stem}[/grey50]")
     return gm
+
+
+# ---------- 日志 ----------
+
+def log_dm_response(round_num: int, player_input: str, response_text: str):
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    import time as _time
+    ts = _time.strftime("%Y%m%d_%H%M%S")
+    path = LOG_DIR / f"round_{round_num:03d}_{ts}.txt"
+    content = f">>> 玩家: {player_input}\n\n{response_text}\n"
+    path.write_text(content, encoding="utf-8")
 
 
 # ---------- 帮助 ----------
@@ -468,12 +481,21 @@ def game_loop(gm: GameMaster):
 
             full = "".join(response_parts)
 
+            log_dm_response(_round_counter + 1, player_input, full)
+
             if not gm.history:
                 gm.set_history([])
 
+            # 检查[状态]是否缺目标信息，缺则反问DM
+            if gm.needs_repair(full):
+                full = gm.repair_status(full)
+                log_dm_response(_round_counter + 1, "（修复状态）", full)
+
             # 保存场景信息供 /scene 使用
             sections = parse_sections(full)
-            if "场景" in sections:
+            if "场景细节" in sections:
+                gm.last_scene = sections["场景细节"]
+            elif "场景" in sections:
                 gm.last_scene = sections["场景"]
 
             render_dm_output(full, gm, _elapsed)
@@ -498,6 +520,7 @@ def main():
         box=box.SQUARE,
     ))
 
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
     SAVE_DIR.mkdir(parents=True, exist_ok=True)
     saves = list(SAVE_DIR.glob("*.json"))
 
@@ -525,7 +548,9 @@ def main():
         parts = []
         for chunk in gm.send_message_stream("DM，请开始我的冒险吧！"):
             parts.append(chunk)
-        render_dm_output("".join(parts), gm)
+        initial_text = "".join(parts)
+        log_dm_response(0, "（游戏开始）", initial_text)
+        render_dm_output(initial_text, gm)
     except Exception as e:
         console.print(f"[indian_red]错误: {e}[/indian_red]")
 
