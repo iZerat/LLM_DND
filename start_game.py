@@ -20,8 +20,8 @@ from rich import box
 from rich import print as rprint
 
 from config import Config
-from character import Character, RACES, CLASSES, BACKGROUNDS, ARMOR_BY_CLASS, Combatant
-from game_master import GameMaster
+from character import Character, RACES, CLASSES, BACKGROUNDS, ARMOR_BY_CLASS, Combatant, modifier
+from game_master import GameMaster, ABILITY_CN_TO_EN, parse_check_from_text
 
 theme = Theme({
     "prompt": "grey82",
@@ -346,7 +346,14 @@ def render_dm_output(full_text: str, gm=None, elapsed: float = 0):
         for line in lines:
             line = line.strip()
             if re.match(r"^\d+[.)]", line):
-                choice_text += f"[#F9F1A5]{line}[/#F9F1A5]\n"
+                # 去掉"无需检定"类括号标记
+                line = re.sub(r'[（(]\s*无需[^）)]*[）)]', '', line).strip()
+                line_colored = re.sub(
+                    r'([（(][^）)]*(?:力量|敏捷|体质|智力|感知|魅力)[^）)]*\d+[^）)]*[）)])',
+                    r'[#5DCCCC]\1[/#5DCCCC]',
+                    line,
+                )
+                choice_text += f"[#F9F1A5]{line_colored}[/#F9F1A5]\n"
             elif line:
                 choice_text += f"{line}\n"
         if choice_text:
@@ -408,6 +415,7 @@ def show_help():
     console.print(f"  [grey82]数字[/grey82]    选择[选择]中的选项")
     console.print(f"  [grey82]文字[/grey82]    自由行动")
     console.print(f"  [grey82]/roll 表达式[/grey82]  投骰子，例：/roll d20+5、/roll 2d8+3")
+    console.print(f"  [grey82]/roll 属性[/grey82]    属性检定，例：/roll 力量、/roll 敏捷 DC 15")
     console.print(f"  [grey82]/status[/grey82]  角色状态")
     console.print(f"  [grey82]/info[/grey82]    详细角色信息")
     console.print(f"  [grey82]/scene[/grey82]   详细场景信息")
@@ -442,10 +450,54 @@ def show_info(char: Character):
         f"感知: {char.wisdom}{mod_str(char.wisdom)}  "
         f"魅力: {char.charisma}{mod_str(char.charisma)}\n"
         f"物品: {', '.join(char.inventory) if char.inventory else '无'}",
-        title="[steel_blue]角色信息[/steel_blue]",
-        border_style="steel_blue",
+        title="[grey58]角色信息[/grey58]",
+        border_style="grey58",
         box=box.SQUARE,
     ))
+
+
+# ---------- 投骰与检定 ----------
+
+import random as dice_random
+
+
+def _interactive_check(char: Character, ability_cn: str, ability_key: str, dc: int) -> tuple[int, int, int, bool]:
+    ability_mod = modifier(getattr(char, ability_key))
+
+    console.print()
+    console.print(f"[yellow]{ability_cn}检定[/yellow] DC [bold]{dc}[/bold] | 调整值: {ability_mod:+d}")
+
+    roll = dice_random.randint(1, 20)
+    total = roll + ability_mod
+    success = total >= dc
+    result_word = "成功" if success else "失败"
+    result_color = "green" if success else "red"
+
+    console.print(f"[grey50]d20({roll}) + ({ability_mod:+d}) = {total}[/grey50]")
+    console.print(f"[bold {result_color}]{result_word}[/bold {result_color}]")
+    console.print()
+
+    return roll, ability_mod, total, success
+
+
+def _roll_expression(expr: str) -> tuple[int, str]:
+    def roll_dice(m):
+        count = int(m.group(1)) if m.group(1) else 1
+        sides = int(m.group(2))
+        mod = int(m.group(3)) if m.group(3) else 0
+        if count < 1:
+            count = 1
+        results = [dice_random.randint(1, sides) for _ in range(count)]
+        total = sum(results) + mod
+        return str(total)
+
+    expr_parsed = re.sub(r"(\d+)?d(\d+)(?:\s*\+\s*(\d+))?", roll_dice, expr)
+    try:
+        total = eval(expr_parsed)
+    except:
+        return 0, f"[grey50]无效骰子表达式: {expr}[/grey50]"
+
+    return total, f"[grey50]{expr} = {total}[/grey50]"
 
 
 # ---------- 游戏循环 ----------
@@ -483,8 +535,8 @@ def game_loop(gm: GameMaster):
                 scene_text = _filter_scene_fields(gm.last_scene, basic_only=False)
                 console.print(Panel(
                     scene_text,
-                    title="[steel_blue]完整场景信息[/steel_blue]",
-                    border_style="steel_blue",
+                    title="[grey58]完整场景信息[/grey58]",
+                    border_style="grey58",
                     box=box.SQUARE,
                 ))
             else:
@@ -512,10 +564,31 @@ def game_loop(gm: GameMaster):
                 return "new_game"
             continue
         elif cmd.startswith("/roll"):
-            # 直接放行，交给 send_message_stream
-            pass
+            rest = player_input[5:].strip()
+            if not rest:
+                rest = "d20"
+
+            dc_match = re.match(r"(\S+)\s+DC\s+(\d+)", rest) if not rest.startswith("d") else None
+            if dc_match and dc_match.group(1) in ABILITY_CN_TO_EN:
+                ability_cn = dc_match.group(1)
+                ability_key = ABILITY_CN_TO_EN[ability_cn]
+                dc = int(dc_match.group(2))
+                r, m, t, success = _interactive_check(gm.character, ability_cn, ability_key, dc)
+                rw = "成功" if success else "失败"
+                player_input = f"[检定] {ability_cn} DC {dc}: d20({r})+({m:+d})={t} {rw}"
+            elif rest in ABILITY_CN_TO_EN:
+                ability_key = ABILITY_CN_TO_EN[rest]
+                ability_mod = modifier(getattr(gm.character, ability_key))
+                roll = dice_random.randint(1, 20)
+                total = roll + ability_mod
+                console.print(f"\n[grey50]d20({roll}) + ({ability_mod:+d}) = {total}[/grey50]")
+                player_input = f"[检定] {rest}: d20({roll})+({ability_mod:+d})={total}"
+            else:
+                total, display = _roll_expression(rest)
+                console.print(f"\n{display}")
+                player_input = f"[投骰] {rest} = {total}"
         elif cmd.startswith("/"):
-            console.print("[grey50]未知命令，输入 /help 查看可用命令[/grey50]")
+            console.print("[grey50]无效命令，输入 /help 查看可用命令[/grey50]")
             continue
 
         # 记录上轮选择
@@ -530,7 +603,16 @@ def game_loop(gm: GameMaster):
 
         # 显示上轮选择记录
         if last_choice_record:
-            record_text = f"[#F9F1A5]{last_choice_record}[/#F9F1A5]" if last_was_option else last_choice_record
+            record_display = last_choice_record
+            if last_was_option:
+                record_display = re.sub(
+                    r'([（(][^）)]*(?:力量|敏捷|体质|智力|感知|魅力)[^）)]*\d+[^）)]*[）)])',
+                    r'[#5DCCCC]\1[/#5DCCCC]',
+                    record_display,
+                )
+                record_text = f"[#F9F1A5]{record_display}[/#F9F1A5]"
+            else:
+                record_text = record_display
             console.print(Panel(
                 record_text,
                 title="[#9b87c4]上轮记录[/#9b87c4]",
@@ -540,7 +622,16 @@ def game_loop(gm: GameMaster):
 
         # 如果是纯数字，带上选择上下文给 AI
         if player_input.strip().isdigit():
-            player_input = f"[选择选项{player_input.strip()}] {player_input.strip()}"
+            selected_num = player_input.strip()
+            option_text = gm.last_choices_map.get(selected_num, "")
+            check_info = parse_check_from_text(option_text) if option_text else None
+            if check_info:
+                ability_cn, ability_key, dc = check_info
+                r, m, t, success = _interactive_check(gm.character, ability_cn, ability_key, dc)
+                rw = "成功" if success else "失败"
+                player_input = f"[选择选项{selected_num}] {option_text} | [检定] d20({r})+({m:+d})={t} {rw}"
+            else:
+                player_input = f"[选择选项{selected_num}] {option_text or selected_num}"
 
         # 发送给 DM
         try:

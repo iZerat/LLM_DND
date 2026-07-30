@@ -62,10 +62,44 @@ SYSTEM_PROMPT = """你是龙与地下城（D&D）5e 的地下城主（DM），�
 
 ## 要求
 1. 语言精炼，描述生动，拒绝长篇大论
-2. 每一轮都必须给出[选择]
+2. 每一轮都必须给出[场景]、[事件]、[状态]、[选择]四个区块，缺一不可
 3. 用中文
 4. 保持冒险节奏紧凑
-5. [状态]必须包含'玩家:'和'目标:'两行，这是硬性要求"""
+5. [状态]必须包含'玩家:'和'目标:'两行，这是硬性要求
+
+## 检定标记（重要）
+当你为玩家提供需要掷骰的行动选项时，在选项末尾用中文括号加上检定信息，格式为：
+1. 行动描述（属性 DC 数字）
+例如：1. 悄悄溜进船舱（敏捷 DC 12）
+2. 威吓守卫（魅力 DC 15）
+
+如果某个选项无需检定（纯对话、已知道路等），不要在选项末尾加括号。
+格式必须带DC关键字和数字。系统会自动检测并触发交互式投骰界面。
+
+支持的属性：力量、敏捷、体质、智力、感知、魅力"""
+
+
+ABILITY_CN_TO_EN = {
+    "力量": "strength",
+    "敏捷": "dexterity",
+    "体质": "constitution",
+    "智力": "intelligence",
+    "感知": "wisdom",
+    "魅力": "charisma",
+}
+
+
+def parse_check_from_text(text: str) -> tuple | None:
+    """Detect (属性 检定/DC 数字) in text. Returns (ability_cn, ability_en, dc) or None."""
+    # 跳过"无需检定"类标记
+    if re.search(r'[（(]\s*无需', text):
+        return None
+    m = re.search(r'[（(]\s*(\S+?)\s*(?:检定)?\s*(?:DC)?\s*(\d+).*?[）)]', text)
+    if m:
+        ability_cn = m.group(1)
+        if ability_cn in ABILITY_CN_TO_EN:
+            return (ability_cn, ABILITY_CN_TO_EN[ability_cn], int(m.group(2)))
+    return None
 
 
 OPENING_TEMPLATES = {
@@ -148,14 +182,6 @@ class GameMaster:
         return f"[投骰] {expr} = **{result}**"
 
     def send_message_stream(self, player_input: str):
-        if player_input.startswith("/roll"):
-            roll_result = self._handle_dice_roll(player_input)
-            if roll_result:
-                self.history.append({"role": "user",
-                                    "content": f"[投骰] {player_input} -> {roll_result}"})
-                yield roll_result
-                return
-
         messages = self._build_messages(player_input)
 
         if not self.client:
