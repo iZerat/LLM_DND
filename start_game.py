@@ -215,6 +215,8 @@ def _give_starter_items(char: Character):
 
 SECTION_ORDER = ["场景", "事件", "状态", "选择", "历史"]
 
+SCENE_BASIC_FIELDS = {"地点", "时间", "温度"}
+
 
 def parse_sections(text: str) -> dict:
     sections = {}
@@ -223,11 +225,35 @@ def parse_sections(text: str) -> dict:
     for name, content in matches:
         sections[name] = content.strip()
 
-    # 如果没有任何匹配但文本不为空，全当成事件显示
+    # 兼容旧格式：合并[场景细节]到[场景]
+    if "场景细节" in sections:
+        if "场景" in sections:
+            sections["场景"] += "\n" + sections["场景细节"]
+        else:
+            sections["场景"] = sections["场景细节"]
+        del sections["场景细节"]
+
     if not sections and text.strip():
         sections["事件"] = text.strip()
 
     return sections
+
+
+def _filter_scene_fields(text: str, basic_only: bool = True) -> str:
+    lines = []
+    for line in text.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        if basic_only:
+            key = line.split("：")[0].split(":")[0].strip()
+            if key in SCENE_BASIC_FIELDS:
+                lines.append(line)
+        else:
+            lines.append(line)
+    if basic_only:
+        return "    ".join(lines)
+    return "\n".join(lines)
 
 
 _round_counter = 0
@@ -238,7 +264,7 @@ def render_dm_output(full_text: str, gm=None, elapsed: float = 0):
     _round_counter += 1
 
     timing = f" [{elapsed:.1f}s]" if elapsed else ""
-    console.print(f"[grey50]━━━ 第{_round_counter}轮{timing} ━━━[/grey50]")
+    console.rule(f"[grey50]第{_round_counter}轮{timing}[/grey50]", style="grey50")
 
     sections = parse_sections(full_text)
 
@@ -254,10 +280,11 @@ def render_dm_output(full_text: str, gm=None, elapsed: float = 0):
 
     # 场景
     if "场景" in sections:
+        scene_text = _filter_scene_fields(sections["场景"], basic_only=True)
         console.print(Panel(
-            sections["场景"],
-            title="[dark_cyan]场景[/dark_cyan]",
-            border_style="dark_cyan",
+            scene_text,
+            title="[steel_blue]场景[/steel_blue]",
+            border_style="steel_blue",
             box=box.SQUARE,
         ))
 
@@ -265,8 +292,8 @@ def render_dm_output(full_text: str, gm=None, elapsed: float = 0):
     if "事件" in sections:
         console.print(Panel(
             Markdown(sections["事件"]),
-            title="[steel_blue]事件[/steel_blue]",
-            border_style="steel_blue",
+            title="[#cc6b3e]事件[/#cc6b3e]",
+            border_style="#cc6b3e",
             box=box.SQUARE,
         ))
 
@@ -275,12 +302,15 @@ def render_dm_output(full_text: str, gm=None, elapsed: float = 0):
         status_text = sections["状态"]
         left = ""
         right = ""
+        extras = []
         player_match = re.search(r"玩家\s*:\s*(.+)", status_text)
         target_match = re.search(r"目标\s*:\s*(.+)", status_text)
+        other_matches = re.findall(r"其他\s*:\s*(.+)", status_text)
         if player_match:
             left = player_match.group(1).strip()
         if target_match:
             right = target_match.group(1).strip()
+        extras = [m.strip() for m in other_matches if m.strip() and m.strip() != "无"]
 
         def style_target(t: str) -> tuple:
             hostility_colors = {
@@ -295,25 +325,30 @@ def render_dm_output(full_text: str, gm=None, elapsed: float = 0):
             return t, "grey58"
 
         if right and right != "无":
-            right_text, right_color = style_target(right)
-            left_p = Panel(left, title="[grey58]玩家[/grey58]", border_style="grey58", box=box.SQUARE)
-            right_p = Panel(right_text, title=f"[{right_color}]目标[/{right_color}]", border_style=right_color, box=box.SQUARE)
-            console.print(Columns([left_p, right_p]))
+            main_text, main_color = style_target(right)
+            panels = [
+                Panel(left, title="[grey58]玩家[/grey58]", border_style="grey58", box=box.SQUARE),
+                Panel(main_text, title=f"[{main_color}]目标[/{main_color}]", border_style=main_color, box=box.SQUARE),
+            ]
+            for extra in extras:
+                extra_text, extra_color = style_target(extra)
+                panels.append(Panel(extra_text, title=f"[{extra_color}]其他[/{extra_color}]", border_style=extra_color, box=box.SQUARE))
+            console.print(Columns(panels, equal=False, expand=False))
         else:
             console.print(Panel(left, title="[grey58]玩家[/grey58]", border_style="grey58", box=box.SQUARE))
 
-    # 选择
+    # 行动
     if "选择" in sections:
         lines = sections["选择"].strip().split("\n")
         choice_text = ""
         for line in lines:
             line = line.strip()
             if re.match(r"^\d+[.)]", line):
-                choice_text += f"[dark_sea_green]{line}[/dark_sea_green]\n"
+                choice_text += f"{line}\n"
             elif line:
                 choice_text += f"{line}\n"
         if choice_text:
-            console.print(Panel(choice_text.strip(), title="[dark_sea_green]选择[/dark_sea_green]", border_style="dark_sea_green", box=box.SQUARE))
+            console.print(Panel(choice_text.strip(), title="[dark_sea_green]行动[/dark_sea_green]", border_style="dark_sea_green", box=box.SQUARE))
 
     # 历史 - 由 game_loop 处理，不在 DM 输出中显示
 
@@ -442,11 +477,11 @@ def game_loop(gm: GameMaster):
             show_info(gm.character)
             continue
         elif cmd == "/scene":
-            scene_text = gm.last_scene_detail or gm.last_scene
-            if scene_text:
+            if gm.last_scene:
+                scene_text = _filter_scene_fields(gm.last_scene, basic_only=False)
                 console.print(Panel(
                     scene_text,
-                    title="[steel_blue]详细场景信息[/steel_blue]",
+                    title="[steel_blue]完整场景信息[/steel_blue]",
                     border_style="steel_blue",
                     box=box.SQUARE,
                 ))
@@ -487,8 +522,8 @@ def game_loop(gm: GameMaster):
         if last_choice_record:
             console.print(Panel(
                 last_choice_record,
-                title="[grey54]上轮记录[/grey54]",
-                border_style="grey54",
+                title="[#9b87c4]上轮记录[/#9b87c4]",
+                border_style="#9b87c4",
                 box=box.SQUARE,
             ))
 
@@ -520,8 +555,6 @@ def game_loop(gm: GameMaster):
 
             # 保存场景信息供 /scene 使用
             sections = parse_sections(full)
-            if "场景细节" in sections:
-                gm.last_scene_detail = sections["场景细节"]
             if "场景" in sections:
                 gm.last_scene = sections["场景"]
 
