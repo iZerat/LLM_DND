@@ -33,6 +33,29 @@ SAVE_DIR = Path("./saves")
 LOG_DIR = Path("./logs")
 
 
+# ---------- API 连接测试 ----------
+
+def _test_api_connection(model: str) -> bool:
+    try:
+        from openai import OpenAI
+        client = OpenAI(
+            base_url=Config.API_BASE_URL,
+            api_key=Config.API_KEY,
+            timeout=10,
+        )
+        console.print("[grey50]测试 API 连接...[/grey50]")
+        client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": "ping"}],
+            max_tokens=1,
+        )
+        console.print("[green]API 连接成功[/green]")
+        return True
+    except Exception as e:
+        console.print(f"[grey50]连接失败: {e}[/grey50]")
+        return False
+
+
 # ---------- 配置检查 ----------
 
 def _setup_interactive():
@@ -59,8 +82,15 @@ def _setup_interactive():
         f"MODEL_NAME={model}",
     ]
     Path(".env").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    console.print(f"[grey50]已写入 .env（模型: {model}），继续启动...[/grey50]")
     Config.load()
+
+    if not _test_api_connection(model):
+        console.print("[indian_red]API 连接测试失败[/indian_red]")
+        if Prompt.ask(escape("重试配置？[y/n]"), default="y") in ("y", "yes", ""):
+            _setup_interactive()
+        else:
+            console.print("[grey50]可稍后通过菜单重新配置 API[/grey50]")
+        return
 
 
 def _detect_model(base_url: str) -> str:
