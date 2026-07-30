@@ -1,40 +1,16 @@
 from dataclasses import dataclass, field, asdict
 import yaml
 from pathlib import Path
+from srd_data import (
+    SPECIES_LIST, CLASS_LIST, BACKGROUND_LIST, SKILLS,
+    WEAPON_BY_NAME, calc_ac, find_species, find_class, find_background,
+)
 
+RACES = [s.name for s in SPECIES_LIST]
+CLASSES = [c.name for c in CLASS_LIST]
+BACKGROUNDS = [b.name for b in BACKGROUND_LIST]
 
-RACES = ["人类", "精灵", "矮人", "半身人", "龙裔", "半精灵", "半兽人", "侏儒", "提夫林"]
-CLASSES = ["战士", "法师", "游侠", "盗贼", "牧师", "圣骑士", "德鲁伊", "术士", "吟游诗人", "武僧", "野蛮人", "邪术师"]
-BACKGROUNDS = ["贵族", "流浪儿", "学者", "士兵", "罪犯", "艺人", "水手", "隐士", "商贩", "工匠"]
-
-HIT_DICE = {
-    "战士": 12, "圣骑士": 12, "野蛮人": 12,
-    "游侠": 10, "德鲁伊": 10,
-    "武僧": 8, "盗贼": 8, "邪术师": 8, "吟游诗人": 8, "术士": 8, "牧师": 8,
-    "法师": 6,
-}
-
-ARMOR_BY_CLASS = {
-    "战士": 18, "圣骑士": 18, "野蛮人": 14,
-    "游侠": 15, "德鲁伊": 14,
-    "武僧": 14, "盗贼": 14, "邪术师": 13, "吟游诗人": 13, "术士": 12, "牧师": 16,
-    "法师": 12,
-}
-
-CLASS_DEFAULT_SKILLS = {
-    "战士": ["运动", "察觉"],
-    "法师": ["调查", "魔法"],
-    "游侠": ["察觉", "生存"],
-    "盗贼": ["隐匿", "巧手"],
-    "牧师": ["洞察", "医药"],
-    "圣骑士": ["游说", "宗教"],
-    "德鲁伊": ["自然", "驯兽"],
-    "术士": ["欺瞒", "游说"],
-    "吟游诗人": ["表演", "游说"],
-    "武僧": ["特技", "察觉"],
-    "野蛮人": ["运动", "生存"],
-    "邪术师": ["欺瞒", "调查"],
-}
+HIT_DICE = {c.name: c.hit_die for c in CLASS_LIST}
 
 EQUIPMENT_SLOTS = ["武器", "副手", "头部", "身体", "背部", "项链", "戒指1", "戒指2"]
 
@@ -67,6 +43,7 @@ class Combatant:
 class Character:
     name: str = ""
     race: str = ""
+    lineage: str = ""
     char_class: str = ""
     background: str = ""
     level: int = 1
@@ -80,6 +57,8 @@ class Character:
     charisma: int = 10
     inventory: list = field(default_factory=list)
     skills: list = field(default_factory=list)
+    saving_throws: list = field(default_factory=list)
+    feats: list = field(default_factory=list)
     description: str = ""
     gender: str = "未知"
     age: str = "成年"
@@ -103,23 +82,35 @@ class Character:
     })
 
     @property
+    def dex_mod(self) -> int:
+        return modifier(self.dexterity)
+
+    @property
     def ac(self) -> int:
-        if self.char_class in ARMOR_BY_CLASS:
-            return ARMOR_BY_CLASS[self.char_class]
-        return 10 + modifier(self.dexterity)
+        body_armor = self.equipment.get("身体", "")
+        has_shield = bool(self.equipment.get("副手", "") and "盾" in self.equipment["副手"])
+        if body_armor:
+            return calc_ac(self.dex_mod, body_armor, has_shield)
+        return 10 + self.dex_mod + (2 if has_shield else 0)
 
     @property
     def prof_bonus(self) -> int:
         return proficiency_bonus(self.level)
 
+    def species_trait_lines(self) -> list[str]:
+        sp = find_species(self.race)
+        if not sp:
+            return []
+        return sp.trait_lines(self.lineage if self.lineage else None)
+
     def stats_block(self) -> str:
         return (
-            f"STR:{self.strength}{mod_str(self.strength)}  "
-            f"DEX:{self.dexterity}{mod_str(self.dexterity)}  "
-            f"CON:{self.constitution}{mod_str(self.constitution)}\n"
-            f"INT:{self.intelligence}{mod_str(self.intelligence)}  "
-            f"WIS:{self.wisdom}{mod_str(self.wisdom)}  "
-            f"CHA:{self.charisma}{mod_str(self.charisma)}"
+            f"力量:{self.strength}{mod_str(self.strength)}  "
+            f"敏捷:{self.dexterity}{mod_str(self.dexterity)}  "
+            f"体质:{self.constitution}{mod_str(self.constitution)}\n"
+            f"智力:{self.intelligence}{mod_str(self.intelligence)}  "
+            f"感知:{self.wisdom}{mod_str(self.wisdom)}  "
+            f"魅力:{self.charisma}{mod_str(self.charisma)}"
         )
 
     def player_status(self) -> str:
@@ -136,11 +127,17 @@ class Character:
         return " | ".join(worn) if worn else "无装备"
 
     def summary(self) -> str:
+        lineage_str = f"（{self.lineage}）" if self.lineage else ""
+        traits = "；".join(self.species_trait_lines())
+        save_str = "、".join(self.saving_throws) if self.saving_throws else "无"
+        feat_str = "、".join(self.feats) if self.feats else "无"
         return (
-            f"【{self.name}】Lv.{self.level} {self.race} {self.char_class}\n"
+            f"【{self.name}】Lv.{self.level} {self.race}{lineage_str} {self.char_class}\n"
             f"背景: {self.background}  HP: {self.hp}/{self.max_hp}  AC: {self.ac}\n"
             f"力量:{self.strength} 敏捷:{self.dexterity} 体质:{self.constitution}\n"
             f"智力:{self.intelligence} 感知:{self.wisdom} 魅力:{self.charisma}\n"
+            f"熟练豁免: {save_str}  专长: {feat_str}\n"
+            f"种族特性: {traits}\n"
             f"装备: {self.equip_summary()}\n"
             f"背包: {', '.join(self.inventory) if self.inventory else '空'}\n"
             f"金币: {self.currency_str()}\n"

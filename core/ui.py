@@ -204,12 +204,12 @@ def show_info(char: Character):
         f"种族: {char.race}  职业: {char.char_class}  背景: {char.background}\n"
         f"等级: {char.level}  HP: {char.hp}/{char.max_hp}  AC: {char.ac}\n"
         f"熟练加值: {char.prof_bonus:+d}  金币: {char.currency_str()}\n"
-        f"力量: {char.strength}{mod_str(char.strength)}  "
-        f"敏捷: {char.dexterity}{mod_str(char.dexterity)}  "
-        f"体质: {char.constitution}{mod_str(char.constitution)}\n"
-        f"智力: {char.intelligence}{mod_str(char.intelligence)}  "
-        f"感知: {char.wisdom}{mod_str(char.wisdom)}  "
-        f"魅力: {char.charisma}{mod_str(char.charisma)}",
+        f"力量: {char.strength} ({mod_str(char.strength)})  "
+        f"敏捷: {char.dexterity} ({mod_str(char.dexterity)})  "
+        f"体质: {char.constitution} ({mod_str(char.constitution)})\n"
+        f"智力: {char.intelligence} ({mod_str(char.intelligence)})  "
+        f"感知: {char.wisdom} ({mod_str(char.wisdom)})  "
+        f"魅力: {char.charisma} ({mod_str(char.charisma)})",
         title="[grey58]角色信息[/grey58]",
         border_style="grey58",
         box=box.SQUARE,

@@ -90,10 +90,13 @@ SYSTEM_PROMPT_TEMPLATE = """你是基于 D&D 5e 规则的地城主（GM），你
 
 CORE_RULES = """- 属性调整值 = (属性值-10)//2
 - 熟练加值: 1级+2
-- 检定: d20 + 属性调整值 + (熟练加值 if 熟练)
-- 攻击: d20 + 属性调整值 + 熟练加值 vs AC
+- 检定: d20 + 属性调整值 + (熟练加值 if 熟练) vs DC
+- 攻击: d20 + 力量调整值(近战) or 敏捷调整值(远程) + 熟练加值 vs AC
 - 优势: 2d20取高; 劣势: 2d20取低
-- DC: 5极简 10简单 15中等 20困难 25极难"""
+- DC: 5极简 10简单 15中等 20困难 25极难
+- 伤害: 武器骰子 + 属性调整值
+- 豁免: d20 + 属性调整值 (+熟练加值 if 有该豁免熟练)
+- 种族特性、专长和技能在角色信息中列出"""
 
 
 
@@ -113,7 +116,7 @@ def parse_check_from_text(text: str) -> tuple | None:
     if re.search(r'[（(]\s*无需', text):
         return None
     # Try with explicit DC
-    m = re.search(r'[（(]\s*(\S+?)\s*(?:检定)?\s*DC\s*(\d+).*?[）)]', text)
+    m = re.search(r'[（(]\s*(\S+).*?DC\s*(\d+).*?[）)]', text)
     if m:
         ability_cn = m.group(1)
         if ability_cn in ABILITY_CN_TO_EN:
