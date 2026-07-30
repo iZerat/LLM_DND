@@ -124,10 +124,10 @@ class GameMaster:
         return messages
 
     def _handle_dice_roll(self, player_input: str) -> Optional[str]:
-        match = re.match(r"^/roll\s+(.+)", player_input.strip())
+        match = re.match(r"^/roll\s*(.*)", player_input.strip())
         if not match:
             return None
-        expr = match.group(1).strip()
+        expr = match.group(1).strip() or "d20"
 
         def roll_dice(m):
             count = int(m.group(1)) if m.group(1) else 1

@@ -407,7 +407,7 @@ def show_help():
     console.print(f"\n[steel_blue]命令[/steel_blue]")
     console.print(f"  [grey82]数字[/grey82]    选择[选择]中的选项")
     console.print(f"  [grey82]文字[/grey82]    自由行动")
-    console.print(f"  [grey82]/roll d20+5[/grey82]  投骰子")
+    console.print(f"  [grey82]/roll 表达式[/grey82]  投骰子，例：/roll d20+5、/roll 2d8+3")
     console.print(f"  [grey82]/status[/grey82]  角色状态")
     console.print(f"  [grey82]/info[/grey82]    详细角色信息")
     console.print(f"  [grey82]/scene[/grey82]   详细场景信息")
@@ -511,9 +511,10 @@ def game_loop(gm: GameMaster):
             if Prompt.ask(escape("确定新建？进度将丢失 [y/n]")) == "y":
                 return "new_game"
             continue
-
-        # 未知命令提示
-        if cmd.startswith("/"):
+        elif cmd.startswith("/roll"):
+            # 直接放行，交给 send_message_stream
+            pass
+        elif cmd.startswith("/"):
             console.print("[grey50]未知命令，输入 /help 查看可用命令[/grey50]")
             continue
 
