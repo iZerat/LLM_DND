@@ -85,11 +85,7 @@ def _setup_interactive():
     Config.load()
 
     if not _test_api_connection(model):
-        console.print("[indian_red]API 连接测试失败[/indian_red]")
-        if Prompt.ask(escape("重试配置？[y/n]"), default="y") in ("y", "yes", ""):
-            _setup_interactive()
-        else:
-            console.print("[grey50]可稍后通过菜单重新配置 API[/grey50]")
+        console.print("[indian_red]API 连接测试失败，可稍后通过菜单重新配置[/indian_red]")
         return
 
 
@@ -795,6 +791,16 @@ def _show_round_recap(gm):
 def main():
     Config.load()
     check_config()
+
+    # 每次启动测试 API 连接
+    if Config.is_ready() and not _test_api_connection(Config.MODEL_NAME):
+        console.print("[indian_red]API 连接失败，游戏需要 API 才能运行[/indian_red]")
+        if Prompt.ask("重新配置 API？y/n") in ("y", "yes", ""):
+            _setup_interactive()
+            main()
+        else:
+            sys.exit(1)
+        return
 
     console.print(Panel(
         "[bold]大模型地下城[/bold]\n"
