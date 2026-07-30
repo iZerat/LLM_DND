@@ -27,8 +27,26 @@ class Config:
             if "/chat/completions" in cls.API_BASE_URL:
                 cls.API_BASE_URL = cls.API_BASE_URL.replace("/chat/completions", "")
 
+        if not cls.MODEL_NAME:
+            cls.MODEL_NAME = cls._detect_model(cls.API_BASE_URL)
+
         Path(cls.SAVE_DIR).mkdir(parents=True, exist_ok=True)
 
     @classmethod
+    def _detect_model(cls, base_url: str) -> str:
+        url = base_url.lower()
+        if "openai" in url:
+            return "gpt-4o"
+        if "deepseek" in url:
+            return "deepseek-chat"
+        if "anthropic" in url or "claude" in url:
+            return "claude-sonnet-4-20250514"
+        if "groq" in url:
+            return "llama-3.3-70b-versatile"
+        if "googleapis" in url or "gemini" in url:
+            return "gemini-2.0-flash"
+        return "deepseek-chat"
+
+    @classmethod
     def is_ready(cls) -> bool:
-        return bool(cls.API_BASE_URL and cls.API_KEY and cls.MODEL_NAME)
+        return bool(cls.API_BASE_URL and cls.API_KEY)

@@ -39,9 +39,17 @@ def _setup_interactive():
     console.print("\n[steel_blue]首次运行：配置 API[/steel_blue]")
     console.print("输入你的 LLM API 信息（支持 OpenAI / DeepSeek / 任何兼容服务）\n")
 
-    base_url = Prompt.ask("API 地址", default="https://api.deepseek.com")
-    api_key = Prompt.ask("API 密钥")
-    model = Prompt.ask("模型名称（回车用默认）", default="deepseek-chat")
+    base_url = Prompt.ask("API 地址（回车用默认 https://api.deepseek.com）")
+    if not base_url:
+        base_url = "https://api.deepseek.com"
+
+    while True:
+        api_key = Prompt.ask("API 密钥")
+        if api_key.strip():
+            break
+        console.print("[grey50]API 密钥不能为空，请重新输入[/grey50]")
+
+    model = _detect_model(base_url)
 
     lines = [
         f"API_BASE_URL={base_url}",
@@ -49,8 +57,23 @@ def _setup_interactive():
         f"MODEL_NAME={model}",
     ]
     Path(".env").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    console.print("[grey50]已写入 .env，继续启动...[/grey50]")
+    console.print(f"[grey50]已写入 .env（模型: {model}），继续启动...[/grey50]")
     Config.load()
+
+
+def _detect_model(base_url: str) -> str:
+    url_lower = base_url.lower()
+    if "openai" in url_lower:
+        return "gpt-4o"
+    if "deepseek" in url_lower:
+        return "deepseek-chat"
+    if "anthropic" in url_lower or "claude" in url_lower:
+        return "claude-sonnet-4-20250514"
+    if "groq" in url_lower:
+        return "llama-3.3-70b-versatile"
+    if "googleapis" in url_lower or "gemini" in url_lower:
+        return "gemini-2.0-flash"
+    return "deepseek-chat"
 
 
 def check_config():
