@@ -277,7 +277,7 @@ def render_dm_output(full_text: str, gm=None, elapsed: float = 0):
         def style_target(t: str) -> tuple:
             hostility_colors = {
                 "敌对": "indian_red",
-                "中立": "warm_grey",
+                "中立": "grey50",
                 "友方": "light_sea_green",
             }
             for tag, color in hostility_colors.items():
