@@ -438,6 +438,8 @@ def main():
         for chunk in gm.send_message_stream("DM，请开始我的冒险吧！"):
             parts.append(chunk)
         _elapsed = _time.time() - _t0
+        console.print(f"[grey62]生成耗时: {_elapsed:.1f}s[/grey62]")
+        console.print()
         initial_text = "".join(parts)
         log_dm_response(0, "（游戏开始）", initial_text)
         render_dm_output(initial_text, gm, _elapsed)

@@ -75,8 +75,7 @@ def render_dm_output(full_text: str, gm=None, elapsed: float = 0):
     global _round_counter
     _round_counter += 1
 
-    timing = f" [{elapsed:.1f}s]" if elapsed else ""
-    console.rule(f"[grey50]第{_round_counter}轮{timing}[/grey50]", style="grey50")
+    console.rule(f"─── [grey50]第{_round_counter}轮[/grey50]", style="grey50", align="left")
 
     sections = parse_sections(full_text)
 
@@ -162,7 +161,11 @@ def render_dm_output(full_text: str, gm=None, elapsed: float = 0):
                     r'[#5DCCCC]\1[/#5DCCCC]',
                     line,
                 )
-                choice_text += f"[#F9F1A5]{line_colored}[/#F9F1A5]\n"
+                m = re.match(r"^(\d+[.)])\s*(.*)", line_colored)
+                if m:
+                    choice_text += f"[white]{m.group(1)}[/white] [#F9F1A5]{m.group(2)}[/#F9F1A5]\n"
+                else:
+                    choice_text += f"[white]{line_colored}[/white]\n"
             elif line:
                 choice_text += f"{line}\n"
         if choice_text:

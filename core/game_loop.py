@@ -289,6 +289,24 @@ def game_loop(gm: GameMaster):
             else:
                 last_choice_record = raw
 
+        check_text = ""
+        if player_input.strip().isdigit():
+            selected_num = player_input.strip()
+            option_text = gm.last_choices_map.get(selected_num, "")
+            check_info = parse_check_from_text(option_text) if option_text else None
+            if check_info:
+                ability_cn, ability_key, dc = check_info
+                ability_mod = modifier(getattr(gm.character, ability_key))
+                roll = dice_random.randint(1, 20)
+                total = roll + ability_mod
+                success = total >= dc
+                result_color = "green" if success else "red"
+                result_word = "\u6210\u529f" if success else "\u5931\u8d25"
+                check_text = f"[yellow]{ability_cn}\u68c0\u5b9a[/yellow] DC [bold]{dc}[/bold] | \u8c03\u6574\u503c: {ability_mod:+d}\n[grey50]d20({roll}) + ({ability_mod:+d}) = {total}[/grey50]\n[bold {result_color}]{result_word}[/bold {result_color}]"
+                player_input = f"[\u9009\u62e9\u9009\u9879{selected_num}] {option_text} | [\u68c0\u5b9a] d20({roll})+({ability_mod:+d})={total} {result_word}"
+            else:
+                player_input = f"[\u9009\u62e9\u9009\u9879{selected_num}] {option_text or selected_num}"
+
         if last_choice_record:
             record_display = last_choice_record
             if last_was_option:
@@ -297,31 +315,26 @@ def game_loop(gm: GameMaster):
                     r'[#5DCCCC]\1[/#5DCCCC]',
                     record_display,
                 )
-                record_text = f"[#F9F1A5]{record_display}[/#F9F1A5]"
+                m = re.match(r"^(\d+[.)])\s*(.*)", record_display)
+                if m:
+                    record_text = f"[white]{m.group(1)}[/white] [#F9F1A5]{m.group(2)}[/#F9F1A5]"
+                else:
+                    record_text = f"[#F9F1A5]{record_display}[/#F9F1A5]"
             else:
                 record_text = record_display
+            if check_text:
+                record_text += "\n\n" + check_text
             console.print(Panel(
                 record_text,
-                title="[#9b87c4]上轮记录[/#9b87c4]",
+                title="[#9b87c4]结果[/#9b87c4]",
                 border_style="#9b87c4",
                 box=box.SQUARE,
             ))
 
-        if player_input.strip().isdigit():
-            selected_num = player_input.strip()
-            option_text = gm.last_choices_map.get(selected_num, "")
-            check_info = parse_check_from_text(option_text) if option_text else None
-            if check_info:
-                ability_cn, ability_key, dc = check_info
-                r, m, t, success = _interactive_check(gm.character, ability_cn, ability_key, dc)
-                rw = "成功" if success else "失败"
-                player_input = f"[选择选项{selected_num}] {option_text} | [检定] d20({r})+({m:+d})={t} {rw}"
-            else:
-                player_input = f"[选择选项{selected_num}] {option_text or selected_num}"
-
         try:
             response_parts = []
             _t0 = _time.time()
+            console.print()
             console.print("[grey50]DM 思考中...[/grey50]")
             for chunk in gm.send_message_stream(player_input):
                 response_parts.append(chunk)
@@ -338,6 +351,8 @@ def game_loop(gm: GameMaster):
                 full = gm.repair_status(full)
                 log_dm_response(get_round_counter() + 1, "（修复状态）", full)
 
+            console.print(f"[grey50]\u601d\u8003\u8017\u65f6: {_elapsed:.1f}s[/grey50]")
+            console.print()
             render_dm_output(full, gm, _elapsed)
 
             if getattr(gm, '_truncated', False):
@@ -346,4 +361,5 @@ def game_loop(gm: GameMaster):
         except KeyboardInterrupt:
             console.print("\n[grey50]中断[/grey50]")
         except Exception as e:
-            console.print(f"[indian_red]错误: {e}[/indian_red]")
+            from rich.markup import escape
+            console.print(f"\n[indian_red]错误: {escape(str(e))}[/indian_red]")

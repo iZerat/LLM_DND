@@ -4,21 +4,46 @@
 
 ## 快速开始
 
-### 1. 安装依赖
+### 1. 创建虚拟环境（推荐）
+
+```bash
+python -m venv venv
+```
+
+- **Windows**: `venv\Scripts\activate`
+- **Linux/macOS**: `source venv/bin/activate`
+
+### 2. 安装依赖
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. 启动游戏
+> 如果遇到网络问题，可尝试：`pip install -r requirements.txt --trusted-host pypi.org --trusted-host files.pythonhosted.org`
+
+### 3. 配置 API
+
+首次运行会自动进入交互式 API 配置，填入地址、密钥、模型名即可。支持任何 OpenAI 兼容接口（DeepSeek、OpenAI、Claude 等）。
+
+也可以手动创建 `.env` 文件（参考 `.env.example`）：
+
+```bash
+cp .env.example .env   # Linux/macOS
+copy .env.example .env  # Windows
+```
+
+编辑 `.env`：
+```
+API_BASE_URL=https://api.deepseek.com
+API_KEY=sk-your-real-api-key-here
+MODEL_NAME=deepseek-v4-flash
+```
+
+### 4. 启动游戏
 
 ```bash
 python start_game.py
 ```
-
-首次运行会自动进入交互式 API 配置，填入地址、密钥、模型名即可。支持任何 OpenAI 兼容接口（DeepSeek、OpenAI、Claude 等）。
-
-也可以手动创建 `.env` 文件（参考 `.env.example`）。
 
 ### 3. 开始游玩
 
