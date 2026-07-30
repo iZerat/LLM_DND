@@ -186,7 +186,7 @@ class GameMaster:
 
     def _build_system_prompt(self) -> str:
         char_summary = self.character.summary()
-        format_rule = "\n\n[记住] [状态]必须包含'玩家:'和'目标:'两行。有敌人/NPC就写目标行并加[敌对][中立][友方]标签。多个目标每个单独一行用'其他:'（不要用xN合并）。无目标写'目标: 无'。角色信息中【装备】是穿在身上的（有槽位），【背包】是携带品，【金币】是货币，三者不要混淆。"
+        format_rule = "\n\n[记住] [状态]必须包含'玩家:'和'目标:'两行。有敌人/NPC就写目标行并加[敌对][中立][友方]标签。多个目标每个单独一行用'其他:'（不要用xN合并）。无目标写'目标: 无'。角色信息中【装备】是穿在身上的（有槽位），【背包】是携带品，【金币】是货币，三者不要混淆。\n角色对话用「」包裹，特殊名词（地名、物品名、法术名、组织名等）用【】包裹。"
         template_note = ""
         if self.template and self.template != "random" and not self.history:
             t = OPENING_TEMPLATES.get(self.template)
@@ -210,7 +210,7 @@ class GameMaster:
     def _build_messages(self, player_input: str) -> list:
         system_content = self._build_system_prompt()
         messages = [{"role": "system", "content": system_content}]
-        messages.append({"role": "user", "content": player_input + "\n\n[记住] [状态]必须包含'玩家:'和'目标:'两行。有敌人/NPC就写目标行并加[敌对][中立][友方]标签。多个目标每个单独一行用'其他:'（不要用xN合并）。无目标写'目标: 无'。"})
+        messages.append({"role": "user", "content": player_input + "\n\n[记住] [状态]必须包含'玩家:'和'目标:'两行。有敌人/NPC就写目标行并加[敌对][中立][友方]标签。多个目标每个单独一行用'其他:'（不要用xN合并）。无目标写'目标: 无'。角色对话用「」包裹，特殊名词用【】包裹。"})
         return messages
 
     def _handle_dice_roll(self, player_input: str) -> Optional[str]:

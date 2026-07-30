@@ -75,6 +75,7 @@ def render_dm_output(full_text: str, gm=None, elapsed: float = 0):
     global _round_counter
     _round_counter += 1
 
+    console.print()
     console.rule(f"─── [grey50]第{_round_counter}轮[/grey50]", style="grey50", align="left")
 
     sections = parse_sections(full_text)
@@ -182,12 +183,12 @@ def show_help():
     console.print(f"  [grey82]/info[/grey82]    详细角色信息")
     console.print(f"  [grey82]/scene[/grey82]   详细场景信息")
     console.print(f"  [grey82]/equip[/grey82]    查看装备栏")
-    console.print(f"  [grey82]/item[/grey82]     查看背包物品")
+    console.print(f"  [grey82]/bag[/grey82]      查看背包与金钱")
     console.print(f"  [grey82]/skill[/grey82]    查看技能")
     console.print(f"  [grey82]/time[/grey82]    查看当前时间")
     console.print(f"  [grey82]/save[/grey82]    保存")
     console.print(f"  [grey82]/load[/grey82]    读档")
-    console.print(f"  [grey82]/new[/grey82]     新建角色")
+    console.print(f"  [grey82]/menu[/grey82]    返回主菜单")
     console.print(f"  [grey82]/help[/grey82]    帮助")
     console.print(f"  [grey82]/quit[/grey82]    退出")
 
@@ -195,9 +196,15 @@ def show_help():
 def show_status(char: Character):
     console.print(f"\n[steel_blue]{char.name}[/steel_blue]  Lv.{char.level} {char.race} {char.char_class}")
     console.print(f"[grey50]HP:[/grey50] {char.hp}/{char.max_hp}  [grey50]AC:[/grey50] {char.ac}  [grey50]熟练:[/grey50] {char.prof_bonus:+d}")
-    console.print(f"[grey50]力:[/grey50]{mod_str(char.strength)} [grey50]敏:[/grey50]{mod_str(char.dexterity)} [grey50]体:[/grey50]{mod_str(char.constitution)} [grey50]智:[/grey50]{mod_str(char.intelligence)} [grey50]感:[/grey50]{mod_str(char.wisdom)} [grey50]魅:[/grey50]{mod_str(char.charisma)}")
-    if char.inventory:
-        console.print(f"[grey50]物品: {', '.join(char.inventory)}[/grey50]")
+    console.print(Panel(
+        "[grey50]增益:[/grey50] 无\n"
+        "[grey50]减益:[/grey50] 无\n"
+        "[grey50]状态:[/grey50] 正常\n"
+        "[grey50]临时HP:[/grey50] 0",
+        title="[steel_blue]状态[/steel_blue]",
+        border_style="steel_blue",
+        box=box.SQUARE,
+    ))
 
 
 def show_info(char: Character):
@@ -206,7 +213,7 @@ def show_info(char: Character):
         f"性别: {char.gender}  年龄: {char.age}\n"
         f"种族: {char.race}  职业: {char.char_class}  背景: {char.background}\n"
         f"等级: {char.level}  HP: {char.hp}/{char.max_hp}  AC: {char.ac}\n"
-        f"熟练加值: {char.prof_bonus:+d}  金币: {char.currency_str()}\n"
+        f"熟练加值: {char.prof_bonus:+d}\n"
         f"力量: {char.strength} ({mod_str(char.strength)})  "
         f"敏捷: {char.dexterity} ({mod_str(char.dexterity)})  "
         f"体质: {char.constitution} ({mod_str(char.constitution)})\n"
@@ -248,11 +255,12 @@ def show_inventory(char: Character):
     ))
 
 
-def show_item(char: Character):
+def show_bag(char: Character):
+    money = f"  金钱: {char.currency_str()}"
     items = "\n".join(f"  • {item}" for item in char.inventory) if char.inventory else "  [grey50]空[/grey50]"
     console.print(Panel(
-        items,
-        title="[grey58]物品[/grey58]",
+        f"{money}\n\n{items}",
+        title="[grey58]背包[/grey58]",
         border_style="grey58",
         box=box.SQUARE,
     ))

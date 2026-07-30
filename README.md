@@ -119,10 +119,11 @@ SRD 5.2.1 由 Wizards of the Coast LLC 提供，基于 **Creative Commons Attrib
 | `/info` | 详细角色信息 |
 | `/scene` | 完整场景信息 |
 | `/equip` | 查看装备 |
+| `/bag` | 查看背包与金钱 |
 | `/skill` | 查看技能 |
 | `/time` | 查看当前时间 |
 | `/save` | 保存 |
 | `/load` | 读档 |
-| `/new` | 新建角色 |
+| `/menu` | 返回主菜单 |
 | `/help` | 帮助 |
 | `/quit` | 退出 |

@@ -14,7 +14,7 @@ from character import Character, modifier
 from game_master import GameMaster, ABILITY_CN_TO_EN, parse_check_from_text
 from core.ui import (
     console, render_dm_output, show_status, show_info,
-    show_equip, show_inventory, show_item, show_skills, show_time, show_help,
+    show_equip, show_bag, show_skills, show_time, show_help,
     set_round_counter, get_round_counter,
 )
 
@@ -190,8 +190,17 @@ def game_loop(gm: GameMaster):
         cmd = player_input.strip().lower()
 
         if cmd == "/quit":
-            console.print("冒险结束！")
-            break
+            save = Prompt.ask("是否保存？y/n")
+            if save in ("y", "yes", ""):
+                save_game(gm)
+                console.print("冒险结束！")
+                break
+            else:
+                confirm = Prompt.ask("是否退出游戏？y/n")
+                if confirm in ("y", "yes", ""):
+                    console.print("冒险结束！")
+                    break
+            continue
         elif cmd in ("/help", "/"):
             show_help()
             continue
@@ -233,19 +242,23 @@ def game_loop(gm: GameMaster):
             except:
                 console.print("[grey50]无效选择[/grey50]")
             continue
-        elif cmd == "/new":
-            if Prompt.ask(escape("确定新建？进度将丢失 [y/n]")) == "y":
-                return "new_game"
+        elif cmd == "/menu":
+            save = Prompt.ask("是否保存？y/n")
+            if save in ("y", "yes", ""):
+                save_game(gm)
+                return "menu"
+            else:
+                confirm = Prompt.ask("是否返回主菜单？y/n")
+                if confirm in ("y", "yes", ""):
+                    return "menu"
             continue
         elif cmd == "/equip":
             show_equip(gm.character)
             continue
-        elif cmd == "/item":
-            show_item(gm.character)
+        elif cmd == "/bag":
+            show_bag(gm.character)
             continue
-        elif cmd == "/inventory":
-            show_inventory(gm.character)
-            continue
+
         elif cmd == "/skill":
             show_skills(gm.character)
             continue

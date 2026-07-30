@@ -330,11 +330,12 @@ def _init_equipment(char: Character):
 
 # ---------- 主菜单 ----------
 
-def main():
+def main(skip_api_test=False):
     Config.load()
-    check_config()
+    if not skip_api_test:
+        check_config()
 
-    if Config.is_ready() and not _test_api_connection(Config.MODEL_NAME):
+    if not skip_api_test and Config.is_ready() and not _test_api_connection(Config.MODEL_NAME):
         console.print("[indian_red]API 连接失败，游戏需要 API 才能运行[/indian_red]")
         if Prompt.ask("重新配置 API？y/n") in ("y", "yes", ""):
             _setup_interactive()
@@ -447,8 +448,8 @@ def main():
         console.print(f"[indian_red]错误: {e}[/indian_red]")
 
     result = game_loop(gm)
-    if result == "new_game":
-        main()
+    if result == "menu":
+        main(skip_api_test=True)
 
 
 if __name__ == "__main__":
