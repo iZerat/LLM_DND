@@ -60,6 +60,20 @@ DM 思考中...
 
 游戏最大的自由度就在这里——DM 给出的选项只是参考，你可以输入任何你想做的事。潜行、交涉、翻窗、甚至掀桌，全凭你一句话。AI 会实时判定并推进剧情。
 
+## 规则参考
+
+`rules/` 目录包含基于 **D&D 5e SRD 5.2.1**（System Reference Document）整理的 Markdown 规则文档：
+
+| 文件 | 内容 |
+|------|------|
+| `playing-the-game.md` | 核心玩法规则（属性、骰子、回合等） |
+| `rules-glossary.md` | 术语表（状态、动作、环境等） |
+| `gameplay-toolbox.md` | 工具类规则（探索、社交、休整等） |
+
+游戏启动时会将`CORE_RULES`（简短规则摘要）注入系统提示词，LLM 据此判定。完整 SRD 文件保留在磁盘上供后续扩展使用。
+
+SRD 5.2.1 由 Wizards of the Coast LLC 提供，基于 **Creative Commons Attribution 4.0 International License** 许可。
+
 ## 命令
 
 | 命令 | 说明 |

@@ -36,6 +36,8 @@ CLASS_DEFAULT_SKILLS = {
     "邪术师": ["欺瞒", "调查"],
 }
 
+EQUIPMENT_SLOTS = ["武器", "副手", "头部", "身体", "背部", "项链", "戒指1", "戒指2"]
+
 
 def modifier(score: int) -> int:
     return (score - 10) // 2
@@ -81,7 +83,24 @@ class Character:
     description: str = ""
     gender: str = "未知"
     age: str = "成年"
-    gold: int = 30
+    gp: int = 30
+    sp: int = 0
+    cp: int = 0
+
+    def __post_init__(self):
+        self.normalize_currency()
+
+    def normalize_currency(self):
+        if self.cp >= 100:
+            self.sp += self.cp // 100
+            self.cp = self.cp % 100
+        if self.sp >= 100:
+            self.gp += self.sp // 100
+            self.sp = self.sp % 100
+    equipment: dict = field(default_factory=lambda: {
+        "武器": "", "副手": "", "头部": "", "身体": "",
+        "背部": "", "项链": "", "戒指1": "", "戒指2": "",
+    })
 
     @property
     def ac(self) -> int:
@@ -109,13 +128,22 @@ class Character:
             f"AC:{self.ac}  HP:{self.hp}/{self.max_hp}  熟练:{self.prof_bonus:+d}"
         )
 
+    def currency_str(self) -> str:
+        return f"{self.gp}金 {self.sp}银 {self.cp}铜"
+
+    def equip_summary(self) -> str:
+        worn = [f"{s}:{v}" for s, v in self.equipment.items() if v]
+        return " | ".join(worn) if worn else "无装备"
+
     def summary(self) -> str:
         return (
             f"【{self.name}】Lv.{self.level} {self.race} {self.char_class}\n"
             f"背景: {self.background}  HP: {self.hp}/{self.max_hp}  AC: {self.ac}\n"
             f"力量:{self.strength} 敏捷:{self.dexterity} 体质:{self.constitution}\n"
             f"智力:{self.intelligence} 感知:{self.wisdom} 魅力:{self.charisma}\n"
-            f"物品: {', '.join(self.inventory) if self.inventory else '无'}\n"
+            f"装备: {self.equip_summary()}\n"
+            f"背包: {', '.join(self.inventory) if self.inventory else '空'}\n"
+            f"金币: {self.currency_str()}\n"
             f"描述: {self.description}"
         )
 

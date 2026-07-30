@@ -2,11 +2,15 @@ import json
 import random
 import re
 from typing import Optional
+from pathlib import Path
 from openai import OpenAI
 from config import Config
 from character import Character
 
-SYSTEM_PROMPT = """你是龙与地下城（D&D）5e 的地下城主（DM），你将用中文主持一场精彩的冒险。
+SYSTEM_PROMPT_TEMPLATE = """你是基于 D&D 5e 规则的地城主（GM），你将用中文主持一场精彩的冒险。
+
+当前游戏的世界背景如下：
+{setting_content}
 
 ## 输出格式
 
@@ -15,12 +19,13 @@ SYSTEM_PROMPT = """你是龙与地下城（D&D）5e 的地下城主（DM），�
 [场景] 严格按以下格式填写，每行一个字段：
 地点：xxx
 时间：黄昏（与[时间]区块的时间保持一致）
-温度：凉爽
-湿度：xx%
-光照：xx
-风速：xx级
-海拔：xxx米
-（以上6个字段每轮都必须填写，不允许省略）
+温度：15℃（凉爽）
+风向：东北风
+风速：3级
+湿度：65%
+光照：暮色
+海拔：5米
+（以上7个字段每轮都必须填写，不允许省略。温度格式：数值℃（体感描述））
 
 [时间] 严格按以下格式填写，每行一个字段：
 年月日：第三年·丰收之月 15日
@@ -58,12 +63,7 @@ SYSTEM_PROMPT = """你是龙与地下城（D&D）5e 的地下城主（DM），�
 - 描述精炼，不啰嗦
 
 ## 核心规则
-- 属性调整值 = (属性值-10)//2
-- 熟练加值: 1级+2
-- 检定: d20 + 属性调整值 + (熟练加值 if 熟练)
-- 攻击: d20 + 属性调整值 + 熟练加值 vs AC
-- 优势: 2d20取高; 劣势: 2d20取低
-- DC: 5极简 10简单 15中等 20困难 25极难
+{core_rules}
 
 ## 对话与行动标记
 - 「NPC对话」
@@ -88,6 +88,14 @@ SYSTEM_PROMPT = """你是龙与地下城（D&D）5e 的地下城主（DM），�
 格式必须带DC关键字和数字。系统会自动检测并触发交互式投骰界面。
 
 支持的属性：力量、敏捷、体质、智力、感知、魅力"""
+
+CORE_RULES = """- 属性调整值 = (属性值-10)//2
+- 熟练加值: 1级+2
+- 检定: d20 + 属性调整值 + (熟练加值 if 熟练)
+- 攻击: d20 + 属性调整值 + 熟练加值 vs AC
+- 优势: 2d20取高; 劣势: 2d20取低
+- DC: 5极简 10简单 15中等 20困难 25极难"""
+
 
 
 ABILITY_CN_TO_EN = {
@@ -134,8 +142,15 @@ OPENING_TEMPLATES = {
 }
 
 
+RULES_DIR = Path(__file__).parent / "rules"
+
+
+def _load_rules() -> str:
+    return CORE_RULES
+
+
 class GameMaster:
-    def __init__(self, character: Character, template: str = "random"):
+    def __init__(self, character: Character, template: str = "random", setting_content: str = "", setting_stem: str = ""):
         self.character = character
         self.client: Optional[OpenAI] = None
         self.history: list = []
@@ -145,7 +160,12 @@ class GameMaster:
         self.last_scene: str = ""
         self.last_scene_detail: str = ""
         self.last_time: str = ""
+        self.last_assistant: str = ""
         self.template = template
+        self.setting_content = setting_content
+        self.setting_stem = setting_stem
+        self.compressed_history: list = []
+        self._round_num: int = 0
 
     def _init_client(self):
         if Config.is_ready():
@@ -154,19 +174,33 @@ class GameMaster:
                 api_key=Config.API_KEY,
             )
 
-    def _build_messages(self, player_input: str) -> list:
+    def _build_system_prompt(self) -> str:
         char_summary = self.character.summary()
-        format_rule = "\n\n[记住] [状态]必须包含'玩家:'和'目标:'两行。有敌人/NPC就写目标行并加[敌对][中立][友方]标签。多个目标每个单独一行用'其他:'（不要用xN合并）。无目标写'目标: 无'。"
+        format_rule = "\n\n[记住] [状态]必须包含'玩家:'和'目标:'两行。有敌人/NPC就写目标行并加[敌对][中立][友方]标签。多个目标每个单独一行用'其他:'（不要用xN合并）。无目标写'目标: 无'。角色信息中【装备】是穿在身上的（有槽位），【背包】是携带品，【金币】是货币，三者不要混淆。"
         template_note = ""
         if self.template and self.template != "random" and not self.history:
             t = OPENING_TEMPLATES.get(self.template)
             if t:
                 template_note = f"\n\n## 开场模板\n{t}\n严格按此模板生成第一轮输出。"
-        system_content = SYSTEM_PROMPT + f"\n\n## 当前角色信息\n{char_summary}" + format_rule + template_note
+
+        setting = self.setting_content if self.setting_content else "一个标准的 D&D 奇幻世界。"
+        core_rules_text = _load_rules()
+
+        prompt = SYSTEM_PROMPT_TEMPLATE.format(setting_content=setting, core_rules=core_rules_text)
+        prompt += f"\n\n## 当前角色信息\n{char_summary}" + format_rule + template_note
+
+        if self.compressed_history:
+            history_lines = []
+            for h in self.compressed_history:
+                history_lines.append(f"第{h['round']}轮：{h['summary']}")
+            prompt += f"\n\n## 冒险历程\n" + "\n".join(history_lines)
+
+        return prompt
+
+    def _build_messages(self, player_input: str) -> list:
+        system_content = self._build_system_prompt()
         messages = [{"role": "system", "content": system_content}]
-        for h in self.history:
-            messages.append(h)
-        messages.append({"role": "user", "content": player_input + format_rule})
+        messages.append({"role": "user", "content": player_input + "\n\n[记住] [状态]必须包含'玩家:'和'目标:'两行。有敌人/NPC就写目标行并加[敌对][中立][友方]标签。多个目标每个单独一行用'其他:'（不要用xN合并）。无目标写'目标: 无'。"})
         return messages
 
     def _handle_dice_roll(self, player_input: str) -> Optional[str]:
@@ -206,7 +240,7 @@ class GameMaster:
                 messages=messages,
                 stream=True,
                 temperature=0.8,
-                max_tokens=2048,
+                max_tokens=4096,
             )
 
             collected = ""
@@ -216,12 +250,35 @@ class GameMaster:
                     collected += content
                     yield content
 
+            self._round_num += 1
+            self.last_assistant = collected
+            self._compress_history(player_input, collected)
+
             self.history.append({"role": "user",
                                 "content": player_input if not player_input.startswith("/roll") else f"[指令] {player_input}"})
             self.history.append({"role": "assistant", "content": collected})
 
         except Exception as e:
             yield f"API 请求失败: {e}"
+
+    def _compress_history(self, player_input: str, dm_response: str):
+        try:
+            prompt = (
+                f"将以下 D&D 游戏轮次压缩为 1-2 句中文摘要，只保留关键事件和叙事进展：\n\n"
+                f"玩家: {player_input}\n\n"
+                f"DM: {dm_response}"
+            )
+            r = self.client.chat.completions.create(
+                model=Config.MODEL_NAME,
+                messages=[{"role": "user", "content": prompt}],
+                stream=False,
+                temperature=0.3,
+                max_tokens=128,
+            )
+            summary = r.choices[0].message.content.strip()
+            self.compressed_history.append({"round": self._round_num, "summary": summary})
+        except Exception:
+            self.compressed_history.append({"round": self._round_num, "summary": "(摘要生成失败)"})
 
     def needs_repair(self, response_text: str) -> bool:
         sections = {}
@@ -267,6 +324,9 @@ class GameMaster:
             "last_scene": self.last_scene,
             "last_scene_detail": self.last_scene_detail,
             "last_time": self.last_time,
+            "last_assistant": self.last_assistant,
+            "compressed_history": self.compressed_history,
+            "setting_stem": self.setting_stem,
         }
 
     def get_history(self) -> list:
