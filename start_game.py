@@ -39,9 +39,11 @@ def _setup_interactive():
     console.print("\n[steel_blue]首次运行：配置 API[/steel_blue]")
     console.print("输入你的 LLM API 信息（支持 OpenAI / DeepSeek / 任何兼容服务）\n")
 
-    base_url = Prompt.ask("API 地址")
-    if not base_url:
-        base_url = "https://api.deepseek.com"
+    while True:
+        base_url = Prompt.ask("API 地址")
+        if base_url.strip():
+            break
+        console.print("[grey50]API 地址不能为空，请重新输入[/grey50]")
 
     while True:
         api_key = Prompt.ask("API 密钥")
