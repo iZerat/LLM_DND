@@ -597,6 +597,7 @@ def game_loop(gm: GameMaster):
             # ── [状态变更] 处理：HP / target / NPC ──
             from resource.llm_parser import parse_status_changes
             status_reqs = parse_status_changes(full)
+            changed_npcs: set[str] = set()
             if status_reqs is not None:
                 results = manager.process_requests(status_reqs)
                 full = re.sub(
@@ -604,8 +605,11 @@ def game_loop(gm: GameMaster):
                     '', full, count=1, flags=re.DOTALL
                 ).strip()
                 for r in results:
-                    if r.visible:
+                    if r.visible and r.success:
                         change_messages.append(r.message)
+                        m = re.match(r'目标 (.+?)(?: HP| [+-])', r.message)
+                        if m:
+                            changed_npcs.add(m.group(1))
 
             log_dm_response(get_round_counter() + 1, player_input, full)
 
@@ -639,7 +643,7 @@ def game_loop(gm: GameMaster):
                         max_hp = int(npc_m.group(5))
                         existing = world_state.get_by_name(name)
                         if existing:
-                            if existing.hp != hp:
+                            if existing.hp != hp and name not in changed_npcs:
                                 diff = hp - existing.hp
                                 change_messages.append(f"目标 {name} HP {'+' if diff > 0 else ''}{diff}点")
                             existing.hp = hp
