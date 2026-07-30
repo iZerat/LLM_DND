@@ -335,7 +335,7 @@ def render_dm_output(full_text: str, gm=None, elapsed: float = 0):
                 panels.append(Panel(extra_text, title=f"[{extra_color}]其他[/{extra_color}]", border_style=extra_color, box=box.SQUARE))
             console.print(Columns(panels, equal=False, expand=False))
         else:
-            console.print(Panel(left, title="[grey58]玩家[/grey58]", border_style="grey58", box=box.SQUARE))
+            console.print(Columns([Panel(left, title="[grey58]玩家[/grey58]", border_style="grey58", box=box.SQUARE)], equal=False, expand=False))
 
     # 行动
     if "选择" in sections:
@@ -344,7 +344,7 @@ def render_dm_output(full_text: str, gm=None, elapsed: float = 0):
         for line in lines:
             line = line.strip()
             if re.match(r"^\d+[.)]", line):
-                choice_text += f"{line}\n"
+                choice_text += f"[#F9F1A5]{line}[/#F9F1A5]\n"
             elif line:
                 choice_text += f"{line}\n"
         if choice_text:
@@ -510,18 +510,26 @@ def game_loop(gm: GameMaster):
                 return "new_game"
             continue
 
+        # 未知命令提示
+        if cmd.startswith("/"):
+            console.print("[grey50]未知命令，输入 /help 查看可用命令[/grey50]")
+            continue
+
         # 记录上轮选择
+        last_was_option = False
         if not cmd.startswith("/"):
             raw = player_input.strip()
             if raw in gm.last_choices_map:
                 last_choice_record = gm.last_choices_map[raw]
+                last_was_option = True
             else:
                 last_choice_record = raw
 
         # 显示上轮选择记录
         if last_choice_record:
+            record_text = f"[#F9F1A5]{last_choice_record}[/#F9F1A5]" if last_was_option else last_choice_record
             console.print(Panel(
-                last_choice_record,
+                record_text,
                 title="[#9b87c4]上轮记录[/#9b87c4]",
                 border_style="#9b87c4",
                 box=box.SQUARE,
