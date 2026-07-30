@@ -287,6 +287,8 @@ def render_dm_output(full_text: str, gm=None, elapsed: float = 0):
             border_style="steel_blue",
             box=box.SQUARE,
         ))
+        if gm:
+            gm.last_scene = sections["场景"]
 
     # 事件
     if "事件" in sections:
@@ -561,11 +563,6 @@ def game_loop(gm: GameMaster):
                 full = gm.repair_status(full)
                 log_dm_response(_round_counter + 1, "（修复状态）", full)
 
-            # 保存场景信息供 /scene 使用
-            sections = parse_sections(full)
-            if "场景" in sections:
-                gm.last_scene = sections["场景"]
-
             render_dm_output(full, gm, _elapsed)
 
         except KeyboardInterrupt:
@@ -623,12 +620,15 @@ def main():
 
     console.print("\n[grey62]冒险即将开始...[/grey62]")
     try:
+        import time as _time2
+        _t0 = _time2.time()
         parts = []
         for chunk in gm.send_message_stream("DM，请开始我的冒险吧！"):
             parts.append(chunk)
+        _elapsed = _time2.time() - _t0
         initial_text = "".join(parts)
         log_dm_response(0, "（游戏开始）", initial_text)
-        render_dm_output(initial_text, gm)
+        render_dm_output(initial_text, gm, _elapsed)
     except Exception as e:
         console.print(f"[indian_red]错误: {e}[/indian_red]")
 
