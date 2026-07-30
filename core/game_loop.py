@@ -532,6 +532,7 @@ def game_loop(gm: GameMaster):
             manager = ResourceManager(gm.character.inventory)
             retries = 0
             max_retries = 3
+            change_messages: list[str] = []
             while retries < max_retries:
                 requests = parse_item_changes(full)
                 if requests is None:
@@ -539,30 +540,23 @@ def game_loop(gm: GameMaster):
                 unknown = [r for r in requests if r["action"] == "unknown"]
                 if not unknown:
                     results = manager.process_requests(requests)
-                    # strip block from text
                     full = re.sub(
                         r'\n?\[物品变更\].*?(?=\n\[|\Z)',
                         '', full, count=1, flags=re.DOTALL
                     ).strip()
                     for r in results:
-                        if r.success:
-                            console.print(f"[grey50]{r.message}[/grey50]")
-                        else:
-                            console.print(f"[indian_red]{r.message}[/indian_red]")
+                        change_messages.append(r.message)
                     break
-                # unknown items found — retry
                 retries += 1
                 missing = "、".join(r["name"] for r in unknown)
                 if retries >= max_retries:
-                    # fallback: tell LLM to revise, strip the block
-                    console.print(f"[indian_red]物品库中不存在: {missing}，已忽略相关变更，故事由 DM 自行圆场[/indian_red]")
+                    change_messages.append(f"物品库中不存在: {missing}，已忽略相关变更，故事由 DM 自行圆场")
                     full = re.sub(
                         r'\n?\[物品变更\].*?(?=\n\[|\Z)',
                         '', full, count=1, flags=re.DOTALL
                     ).strip()
                     break
-                console.print(f"[gold1]物品库中不存在: {missing}，DM 正在调整故事…[/gold1]")
-                # send correction prompt to LLM
+                change_messages.append(f"物品库中不存在: {missing}，DM 正在调整故事…")
                 correction_prompt = f"[系统] 注意：以下物品不在游戏资源库中：{missing}。请修改你的输出，改用库中存在的物品，或修改叙事让这些物品不可获得。保留其他内容不变。请重新输出完整回答。"
                 try:
                     retry_parts = []
@@ -583,7 +577,7 @@ def game_loop(gm: GameMaster):
 
             console.print(f"[grey50]\u601d\u8003\u8017\u65f6: {_elapsed:.1f}s[/grey50]")
             console.print()
-            render_dm_output(full, gm, _elapsed)
+            render_dm_output(full, gm, _elapsed, change_messages)
 
             if getattr(gm, '_truncated', False):
                 console.print("[grey50]（注意：回答被截断，可尝试 /continue 让 DM 继续输出，或简化指令）[/grey50]")

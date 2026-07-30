@@ -70,7 +70,7 @@ def _filter_scene_fields(text: str, basic_only: bool = True) -> str:
     return "\n".join(lines)
 
 
-def render_dm_output(full_text: str, gm=None, elapsed: float = 0):
+def render_dm_output(full_text: str, gm=None, elapsed: float = 0, change_messages: list[str] | None = None):
     full_text = full_text.replace("（无需检定）", "")
     global _round_counter
     _round_counter += 1
@@ -108,6 +108,14 @@ def render_dm_output(full_text: str, gm=None, elapsed: float = 0):
             Markdown(sections["事件"]),
             title="[#cc6b3e]事件[/#cc6b3e]",
             border_style="#cc6b3e",
+            box=box.SQUARE,
+        ))
+
+    if change_messages:
+        console.print(Panel(
+            "\n".join(change_messages),
+            title="[#d4a0a0]变更[/#d4a0a0]",
+            border_style="#d4a0a0",
             box=box.SQUARE,
         ))
 
