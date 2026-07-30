@@ -63,7 +63,7 @@ SYSTEM_PROMPT = """你是龙与地下城（D&D）5e 的地下城主（DM），�
 2. 每一轮都必须给出[选择]
 3. 用中文
 4. 保持冒险节奏紧凑
-5. [状态]必须包含 | 分隔符，有敌人/NPC必须写在 | 右侧，这是硬性要求"""
+5. [状态]必须包含'玩家:'和'目标:'两行，这是硬性要求"""
 
 
 class GameMaster:
@@ -159,7 +159,7 @@ class GameMaster:
 
     def needs_repair(self, response_text: str) -> bool:
         sections = {}
-        for name, content in re.findall(r"\[(场景|场景细节|事件|状态|选择|历史)\]\s*(.*?)(?=\[.*?\]|\Z)", response_text, re.DOTALL):
+        for name, content in re.findall(r"\[(场景|场景细节|事件|状态|选择|历史)\]\s*(.*?)(?=\[(?:场景|场景细节|事件|状态|选择|历史)\]|\Z)", response_text, re.DOTALL):
             sections[name] = content.strip()
         status_text = sections.get("状态", "")
         event_text = sections.get("事件", "")
@@ -182,48 +182,14 @@ class GameMaster:
                 max_tokens=300,
             )
             repair = r.choices[0].message.content or ""
-            m = re.search(r"\[状态\].*?(?=\[|\Z)", repair, re.DOTALL)
+            m = re.search(r"\[状态\](.*?)(?=\[(?:场景|场景细节|事件|状态|选择|历史)\]|\Z)", repair, re.DOTALL)
             if m:
-                new_status = m.group(0).strip()
-                response_text = re.sub(r"\[状态\].*?(?=\[|\Z)", new_status, response_text, count=1, flags=re.DOTALL)
+                raw = m.group(0)
+                if not raw.startswith("[状态]"):
+                    raw = "[状态]" + raw
+                new_status = raw.strip()
+                response_text = re.sub(r"\[状态\](.*?)(?=\[(?:场景|场景细节|事件|状态|选择|历史)\]|\Z)", new_status, response_text, count=1, flags=re.DOTALL)
                 self.history.append({"role": "assistant", "content": "\n（补全的目标信息）\n" + repair})
-        except:
-            pass
-        return response_text
-
-    def _repair_status(self, response_text: str) -> str:
-        """检查[状态]是否缺目标信息，缺则反问DM补全"""
-        sections = {}
-        pattern = r"\[(场景|场景细节|事件|状态|选择|历史)\]\s*(.*?)(?=\[.*?\]|\Z)"
-        for name, content in re.findall(pattern, response_text, re.DOTALL):
-            sections[name] = content.strip()
-
-        status_text = sections.get("状态", "")
-        event_text = sections.get("事件", "")
-
-        has_target_line = bool(re.search(r"目标\s*:", status_text))
-        has_enemy_keywords = any(w in event_text for w in ["攻击", "敌人", "敌对", "战斗", "拔刀", "挥剑", "射击", "敌对"])
-
-        if has_target_line or not has_enemy_keywords:
-            return response_text
-
-        follow_up = (
-            "你的[状态]区块缺少目标信息。请重新输出[状态]区块（只输出[状态]），"
-            "包含'玩家:'和'目标:'两行。如果当前场景确实没有敌人/NPC，目标行写'目标: 无'。"
-        )
-        messages = [{"role": "user", "content": follow_up}]
-        try:
-            r = self.client.chat.completions.create(
-                model=Config.MODEL_NAME,
-                messages=messages,
-                temperature=0.3,
-                max_tokens=300,
-            )
-            repair = r.choices[0].message.content or ""
-            m = re.search(r"\[状态\].*?(?=\[|\Z)", repair, re.DOTALL)
-            if m:
-                new_status = m.group(0).strip()
-                response_text = re.sub(r"\[状态\].*?(?=\[|\Z)", new_status, response_text, count=1, flags=re.DOTALL)
         except:
             pass
         return response_text

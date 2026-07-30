@@ -35,17 +35,35 @@ LOG_DIR = Path("./logs")
 
 # ---------- 配置检查 ----------
 
+def _setup_interactive():
+    console.print("\n[steel_blue]首次运行：配置 API[/steel_blue]")
+    console.print("输入你的 LLM API 信息（支持 OpenAI / DeepSeek / 任何兼容服务）\n")
+
+    base_url = Prompt.ask("API 地址", default="https://api.deepseek.com")
+    api_key = Prompt.ask("API 密钥")
+    model = Prompt.ask("模型名称", default="deepseek-v4-flash")
+    save_dir = Prompt.ask("存档目录", default="./saves")
+
+    lines = [
+        f"API_BASE_URL={base_url}",
+        f"API_KEY={api_key}",
+        f"MODEL_NAME={model}",
+        f"SAVE_DIR={save_dir}",
+    ]
+    Path(".env").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    console.print("[grey50]已写入 .env，继续启动...[/grey50]")
+    Config.load()
+
+
 def check_config():
     if Config.is_ready():
         return
     console.print("\n[steel_blue]欢迎来到大模型地下城！[/steel_blue]")
-    console.print("\n[indian_red]错误: 缺少 API 配置[/indian_red]")
-    console.print("\n请将 [bold].env.example[/bold] 复制为 [bold].env[/bold]，填入以下内容后重新运行：\n")
-    console.print("  API_BASE_URL=https://api.deepseek.com")
-    console.print("  API_KEY=sk-你的密钥")
-    console.print("  MODEL_NAME=deepseek-v4-flash")
-    console.print("\n或用其它兼容 OpenAI API 的服务，修改对应值即可。")
-    sys.exit(1)
+    console.print("[grey50]检测到未配置 API，进入交互式设置。[/grey50]")
+    _setup_interactive()
+    if not Config.is_ready():
+        console.print("\n[indian_red]配置后仍不完整，请检查输入。[/indian_red]")
+        sys.exit(1)
 
 
 # ---------- 角色创建 ----------
@@ -194,7 +212,7 @@ SECTION_ORDER = ["场景", "事件", "状态", "选择", "历史"]
 
 def parse_sections(text: str) -> dict:
     sections = {}
-    pattern = r"\[(场景|场景细节|事件|状态|选择|历史)\]\s*(.*?)(?=\[.*?\]|\Z)"
+    pattern = r"\[(场景|场景细节|事件|状态|选择|历史)\]\s*(.*?)(?=\[(?:场景|场景细节|事件|状态|选择|历史)\]|\Z)"
     matches = re.findall(pattern, text, re.DOTALL)
     for name, content in matches:
         sections[name] = content.strip()
