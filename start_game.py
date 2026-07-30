@@ -20,7 +20,7 @@ from rich import box
 from rich import print as rprint
 
 from config import Config
-from character import Character, RACES, CLASSES, BACKGROUNDS, ARMOR_BY_CLASS, Combatant, modifier
+from character import Character, RACES, CLASSES, BACKGROUNDS, ARMOR_BY_CLASS, Combatant, modifier, CLASS_DEFAULT_SKILLS
 from game_master import GameMaster, ABILITY_CN_TO_EN, parse_check_from_text
 
 theme = Theme({
@@ -116,6 +116,7 @@ def _quick_character() -> Character:
         strength=stats["力量"], dexterity=stats["敏捷"],
         constitution=stats["体质"], intelligence=stats["智力"],
         wisdom=stats["感知"], charisma=stats["魅力"],
+        skills=list(CLASS_DEFAULT_SKILLS.get(char_class, [])),
         inventory=["旅行者服装", "背包", "水袋", "口粮x5"],
         gender=random.choice(["男", "女"]),
         age=random.choice(["少年", "青年", "壮年", "中年"]),
@@ -172,6 +173,7 @@ def _detailed_character() -> Character:
         name=name, race=race, char_class=char_class,
         background=background, gender=gender, age=age,
         description=desc, level=1, hp=hp, max_hp=hp,
+        skills=list(CLASS_DEFAULT_SKILLS.get(char_class, [])),
         strength=stats["力量"], dexterity=stats["敏捷"],
         constitution=stats["体质"], intelligence=stats["智力"],
         wisdom=stats["感知"], charisma=stats["魅力"],
@@ -419,6 +421,9 @@ def show_help():
     console.print(f"  [grey82]/status[/grey82]  角色状态")
     console.print(f"  [grey82]/info[/grey82]    详细角色信息")
     console.print(f"  [grey82]/scene[/grey82]   详细场景信息")
+    console.print(f"  [grey82]/equip[/grey82]    查看装备")
+    console.print(f"  [grey82]/skill[/grey82]    查看技能")
+    console.print(f"  [grey82]/time[/grey82]    查看当前时间")
     console.print(f"  [grey82]/save[/grey82]    保存")
     console.print(f"  [grey82]/load[/grey82]    读档")
     console.print(f"  [grey82]/new[/grey82]     新建角色")
@@ -451,6 +456,50 @@ def show_info(char: Character):
         f"魅力: {char.charisma}{mod_str(char.charisma)}\n"
         f"物品: {', '.join(char.inventory) if char.inventory else '无'}",
         title="[grey58]角色信息[/grey58]",
+        border_style="grey58",
+        box=box.SQUARE,
+    ))
+
+
+def show_equip(char: Character):
+    if not char.inventory:
+        console.print("[grey50]无装备[/grey50]")
+        return
+    items = "\n".join(f"  • {item}" for item in char.inventory)
+    console.print(Panel(
+        items,
+        title="[grey58]装备[/grey58]",
+        border_style="grey58",
+        box=box.SQUARE,
+    ))
+
+
+def show_skills(char: Character):
+    if not char.skills:
+        console.print("[grey50]未习得技能[/grey50]")
+        return
+    from character import mod_str
+    skill_lines = []
+    for s in char.skills:
+        skill_lines.append(f"  • {s}")
+    console.print(Panel(
+        "\n".join(skill_lines),
+        title="[grey58]技能[/grey58]",
+        border_style="grey58",
+        box=box.SQUARE,
+    ))
+
+
+def show_time(gm):
+    time_info = "时间不详"
+    if gm.last_scene:
+        for line in gm.last_scene.split("\n"):
+            if line.strip().startswith("时间"):
+                time_info = line.strip()
+                break
+    console.print(Panel(
+        time_info,
+        title="[grey58]当前时间[/grey58]",
         border_style="grey58",
         box=box.SQUARE,
     ))
@@ -562,6 +611,15 @@ def game_loop(gm: GameMaster):
         elif cmd == "/new":
             if Prompt.ask(escape("确定新建？进度将丢失 [y/n]")) == "y":
                 return "new_game"
+            continue
+        elif cmd == "/equip":
+            show_equip(gm.character)
+            continue
+        elif cmd == "/skill":
+            show_skills(gm.character)
+            continue
+        elif cmd == "/time":
+            show_time(gm)
             continue
         elif cmd.startswith("/roll"):
             rest = player_input[5:].strip()

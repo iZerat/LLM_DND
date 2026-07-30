@@ -21,6 +21,21 @@ ARMOR_BY_CLASS = {
     "法师": 12,
 }
 
+CLASS_DEFAULT_SKILLS = {
+    "战士": ["运动", "察觉"],
+    "法师": ["调查", "魔法"],
+    "游侠": ["察觉", "生存"],
+    "盗贼": ["隐匿", "巧手"],
+    "牧师": ["洞察", "医药"],
+    "圣骑士": ["游说", "宗教"],
+    "德鲁伊": ["自然", "驯兽"],
+    "术士": ["欺瞒", "游说"],
+    "吟游诗人": ["表演", "游说"],
+    "武僧": ["特技", "察觉"],
+    "野蛮人": ["运动", "生存"],
+    "邪术师": ["欺瞒", "调查"],
+}
+
 
 def modifier(score: int) -> int:
     return (score - 10) // 2
@@ -62,6 +77,7 @@ class Character:
     wisdom: int = 10
     charisma: int = 10
     inventory: list = field(default_factory=list)
+    skills: list = field(default_factory=list)
     description: str = ""
     gender: str = "未知"
     age: str = "成年"
