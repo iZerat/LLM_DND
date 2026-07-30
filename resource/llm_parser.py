@@ -4,7 +4,6 @@ from typing import Optional
 from resource.manager import ResourceManager, ResourceResult
 from resource.item_db import item_db
 
-# Chinese -> English slot mapping (reverse lookup from loc table)
 _SLOT_CN_TO_EN: dict[str, str] = {
     "武器": "weapon",
     "副手": "off_hand",
@@ -23,6 +22,8 @@ def _resolve_slot(slot_cn: str) -> Optional[str]:
     return _SLOT_CN_TO_EN.get(slot_cn)
 
 
+# ── [物品变更] 解析：物品 + 货币 ──
+
 def parse_item_changes(text: str) -> Optional[list[dict]]:
     m = re.search(
         r'\[物品变更\]\s*\n(.*?)(?=\n\[|\Z)',
@@ -38,36 +39,44 @@ def parse_item_changes(text: str) -> Optional[list[dict]]:
         if not line:
             continue
 
+        # ── gold ──
         gold_m = re.match(r'金币\s*[:：]\s*([+-])(\d+)', line)
         if gold_m:
             sign = 1 if gold_m.group(1) == "+" else -1
-            amount = int(gold_m.group(2)) * 100
             requests.append({
                 "action": "currency_add" if sign > 0 else "currency_remove",
-                "amount": abs(amount),
+                "amount": abs(int(gold_m.group(2))) * 10000,
             })
             continue
 
         silver_m = re.match(r'银币\s*[:：]\s*([+-])(\d+)', line)
         if silver_m:
             sign = 1 if silver_m.group(1) == "+" else -1
-            amount = int(silver_m.group(2)) * 10
             requests.append({
                 "action": "currency_add" if sign > 0 else "currency_remove",
-                "amount": abs(amount),
+                "amount": abs(int(silver_m.group(2))) * 100,
             })
             continue
 
-        copper_m = re.match(r'铜币\s*[:：]\s*([+-])(\d+)', line)
+        copper_m = re.match(r'铜[币板]\s*[:：]\s*([+-])(\d+)', line)
         if copper_m:
             sign = 1 if copper_m.group(1) == "+" else -1
-            amount = int(copper_m.group(2))
             requests.append({
                 "action": "currency_add" if sign > 0 else "currency_remove",
-                "amount": abs(amount),
+                "amount": abs(int(copper_m.group(2))),
             })
             continue
 
+        cp_m = re.match(r'cp\s*[:：]\s*([+-])(\d+)', line, re.IGNORECASE)
+        if cp_m:
+            sign = 1 if cp_m.group(1) == "+" else -1
+            requests.append({
+                "action": "currency_add" if sign > 0 else "currency_remove",
+                "amount": abs(int(cp_m.group(2))),
+            })
+            continue
+
+        # ── items ──
         item_m = re.match(r'([+-])\s*(.+?)(?:\s*x(\d+))?\s*(?:（(.+?)）)?\s*$', line)
         if item_m:
             sign = item_m.group(1)
@@ -97,18 +106,86 @@ def parse_item_changes(text: str) -> Optional[list[dict]]:
     return requests
 
 
-def try_process_changes(manager: ResourceManager, text: str, max_retries: int = 3) -> tuple[str, list[ResourceResult]]:
-    requests = parse_item_changes(text)
-    if requests is None:
-        return text, []
-    unknown = [r for r in requests if r["action"] == "unknown"]
-    if unknown:
-        missing_names = [r["name"] for r in unknown]
-        msg = "未找到的物品: " + ", ".join(missing_names)
-        return text, [ResourceResult.fail(msg)]
-    results = manager.process_requests(requests)
-    clean = re.sub(
-        r'\n?\[物品变更\].*?(?=\n\[|\Z)',
-        '', text, count=1, flags=re.DOTALL
-    ).strip()
-    return clean, results
+# ── [状态变更] 解析：HP / NPC / target ──
+
+def parse_status_changes(text: str) -> Optional[list[dict]]:
+    m = re.search(
+        r'\[状态变更\]\s*\n(.*?)(?=\n\[|\Z)',
+        text, re.DOTALL
+    )
+    if not m:
+        return None
+    block = m.group(1).strip()
+    requests = []
+
+    target_name: Optional[str] = None
+
+    for line in block.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+
+        target_m = re.match(r'target\s*[:：]\s*(.+)', line, re.IGNORECASE)
+        if target_m:
+            target_name = target_m.group(1).strip()
+            requests.append({"action": "set_target", "name": target_name})
+            continue
+
+        npc_add_m = re.match(
+            r'npc_add\s*[:：]\s*(.+?)(?:,\s*AC:\s*(\d+))?(?:,\s*HP:\s*(\d+)/(\d+))?(?:,\s*\[(.+?)\])?',
+            line, re.IGNORECASE
+        )
+        if npc_add_m:
+            name = npc_add_m.group(1).strip()
+            ac = int(npc_add_m.group(2)) if npc_add_m.group(2) else 10
+            hp = int(npc_add_m.group(3)) if npc_add_m.group(3) else 8
+            max_hp = int(npc_add_m.group(4)) if npc_add_m.group(4) else hp
+            tag = npc_add_m.group(5) or "中立"
+            requests.append({
+                "action": "npc_add",
+                "name": name, "ac": ac,
+                "hp": hp, "max_hp": max_hp,
+                "attitude": tag,
+            })
+            target_name = name
+            continue
+
+        thp_m = re.match(r'target_hp\s*[:：]\s*([+-])(\d+)', line, re.IGNORECASE)
+        if thp_m:
+            sign = 1 if thp_m.group(1) == "+" else -1
+            requests.append({
+                "action": "target_hp_add" if sign > 0 else "target_hp_remove",
+                "amount": abs(int(thp_m.group(2))),
+                "target": target_name,
+            })
+            continue
+
+        tcp_m = re.match(r'target_cp\s*[:：]\s*([+-])(\d+)', line, re.IGNORECASE)
+        if tcp_m:
+            sign = 1 if tcp_m.group(1) == "+" else -1
+            requests.append({
+                "action": "target_cp_add" if sign > 0 else "target_cp_remove",
+                "amount": abs(int(tcp_m.group(2))),
+                "target": target_name,
+            })
+            continue
+
+        hp_m = re.match(r'hp\s*[:：]\s*([+-])(\d+)', line, re.IGNORECASE)
+        if hp_m:
+            sign = 1 if hp_m.group(1) == "+" else -1
+            requests.append({
+                "action": "hp_add" if sign > 0 else "hp_remove",
+                "amount": abs(int(hp_m.group(2))),
+            })
+            continue
+
+        maxhp_m = re.match(r'max_hp\s*[:：]\s*([+-])(\d+)', line, re.IGNORECASE)
+        if maxhp_m:
+            sign = 1 if maxhp_m.group(1) == "+" else -1
+            requests.append({
+                "action": "maxhp_add" if sign > 0 else "maxhp_remove",
+                "amount": abs(int(maxhp_m.group(2))),
+            })
+            continue
+
+    return requests

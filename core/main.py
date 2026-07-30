@@ -443,9 +443,9 @@ def main(skip_api_test=False):
 
     console.print("\n[steel_blue]选择开场模板[/steel_blue]")
     console.print("1. 随机世界（完全随机生成）")
-    console.print("2. 「渡者」（一上来就遇到中立向导）")
-    console.print("3. 「伏击」（一上来就遭遇敌人）")
-    console.print("4. 「旅伴」（一上来就遇到友善NPC）")
+    console.print("2. 渡者（开局遇到中立向导）")
+    console.print("3. 伏击（开局遭遇敌人）")
+    console.print("4. 旅伴（开局遇到友善NPC）")
     tpl = Prompt.ask(escape("选择 [1/2/3/4]"))
     if not tpl or tpl not in ("1", "2", "3", "4"):
         tpl = "1"

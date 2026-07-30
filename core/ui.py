@@ -153,7 +153,13 @@ def render_dm_output(full_text: str, gm=None, elapsed: float = 0, change_message
             ]
             for extra in extras:
                 extra_text, extra_color = style_target(extra)
-                panels.append(Panel(extra_text, title=f"[{extra_color}]其他[/{extra_color}]", border_style=extra_color, box=box.SQUARE))
+                panels.append(Panel(extra_text, title=f"[{extra_color}]目标[/{extra_color}]", border_style=extra_color, box=box.SQUARE))
+            console.print(Columns(panels, equal=False, expand=False))
+        elif extras:
+            panels = [Panel(left, title="[grey58]玩家[/grey58]", border_style="grey58", box=box.SQUARE)]
+            for extra in extras:
+                extra_text, extra_color = style_target(extra)
+                panels.append(Panel(extra_text, title=f"[{extra_color}]目标[/{extra_color}]", border_style=extra_color, box=box.SQUARE))
             console.print(Columns(panels, equal=False, expand=False))
         else:
             console.print(Columns([Panel(left, title="[grey58]玩家[/grey58]", border_style="grey58", box=box.SQUARE)], equal=False, expand=False))

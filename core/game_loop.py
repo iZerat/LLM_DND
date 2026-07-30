@@ -12,6 +12,7 @@ from rich import box
 from core.config import Config
 from core.character import Character, modifier
 from core.game_master import GameMaster, ABILITY_CN_TO_EN, parse_check_from_text
+from world.state import WorldState
 from core.ui import (
     console, render_dm_output, show_status, show_info,
     show_equip, show_bag, show_skills, show_time, show_help,
@@ -93,6 +94,12 @@ def save_game(gm: GameMaster, name: str = None):
             "last_assistant": gm.last_assistant,
         }, ensure_ascii=False, indent=2), encoding="utf-8"
     )
+
+    # world.json — NPC / entity state
+    if hasattr(gm, 'world_state') and gm.world_state:
+        (char_dir / "world.json").write_text(
+            json.dumps(gm.world_state.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8"
+        )
 
     console.print(f"[grey50]已保存: {name}[/grey50]")
     console.print()
@@ -265,6 +272,11 @@ def load_game(save_path: str) -> GameMaster:
                 gm.setting_stem = setting_stem
                 from core.setting import load_setting
                 gm.setting_content = load_setting(setting_stem)
+        from world.state import WorldState
+        world_path = path / "world.json"
+        gm.world_state = WorldState.from_dict(
+            json.loads(world_path.read_text(encoding="utf-8"))
+        ) if world_path.exists() else WorldState()
     else:
         data = json.loads(path.read_text(encoding="utf-8"))
         char_data = _migrate_char_data(data.get("character", data))
@@ -279,6 +291,8 @@ def load_game(save_path: str) -> GameMaster:
             gm.last_scene_detail = data["last_scene_detail"]
         if "last_time" in data:
             gm.last_time = data["last_time"]
+        from world.state import WorldState
+        gm.world_state = WorldState()
     console.print(f"[grey50]已加载: {path.stem}[/grey50]")
     return gm
 
@@ -342,6 +356,8 @@ def _show_round_recap(gm):
 
 def game_loop(gm: GameMaster):
     console.print(f"\n[steel_blue]{gm.character.name}[/steel_blue] 的冒险开始了！输入 [grey62]/help[/grey62] 查看命令\n")
+    world_state = getattr(gm, 'world_state', None) or WorldState()
+    gm.world_state = world_state
     last_choice_record = ""
 
     while True:
@@ -484,6 +500,10 @@ def game_loop(gm: GameMaster):
                 result_word = "\u6210\u529f" if success else "\u5931\u8d25"
                 check_text = f"[yellow]{ability_cn}\u68c0\u5b9a[/yellow] DC [bold]{dc}[/bold] | \u8c03\u6574\u503c: {ability_mod:+d}\n[grey50]d20({roll}) + ({ability_mod:+d}) = {total}[/grey50]\n[bold {result_color}]{result_word}[/bold {result_color}]"
                 player_input = f"[\u9009\u62e9\u9009\u9879{selected_num}] {option_text} | [\u68c0\u5b9a] d20({roll})+({ability_mod:+d})={total} {result_word}"
+            elif re.search(r'[（(]\s*攻击\s*检定', option_text):
+                roll = dice_random.randint(1, 20)
+                check_text = f"[yellow]攻击检定[/yellow]\n[grey50]d20({roll})[/grey50]"
+                player_input = f"[选择选项{selected_num}] {option_text} | [攻击] d20({roll})"
             else:
                 player_input = f"[\u9009\u62e9\u9009\u9879{selected_num}] {option_text or selected_num}"
 
@@ -516,6 +536,12 @@ def game_loop(gm: GameMaster):
             prompt_reminder = build_prompt_suffix(player_input)
             if prompt_reminder:
                 player_input += prompt_reminder
+
+            # Inject world state context for LLM
+            ws_ctx = world_state.render_context_for_llm(gm.character.name, gm.character.ac, gm.character.hp, gm.character.max_hp)
+            if ws_ctx:
+                player_input += "\n\n" + ws_ctx
+
             response_parts = []
             _t0 = _time.time()
             console.print()
@@ -529,7 +555,8 @@ def game_loop(gm: GameMaster):
             # ── 资源变更处理（银行柜台） ──
             from resource.manager import ResourceManager
             from resource.llm_parser import parse_item_changes
-            manager = ResourceManager(gm.character.inventory)
+            manager = ResourceManager(gm.character.inventory, gm.character)
+            manager.world = world_state
             retries = 0
             max_retries = 3
             change_messages: list[str] = []
@@ -545,7 +572,8 @@ def game_loop(gm: GameMaster):
                         '', full, count=1, flags=re.DOTALL
                     ).strip()
                     for r in results:
-                        change_messages.append(r.message)
+                        if r.visible:
+                            change_messages.append(r.message)
                     break
                 retries += 1
                 missing = "、".join(r["name"] for r in unknown)
@@ -566,7 +594,73 @@ def game_loop(gm: GameMaster):
                 except Exception:
                     break
 
+            # ── [状态变更] 处理：HP / target / NPC ──
+            from resource.llm_parser import parse_status_changes
+            status_reqs = parse_status_changes(full)
+            if status_reqs is not None:
+                results = manager.process_requests(status_reqs)
+                full = re.sub(
+                    r'\n?\[状态变更\].*?(?=\n\[|\Z)',
+                    '', full, count=1, flags=re.DOTALL
+                ).strip()
+                for r in results:
+                    if r.visible:
+                        change_messages.append(r.message)
+
             log_dm_response(get_round_counter() + 1, player_input, full)
+
+            # ── 解析[状态]并同步WorldState（捕获LLM对HP的叙事变更） ──
+            status_match = re.search(
+                r'\[状态\]\s*(.*?)(?=\n\[(?:场景|场景细节|事件|状态|选择|历史|时间)|\Z)',
+                full, re.DOTALL
+            )
+            if status_match and world_state:
+                status_text = status_match.group(1)
+                # Parse player HP
+                player_hp_m = re.search(r'HP:\s*(\d+)/(\d+)', status_text)
+                if player_hp_m:
+                    reported_hp = int(player_hp_m.group(1))
+                    if reported_hp != gm.character.hp:
+                        diff = reported_hp - gm.character.hp
+                        gm.character.hp = reported_hp
+                        change_messages.append(f"玩家HP {'+' if diff > 0 else ''}{diff}点")
+                # Parse NPC lines: 目标/其他: [tag]NPCname, AC:N, HP:N/N
+                for line in status_text.split('\n'):
+                    line = line.strip()
+                    npc_m = re.match(
+                        r'(?:目标|其他)\s*:\s*(?:\[(.+?)\])?\s*(.+?),\s*AC:\s*(\d+),\s*HP:\s*(\d+)/(\d+)',
+                        line
+                    )
+                    if npc_m:
+                        tag = npc_m.group(1) or ""
+                        name = npc_m.group(2).strip()
+                        ac = int(npc_m.group(3))
+                        hp = int(npc_m.group(4))
+                        max_hp = int(npc_m.group(5))
+                        existing = world_state.get_by_name(name)
+                        if existing:
+                            if existing.hp != hp:
+                                diff = hp - existing.hp
+                                change_messages.append(f"目标 {name} HP {'+' if diff > 0 else ''}{diff}点")
+                            existing.hp = hp
+                            existing.max_hp = max_hp
+                            existing.ac = ac
+                            world_state.touch(existing.id)
+                        else:
+                            from world.entity import NPC as _NPC
+                            attitude_map = {"敌对": "hostile", "中立": "neutral", "友方": "friendly"}
+                            attitude = attitude_map.get(tag, "neutral")
+                            new_npc = _NPC(
+                                id=f"npc_{abs(hash(name)) % 1000000:x}",
+                                name=name, ac=ac, hp=hp, max_hp=max_hp,
+                                attitude=attitude
+                            )
+                            world_state.add_active(new_npc)
+                            change_messages.append(f"NPC出现: {name} (HP:{hp}/{max_hp})")
+                # Tick GC
+                pruned = world_state.tick()
+                if pruned:
+                    change_messages.append(f"已遗忘: {', '.join(pruned)}")
 
             if not gm.history:
                 gm.set_history([])

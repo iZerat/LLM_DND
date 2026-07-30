@@ -125,15 +125,15 @@ class Currency:
 
     @property
     def gold(self) -> int:
-        return self.copper // 100
+        return self.copper // 10000
 
     @property
     def silver(self) -> int:
-        return (self.copper % 100) // 10
+        return (self.copper % 10000) // 100
 
     @property
     def copper_display(self) -> int:
-        return self.copper % 10
+        return self.copper % 100
 
     def add(self, cp: int):
         self.copper += cp
