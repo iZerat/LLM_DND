@@ -109,10 +109,13 @@ class GameMaster:
     def _build_messages(self, player_input: str) -> list:
         char_summary = self.character.summary()
         format_rule = "\n\n[记住] [状态]必须包含'玩家:'和'目标:'两行。有敌人/NPC就写目标行并加[敌对][中立][友方]标签。无目标写'目标: 无'。"
-        messages = [
-            {"role": "system",
-             "content": SYSTEM_PROMPT + f"\n\n## 当前角色信息\n{char_summary}" + format_rule},
-        ]
+        template_note = ""
+        if self.template and self.template != "random" and not self.history:
+            t = OPENING_TEMPLATES.get(self.template)
+            if t:
+                template_note = f"\n\n## 开场模板\n{t}\n严格按此模板生成第一轮输出。"
+        system_content = SYSTEM_PROMPT + f"\n\n## 当前角色信息\n{char_summary}" + format_rule + template_note
+        messages = [{"role": "system", "content": system_content}]
         for h in self.history:
             messages.append(h)
         messages.append({"role": "user", "content": player_input + format_rule})

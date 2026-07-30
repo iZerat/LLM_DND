@@ -78,7 +78,15 @@ def create_character() -> Character:
 
 def _quick_character() -> Character:
     import random
-    name = Prompt.ask("角色名称", default="无名冒险者")
+    name = Prompt.ask("角色名称（留空回车随机）")
+    if not name:
+        confirm = Prompt.ask("是否随机生成名字？（再次回车确认随机，或直接输入名字）")
+        if not confirm:
+            import random as _rand
+            fantasy_names = ["艾琳", "索恩", "灰风", "夜影", "石心", "霜牙", "火鬃", "刃歌", "晨星", "雾行"]
+            name = _rand.choice(fantasy_names)
+        else:
+            name = confirm
     race = random.choice(RACES)
     char_class = random.choice(CLASSES)
     background = random.choice(BACKGROUNDS)
@@ -277,7 +285,7 @@ def render_dm_output(full_text: str, gm=None, elapsed: float = 0):
         def style_target(t: str) -> tuple:
             hostility_colors = {
                 "敌对": "indian_red",
-                "中立": "grey50",
+                "中立": "#c4b08a",
                 "友方": "light_sea_green",
             }
             for tag, color in hostility_colors.items():
@@ -560,7 +568,17 @@ def main():
                 pass
 
     char = create_character()
-    gm = GameMaster(char)
+
+    console.print("\n[steel_blue]选择开场模板[/steel_blue]")
+    console.print("1. 随机世界（完全随机生成）")
+    console.print("2. 「渡者」（一上来就遇到中立向导）")
+    console.print("3. 「伏击」（一上来就遭遇敌人）")
+    console.print("4. 「旅伴」（一上来就遇到友善NPC）")
+    tpl = Prompt.ask(escape("选择 [1/2/3/4]"))
+    if not tpl or tpl not in ("1", "2", "3", "4"):
+        tpl = "1"
+    template_map = {"1": "random", "2": "guide", "3": "ambush", "4": "ally"}
+    gm = GameMaster(char, template_map[tpl])
 
     console.print("\n[grey62]冒险即将开始...[/grey62]")
     try:
