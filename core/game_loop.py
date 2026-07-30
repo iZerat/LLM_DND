@@ -326,7 +326,7 @@ def game_loop(gm: GameMaster):
                 record_text += "\n\n" + check_text
             console.print(Panel(
                 record_text,
-                title="[#9b87c4]结果[/#9b87c4]",
+                title="[#9b87c4]行动[/#9b87c4]",
                 border_style="#9b87c4",
                 box=box.SQUARE,
             ))

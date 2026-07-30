@@ -169,7 +169,7 @@ def render_dm_output(full_text: str, gm=None, elapsed: float = 0):
             elif line:
                 choice_text += f"{line}\n"
         if choice_text:
-            console.print(Panel(choice_text.strip(), title="[dark_sea_green]行动[/dark_sea_green]", border_style="dark_sea_green", box=box.SQUARE))
+            console.print(Panel(choice_text.strip(), title="[dark_sea_green]选择[/dark_sea_green]", border_style="dark_sea_green", box=box.SQUARE))
 
 
 def show_help():
