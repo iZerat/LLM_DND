@@ -1,0 +1,164 @@
+import json
+import random
+import re
+from typing import Optional
+from openai import OpenAI
+from config import Config
+from character import Character
+
+SYSTEM_PROMPT = """你是龙与地下城（D&D）5e 的地下城主（DM），你将用中文主持一场精彩的冒险。
+
+## 输出格式
+
+每一轮都必须严格按照以下格式输出（使用方括号标注区块）：
+
+[场景]
+地点、时间、天气/温度、海拔、湿度等环境描述。简短有力。
+
+[事件]
+描述当前发生了什么。如果是新一轮的第一条事件，需要承接上一轮玩家的选择结果。描述要有画面感，但保持精炼。
+
+[状态]
+左侧 | 右侧
+玩家: 名称 Lv.X 种族 职业, AC:X, HP:X/X | 目标: (如果有敌人/NPC则显示) 名称, AC:X, HP:X/X
+如果当前没有目标，右侧留空。
+
+[选择]
+1. 选项一
+2. 选项二
+3. 选项三
+(给出3个具体的行动选项，让玩家可以选。玩家也可以自己输入其他行动。)
+
+[历史]
+- 上一轮的行动记录(只记录事实，不要写判定和结果，结果会在本轮[事件]中描述)
+
+## 字数控制
+- 每轮总输出控制在200字以内
+- [场景] 1-2句话
+- [事件] 3-5句话
+- [状态] 1行
+- [选择] 3个选项，每个一行
+- [历史] 1行
+- 描述精炼，不啰嗦
+
+## 核心规则
+- 属性调整值 = (属性值-10)//2
+- 熟练加值: 1级+2
+- 检定: d20 + 属性调整值 + (熟练加值 if 熟练)
+- 攻击: d20 + 属性调整值 + 熟练加值 vs AC
+- 优势: 2d20取高; 劣势: 2d20取低
+- DC: 5极简 10简单 15中等 20困难 25极难
+
+## 对话与行动标记
+- 「NPC对话」
+- **关键动作或战斗**
+- *环境氛围*
+
+## 要求
+1. 语言精炼，描述生动，拒绝长篇大论
+2. 每一轮都必须给出[选择]
+3. 用中文
+4. 保持冒险节奏紧凑"""
+
+
+class GameMaster:
+    def __init__(self, character: Character):
+        self.character = character
+        self.client: Optional[OpenAI] = None
+        self.history: list = []
+        self._init_client()
+        self.last_choices: list = []
+        self.last_scene: str = ""
+
+    def _init_client(self):
+        if Config.is_ready():
+            self.client = OpenAI(
+                base_url=Config.API_BASE_URL,
+                api_key=Config.API_KEY,
+            )
+
+    def _build_messages(self, player_input: str) -> list:
+        char_summary = self.character.summary()
+        messages = [
+            {"role": "system",
+             "content": SYSTEM_PROMPT + f"\n\n## 当前角色信息\n{char_summary}\n性别/年龄/金币只用于玩家查询，无需在故事中重复。\n在[场景]中提供地点、时间、天气、温度、海拔、湿度等细节。"},
+        ]
+        for h in self.history:
+            messages.append(h)
+        messages.append({"role": "user", "content": player_input})
+        return messages
+
+    def _handle_dice_roll(self, player_input: str) -> Optional[str]:
+        match = re.match(r"^/roll\s+(.+)", player_input.strip())
+        if not match:
+            return None
+        expr = match.group(1).strip()
+
+        def roll_dice(m):
+            count = int(m.group(1)) if m.group(1) else 1
+            sides = int(m.group(2))
+            modifier = int(m.group(3)) if m.group(3) else 0
+            if count < 1:
+                count = 1
+            results = [random.randint(1, sides) for _ in range(count)]
+            total = sum(results) + modifier
+            return str(total)
+
+        expr_parsed = re.sub(r"(\d+)?d(\d+)(?:\s*\+\s*(\d+))?", roll_dice, expr)
+        try:
+            result = eval(expr_parsed)
+        except:
+            return f"无效骰子: {expr}"
+
+        return f"[投骰] {expr} = **{result}**"
+
+    def send_message_stream(self, player_input: str):
+        if player_input.startswith("/roll"):
+            roll_result = self._handle_dice_roll(player_input)
+            if roll_result:
+                self.history.append({"role": "user",
+                                    "content": f"[投骰] {player_input} -> {roll_result}"})
+                yield roll_result
+                return
+
+        messages = self._build_messages(player_input)
+
+        if not self.client:
+            yield "错误: API 未配置"
+            return
+
+        try:
+            response = self.client.chat.completions.create(
+                model=Config.MODEL_NAME,
+                messages=messages,
+                stream=True,
+                temperature=0.8,
+                max_tokens=2048,
+            )
+
+            collected = ""
+            for chunk in response:
+                if chunk.choices[0].delta.content:
+                    content = chunk.choices[0].delta.content
+                    collected += content
+                    yield content
+
+            self.history.append({"role": "user",
+                                "content": player_input if not player_input.startswith("/roll") else f"[指令] {player_input}"})
+            self.history.append({"role": "assistant", "content": collected})
+
+        except Exception as e:
+            yield f"API 请求失败: {e}"
+
+    def to_dict(self) -> dict:
+        return {
+            "character": self.character.to_dict(),
+            "history": self.history,
+            "last_scene": self.last_scene,
+        }
+
+    def get_history(self) -> list:
+        return self.history
+
+    def set_history(self, history: list):
+        self.history = history
