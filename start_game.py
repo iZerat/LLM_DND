@@ -245,7 +245,7 @@ SCENE_BASIC_FIELDS = {"地点", "时间", "温度"}
 
 def parse_sections(text: str) -> dict:
     sections = {}
-    pattern = r"\[(场景|场景细节|事件|状态|选择|历史)\]\s*(.*?)(?=\[(?:场景|场景细节|事件|状态|选择|历史)\]|\Z)"
+    pattern = r"\[(场景|场景细节|事件|状态|选择|历史|时间)\]\s*(.*?)(?=\[(?:场景|场景细节|事件|状态|选择|历史|时间)\]|\Z)"
     matches = re.findall(pattern, text, re.DOTALL)
     for name, content in matches:
         sections[name] = content.strip()
@@ -315,6 +315,10 @@ def render_dm_output(full_text: str, gm=None, elapsed: float = 0):
         if gm:
             gm.last_scene = sections["场景"]
 
+    # 时间
+    if gm and "时间" in sections:
+        gm.last_time = sections["时间"]
+
     # 事件
     if "事件" in sections:
         console.print(Panel(
@@ -374,7 +378,7 @@ def render_dm_output(full_text: str, gm=None, elapsed: float = 0):
                 # 去掉"无需检定"类括号标记
                 line = re.sub(r'[（(]\s*无需[^）)]*[）)]', '', line).strip()
                 line_colored = re.sub(
-                    r'([（(][^）)]*(?:力量|敏捷|体质|智力|感知|魅力)[^）)]*\d+[^）)]*[）)])',
+                    r'([（(][^）)]*(?:(?:力量|敏捷|体质|智力|感知|魅力)|检定|击骰)[^）)]*[）)])',
                     r'[#5DCCCC]\1[/#5DCCCC]',
                     line,
                 )
@@ -418,6 +422,8 @@ def load_game(path: str) -> GameMaster:
         gm.last_scene = data["last_scene"]
     if "last_scene_detail" in data:
         gm.last_scene_detail = data["last_scene_detail"]
+    if "last_time" in data:
+        gm.last_time = data["last_time"]
     console.print(f"[grey50]已加载: {Path(path).stem}[/grey50]")
     return gm
 
@@ -514,14 +520,9 @@ def show_skills(char: Character):
 
 
 def show_time(gm):
-    time_info = "时间不详"
-    if gm.last_scene:
-        for line in gm.last_scene.split("\n"):
-            if line.strip().startswith("时间"):
-                time_info = line.strip()
-                break
+    text = gm.last_time if gm.last_time else "时间不详"
     console.print(Panel(
-        time_info,
+        text,
         title="[grey58]当前时间[/grey58]",
         border_style="grey58",
         box=box.SQUARE,
@@ -624,10 +625,12 @@ def game_loop(gm: GameMaster):
                 console.print("[grey50]没有找到存档[/grey50]")
                 continue
             try:
-                idx = IntPrompt.ask("选择编号") - 1
+                idx = int(Prompt.ask("选择编号")) - 1
                 if 0 <= idx < len(saves):
                     gm = load_game(str(saves[idx]))
                     show_status(gm.character)
+            except ValueError:
+                console.print("[grey50]请输入有效数字[/grey50]")
             except:
                 console.print("[grey50]无效选择[/grey50]")
             continue
@@ -687,7 +690,7 @@ def game_loop(gm: GameMaster):
             record_display = last_choice_record
             if last_was_option:
                 record_display = re.sub(
-                    r'([（(][^）)]*(?:力量|敏捷|体质|智力|感知|魅力)[^）)]*\d+[^）)]*[）)])',
+                    r'([（(][^）)]*(?:(?:力量|敏捷|体质|智力|感知|魅力)|检定|击骰)[^）)]*[）)])',
                     r'[#5DCCCC]\1[/#5DCCCC]',
                     record_display,
                 )
@@ -746,6 +749,17 @@ def game_loop(gm: GameMaster):
 
 # ---------- 入口 ----------
 
+def _show_round_recap(gm):
+    """加载存档后展示上一轮的输出，让玩家知道当前进度"""
+    global _round_counter
+    assistant_msgs = [m for m in gm.history if m["role"] == "assistant"]
+    if not assistant_msgs:
+        return
+    _round_counter = len(assistant_msgs) - 1
+    last_response = assistant_msgs[-1]["content"]
+    render_dm_output(last_response, gm)
+
+
 def main():
     Config.load()
     check_config()
@@ -764,19 +778,36 @@ def main():
 
     if saves:
         console.print("[grey62]检测到存档[/grey62]")
-        console.print("1. 继续冒险")
-        console.print("2. 创建新角色")
-        choice = Prompt.ask(escape("选择 [1/2]"))
-        if not choice or choice == "1":
-            saves = list_saves()
-            try:
-                idx = IntPrompt.ask("选择编号") - 1
-                if 0 <= idx < len(saves):
-                    gm = load_game(str(saves[idx]))
-                    game_loop(gm)
-                    return
-            except:
-                pass
+        console.print("1. 继续游戏")
+        console.print("2. 新游戏")
+        console.print("3. 修改 API 配置")
+        choice = Prompt.ask(escape("选择 [1/2/3]"))
+    else:
+        console.print("1. 新游戏")
+        if Config.is_ready():
+            console.print("2. 修改 API 配置")
+            choice = Prompt.ask(escape("选择 [1/2]"))
+        else:
+            choice = "1"
+
+    if (saves and choice == "3") or (not saves and choice == "2" and Config.is_ready()):
+        _setup_interactive()
+        main()
+        return
+
+    if saves and (not choice or choice == "1"):
+        saves = list_saves()
+        try:
+            idx = int(Prompt.ask("选择编号")) - 1
+            if 0 <= idx < len(saves):
+                gm = load_game(str(saves[idx]))
+                _show_round_recap(gm)
+                game_loop(gm)
+                return
+        except ValueError:
+            console.print("[grey50]请输入有效数字[/grey50]")
+        except:
+            pass
 
     char = create_character()
 

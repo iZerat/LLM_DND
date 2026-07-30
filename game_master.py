@@ -14,10 +14,20 @@ SYSTEM_PROMPT = """你是龙与地下城（D&D）5e 的地下城主（DM），�
 
 [场景] 严格按以下格式填写，每行一个字段：
 地点：xxx
-时间：xxx
-温度：xxx
-（可选字段，有多余信息再补充：湿度、光照、风速、海拔等）
-注意：只填关键数据，不要写描述性语句。描述性内容放到[事件]中。
+时间：黄昏（与[时间]区块的时间保持一致）
+温度：凉爽
+湿度：xx%
+光照：xx
+风速：xx级
+海拔：xxx米
+（以上6个字段每轮都必须填写，不允许省略）
+
+[时间] 严格按以下格式填写，每行一个字段：
+年月日：第三年·丰收之月 15日
+季节：秋季
+时分：18:30
+时段：傍晚
+（每轮都必须填写，与[场景]中的时间字段保持一致）
 
 [事件]
 描述当前发生了什么。承接上一轮玩家的选择结果。描述要有画面感，但保持精炼。3-5句话。
@@ -73,6 +83,7 @@ SYSTEM_PROMPT = """你是龙与地下城（D&D）5e 的地下城主（DM），�
 例如：1. 悄悄溜进船舱（敏捷 DC 12）
 2. 威吓守卫（魅力 DC 15）
 
+需检定的选项统一使用「检定」一词，例如（力量检定）、（敏捷 DC 12），不要使用「攻击骰」「豁免骰」等其他说法。
 如果某个选项无需检定（纯对话、已知道路等），不要在选项末尾加括号。
 格式必须带DC关键字和数字。系统会自动检测并触发交互式投骰界面。
 
@@ -133,6 +144,7 @@ class GameMaster:
         self.last_choices_map: dict = {}
         self.last_scene: str = ""
         self.last_scene_detail: str = ""
+        self.last_time: str = ""
         self.template = template
 
     def _init_client(self):
@@ -254,6 +266,7 @@ class GameMaster:
             "history": self.history,
             "last_scene": self.last_scene,
             "last_scene_detail": self.last_scene_detail,
+            "last_time": self.last_time,
         }
 
     def get_history(self) -> list:
