@@ -339,6 +339,8 @@ def load_game(path: str) -> GameMaster:
     gm.set_history(data.get("history", []))
     if "last_scene" in data:
         gm.last_scene = data["last_scene"]
+    if "last_scene_detail" in data:
+        gm.last_scene_detail = data["last_scene_detail"]
     console.print(f"[grey50]已加载: {Path(path).stem}[/grey50]")
     return gm
 
@@ -432,9 +434,10 @@ def game_loop(gm: GameMaster):
             show_info(gm.character)
             continue
         elif cmd == "/scene":
-            if gm.last_scene:
+            scene_text = gm.last_scene_detail or gm.last_scene
+            if scene_text:
                 console.print(Panel(
-                    gm.last_scene,
+                    scene_text,
                     title="[steel_blue]详细场景信息[/steel_blue]",
                     border_style="steel_blue",
                     box=box.SQUARE,
@@ -510,8 +513,8 @@ def game_loop(gm: GameMaster):
             # 保存场景信息供 /scene 使用
             sections = parse_sections(full)
             if "场景细节" in sections:
-                gm.last_scene = sections["场景细节"]
-            elif "场景" in sections:
+                gm.last_scene_detail = sections["场景细节"]
+            if "场景" in sections:
                 gm.last_scene = sections["场景"]
 
             render_dm_output(full, gm, _elapsed)

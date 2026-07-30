@@ -66,8 +66,29 @@ SYSTEM_PROMPT = """你是龙与地下城（D&D）5e 的地下城主（DM），�
 5. [状态]必须包含'玩家:'和'目标:'两行，这是硬性要求"""
 
 
+OPENING_TEMPLATES = {
+    "random": None,
+    "guide": (
+        "开场模板：中立向导\n"
+        "角色来到一座新的城镇/营地/驿站，一位神秘的中立向导主动搭话，"
+        "提供当地的信息或警告。角色可以信任他、怀疑他或无视他。\n"
+        "[状态]中必须包含：目标: [中立]向导, ..."
+    ),
+    "ambush": (
+        "开场模板：敌对突袭\n"
+        "角色刚抵达某处就遭到敌对生物或匪徒的突袭，必须立即应对。\n"
+        "[状态]中必须包含：目标: [敌对]<敌人>, ..."
+    ),
+    "ally": (
+        "开场模板：友方旅伴\n"
+        "角色在路上遇到一位友善的旅人/商人/冒险者，对方主动示好并提出结伴同行或请求帮助。\n"
+        "[状态]中必须包含：目标: [友方]<NPC名>, ..."
+    ),
+}
+
+
 class GameMaster:
-    def __init__(self, character: Character):
+    def __init__(self, character: Character, template: str = "random"):
         self.character = character
         self.client: Optional[OpenAI] = None
         self.history: list = []
@@ -75,6 +96,8 @@ class GameMaster:
         self.last_choices: list = []
         self.last_choices_map: dict = {}
         self.last_scene: str = ""
+        self.last_scene_detail: str = ""
+        self.template = template
 
     def _init_client(self):
         if Config.is_ready():
@@ -199,6 +222,7 @@ class GameMaster:
             "character": self.character.to_dict(),
             "history": self.history,
             "last_scene": self.last_scene,
+            "last_scene_detail": self.last_scene_detail,
         }
 
     def get_history(self) -> list:
