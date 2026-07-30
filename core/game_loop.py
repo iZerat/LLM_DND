@@ -340,6 +340,9 @@ def game_loop(gm: GameMaster):
 
             render_dm_output(full, gm, _elapsed)
 
+            if getattr(gm, '_truncated', False):
+                console.print("[grey50]（注意：回答被截断，可尝试 /continue 让 DM 继续输出，或简化指令）[/grey50]")
+
         except KeyboardInterrupt:
             console.print("\n[grey50]中断[/grey50]")
         except Exception as e:

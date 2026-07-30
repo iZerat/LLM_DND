@@ -17,22 +17,21 @@ SYSTEM_PROMPT_TEMPLATE = """你是基于 D&D 5e 规则的地城主（GM），你
 每一轮都必须严格按照以下格式输出（使用方括号标注区块）：
 
 [场景] 严格按以下格式填写，每行一个字段：
-地点：xxx
-时间：黄昏（与[时间]区块的时间保持一致）
+地点：微风港
+时间：黄昏
 温度：15℃（凉爽）
 风向：东北风
-风速：3级
-湿度：65%
-光照：暮色
-海拔：5米
-（以上7个字段每轮都必须填写，不允许省略。温度格式：数值℃（体感描述））
+风速：微风
+天气：晴朗
+氛围：喧闹
+（以上7个字段每轮都必须填写，不允许省略。温度格式：数值℃（体感描述）。时间字段用中文词，不要加括号注释。）
 
 [时间] 严格按以下格式填写，每行一个字段：
 年月日：第三年·丰收之月 15日
 季节：秋季
 时分：18:30
 时段：傍晚
-（每轮都必须填写，与[场景]中的时间字段保持一致）
+（每轮都必须填写，与[场景]中的时间保持一致）
 
 [事件]
 描述当前发生了什么。承接上一轮玩家的选择结果。描述要有画面感，但保持精炼。3-5句话。
@@ -109,15 +108,22 @@ ABILITY_CN_TO_EN = {
 
 
 def parse_check_from_text(text: str) -> tuple | None:
-    """Detect (属性 检定/DC 数字) in text. Returns (ability_cn, ability_en, dc) or None."""
-    # 跳过"无需检定"类标记
+    """Detect (属性 检定/DC 数字) in text. Returns (ability_cn, ability_en, dc) or None.
+    If a check is mentioned without a DC, defaults to DC 10."""
     if re.search(r'[（(]\s*无需', text):
         return None
-    m = re.search(r'[（(]\s*(\S+?)\s*(?:检定)?\s*(?:DC)?\s*(\d+).*?[）)]', text)
+    # Try with explicit DC
+    m = re.search(r'[（(]\s*(\S+?)\s*(?:检定)?\s*DC\s*(\d+).*?[）)]', text)
     if m:
         ability_cn = m.group(1)
         if ability_cn in ABILITY_CN_TO_EN:
             return (ability_cn, ABILITY_CN_TO_EN[ability_cn], int(m.group(2)))
+    # Try check name without DC -> default 10
+    m = re.search(r'[（(]\s*(\S+?)\s*检定.*?[）)]', text)
+    if m:
+        ability_cn = m.group(1)
+        if ability_cn in ABILITY_CN_TO_EN:
+            return (ability_cn, ABILITY_CN_TO_EN[ability_cn], 10)
     return None
 
 
@@ -166,6 +172,7 @@ class GameMaster:
         self.setting_stem = setting_stem
         self.compressed_history: list = []
         self._round_num: int = 0
+        self._truncated: bool = False
 
     def _init_client(self):
         if Config.is_ready():
@@ -240,11 +247,14 @@ class GameMaster:
                 messages=messages,
                 stream=True,
                 temperature=0.8,
-                max_tokens=4096,
+                max_tokens=8192,
             )
 
             collected = ""
+            self._truncated = False
             for chunk in response:
+                if chunk.choices[0].finish_reason == "length":
+                    self._truncated = True
                 if chunk.choices[0].delta.content:
                     content = chunk.choices[0].delta.content
                     collected += content

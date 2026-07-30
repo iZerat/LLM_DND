@@ -10,7 +10,7 @@ def list_settings() -> list[tuple[str, str]]:
     found = sorted(SETTINGS_DIR.glob("*.txt"))
     result = []
     for fp in found:
-        display = fp.stem.replace("-", " ").replace("_", " ").title()
+        display = fp.stem.replace("-", " ").replace("_", " ").title().replace("Dnd", "DND")
         result.append((display, fp.stem))
     return result
 
