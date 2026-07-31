@@ -3,6 +3,7 @@ import re
 
 from core.config import Config
 from core.prompt_lib import build_prompt_suffix
+from resource.regulator import _ITEM_BLOCK_RE, _STATUS_CHANGE_BLOCK_RE
 
 
 class AuditResult:
@@ -25,8 +26,8 @@ class Supervisor:
     不做任何数据落账：所有写入统一交给调节器（Regulator）。
     """
 
-    SECTION_NAMES = "环境|场景|场景细节|事件|状态|选择|历史|时间"
-    REPAIR_SECTION_NAMES = "环境|场景|场景细节|事件|状态|选择|历史"
+    SECTION_NAMES = "环境|场景|场景细节|事件|副事件|状态|选择|历史|时间"
+    REPAIR_SECTION_NAMES = "环境|场景|场景细节|事件|副事件|状态|选择|历史"
 
     def __init__(self, gm, regulator, max_retries: int = 3):
         self.gm = gm
@@ -57,6 +58,14 @@ class Supervisor:
     def audit(self, raw_text: str) -> AuditResult:
         result = AuditResult()
         text = raw_text.replace("（无需检定）", "")
+
+        # 0. 工具通道：已通过工具落账的变更直接展示；
+        #    若本轮用了工具，叙事中残余的文本区块仅作兜底，剥离以防双重落账
+        if getattr(self.gm, "last_tool_results", None):
+            result.messages.extend(self.gm.last_tool_results)
+        if getattr(self.gm, "_used_tools", False):
+            text = _ITEM_BLOCK_RE.sub("", text, count=1)
+            text = _STATUS_CHANGE_BLOCK_RE.sub("", text, count=1)
 
         # 1. [物品变更]：落账；库外物品触发重写对话
         retries = 0
@@ -96,7 +105,25 @@ class Supervisor:
             result.messages.append(f"NPC创建失败: {issue}，DM 正在调整故事…")
             text = self._ask_rewrite(issue, "npc")
 
-        # 3. [状态] 区块 → 同步 WorldState
+        # 3. [状态] 区块：名称规范校验 → 不合格打回重写 → 同步 WorldState
+        retries = 0
+        while True:
+            status_issues = self.regulator.validate_status_block(text)
+            if not status_issues:
+                break
+            retries += 1
+            if retries > self.max_retries:
+                result.messages.append(
+                    f"状态名称格式异常: {'；'.join(status_issues)}，已保留原状"
+                )
+                break
+            result.messages.append(f"状态格式需修正: {'；'.join(status_issues)}，DM 正在调整…")
+            new_text = self.repair(text, hint="；".join(status_issues))
+            result.repaired = True
+            if new_text == text:
+                break
+            text = new_text
+
         report = self.regulator.sync_status_block(text, report.changed_npcs)
         result.messages.extend(report.messages)
 
@@ -124,9 +151,18 @@ class Supervisor:
         )
         return not has_target and has_enemy
 
-    def repair(self, response_text: str) -> str:
-        """反问 DM 补全 [状态] 中的目标信息，返回修补后的完整文本。"""
-        follow_up = "你上一轮回复中[状态]缺少目标信息。请只输出补充后的[状态]区块。"
+    def repair(self, response_text: str, hint: str = "") -> str:
+        """反问 DM 修正 [状态] 区块，返回修补后的完整文本。
+
+        hint 为空表示「缺少目标信息」；否则作为名称规范等具体问题提示。
+        """
+        if hint:
+            follow_up = (
+                f"你上一轮回复中[状态]的目标名称不合规范：{hint}。"
+                "请只输出修正后的[状态]区块。"
+            )
+        else:
+            follow_up = "你上一轮回复中[状态]缺少目标信息。请只输出补充后的[状态]区块。"
         if not self.gm.client:
             return response_text
         try:

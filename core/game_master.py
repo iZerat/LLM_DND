@@ -41,6 +41,7 @@ SYSTEM_PROMPT_TEMPLATE = """你是基于 D&D 5e 规则的地城主（GM），你
 目标: [敌对]活化盔甲, AC:15, HP:12/12   ← 主要目标（固定一个），无目标则写：目标: 无
 其他: [敌对]地精喽啰, AC:12, HP:5/5     ← 其他目标（每个目标单独一行，不要用xN合并）
 标签说明：[敌对]敌人 [中立]中立NPC [友方]友方NPC  —— 必须存在
+名称规范：目标/其他名称必须是稳定的角色名（如「地精喽啰」「女商人艾拉」）。禁止在名称中加括号或事件描述（如「(已逃窜)」「(倒地)」）——角色当前状态写进[事件]里，绝不写进名称。
 
 [选择]
 1. 选项一
@@ -63,6 +64,13 @@ SYSTEM_PROMPT_TEMPLATE = """你是基于 D&D 5e 规则的地城主（GM），你
 
 ## 核心规则
 {core_rules}
+
+## 目标检定与副事件块（可选）
+当[事件]中的目标（NPC/敌人）需要做攻击、豁免或属性检定时：
+1. 先描述目标要做什么，然后调用 target_check 工具提交检定（多个目标可一次提交多个）；
+2. 系统会立即在本地掷出骰子，并把每个检定的骰面、调整值、总值、DC和成败返回给你；
+3. 收到判定结果后，在[副事件]区块中用2-3句话描述目标行动的结果（命中/落空、成功/失败的效果，是否暴击/大失败）。
+[副事件]只在发起过目标检定时才输出，且必须放在回答的最后；没有目标检定就不要输出[副事件]。
 
 ## 对话与行动标记
 - 「NPC对话」
@@ -96,6 +104,7 @@ CORE_RULES = """- 属性调整值 = (属性值-10)//2
 - DC: 5极简 10简单 15中等 20困难 25极难
 - 伤害: 武器骰子 + 属性调整值
 - 豁免: d20 + 属性调整值 (+熟练加值 if 有该豁免熟练)
+- 大成功/大失败: 骰面天然20=大成功（自动成功/暴击），天然1=大失败（自动失败/失手）
 - 种族特性、专长和技能在角色信息中列出"""
 
 
@@ -170,9 +179,17 @@ class GameMaster:
 
     def _resource_strategy_note(self) -> str:
         """按资源策略生成创建提示：pack 查表 / free 填表（schema 驱动表单）。"""
+        tool_note = (
+            "\n\n## 数据变更方式\n"
+            "对游戏数据的所有变更（物品、金钱、HP、NPC）一律通过调用工具完成，"
+            "不要在叙事中手写 [物品变更]/[状态变更] 区块。"
+            "[状态] 区块仍须输出用于状态展示。"
+            "若工具调用不可用（后端不支持），再回退为在叙事末尾附加 [物品变更]/[状态变更] 文本区块。"
+        )
         if self.resource_mode == RESOURCE_MODE_PACK:
             return (
-                "\n\n## 资源策略：查表创建\n"
+                tool_note
+                + "\n\n## 资源策略：查表创建\n"
                 "本世界使用资源包：NPC 与物品均从资源库查询生成，不要凭空捏造。"
                 "npc_add 请用紧凑格式：npc_add: 名称, AC:10, HP:8/8, [态度]。"
                 "物品请使用资源库中存在的名称。若你提到的 NPC/物品不在资源库，"
@@ -183,7 +200,8 @@ class GameMaster:
         npc_form = NPCTemplate.schema().render_form()
         item_form = ItemDef.schema().render_form()
         return (
-            "\n\n## 资源策略：填表创建\n"
+            tool_note
+            + "\n\n## 资源策略：填表创建\n"
             "本世界不使用资源包：NPC 与物品由你填表创建，无需查库。\n"
             "填表创建必须贴合上面的世界背景设定（世界观、风格、属性平衡），"
             "属性要符合 D&D 规则常识，超出范围会被拒绝并触发修正。\n"
@@ -200,7 +218,7 @@ class GameMaster:
 
     def _build_system_prompt(self) -> str:
         char_summary = self.character.summary()
-        format_rule = "\n\n[记住] [状态]必须包含'玩家:'和'目标:'两行。有敌人/NPC就写目标行并加[敌对][中立][友方]标签。多个目标每个单独一行用'其他:'（不要用xN合并）。无目标写'目标: 无'。角色信息中【装备】是穿在身上的（有槽位），【背包】是携带品，【金钱】是货币总量（单位为cp），三者不要混淆。\n角色对话用「」包裹，特殊名词（地名、物品名、法术名、组织名等）用【】包裹。\n\n## 资源变更格式\n在输出末尾附加以下区块（不要插入叙事中间）：\n\n### [物品变更] — 仅限物品和金钱\n[物品变更]\n+ 物品名称（装备槽位）   ← 加物品，可指定装备槽位\n+ 物品名称 x数量        ← 加多个\n- 物品名称              ← 移除物品\ncp: +N                  ← 加铜币（N为铜币数，1金=10000铜）\ncp: -N                  ← 扣铜币\n注意：金钱统一使用cp（铜币）为单位，不要用金币、银币。1金=10000铜，1银=100铜。\n\n### [状态变更] — HP / 目标 / NPC\n[状态变更]\nhp: +N                  ← 玩家加生命值\nhp: -N                  ← 玩家扣生命值\nmax_hp: +N              ← 增加最大生命值\nmax_hp: -N              ← 减少最大生命值\ntarget: NPC名称         ← 设置目标（后续指令作用于该目标）\ntarget_hp: +N           ← 目标加生命值\ntarget_hp: -N           ← 目标扣生命值\ntarget_cp: +N           ← 目标加铜币\ntarget_cp: -N           ← 目标扣铜币\nnpc_add: 名称, AC:10, HP:8/8, [中立] ← 创建新NPC并设为目标\n请使用标准的D&D物品名称。如果物品不在游戏库中，系统会提示你修改。"
+        format_rule = "\n\n[记住] [状态]必须包含'玩家:'和'目标:'两行。有敌人/NPC就写目标行并加[敌对][中立][友方]标签。多个目标每个单独一行用'其他:'（不要用xN合并）。无目标写'目标: 无'。目标/其他名称必须是稳定角色名，禁止加括号或事件描述（如「(已逃窜)」）。角色信息中【装备】是穿在身上的（有槽位），【背包】是携带品，【金钱】是货币总量（单位为cp），三者不要混淆。\n角色对话用「」包裹，特殊名词（地名、物品名、法术名、组织名等）用【】包裹。\n\n## 资源变更格式\n在输出末尾附加以下区块（不要插入叙事中间）：\n\n### [物品变更] — 仅限物品和金钱\n[物品变更]\n+ 物品名称（装备槽位）   ← 加物品，可指定装备槽位\n+ 物品名称 x数量        ← 加多个\n- 物品名称              ← 移除物品\ncp: +N                  ← 加铜币（N为铜币数，1金=10000铜）\ncp: -N                  ← 扣铜币\n注意：金钱统一使用cp（铜币）为单位，不要用金币、银币。1金=10000铜，1银=100铜。\n\n### [状态变更] — HP / 目标 / NPC\n[状态变更]\nhp: +N                  ← 玩家加生命值\nhp: -N                  ← 玩家扣生命值\nmax_hp: +N              ← 增加最大生命值\nmax_hp: -N              ← 减少最大生命值\ntarget: NPC名称         ← 设置目标（后续指令作用于该目标）\ntarget_hp: +N           ← 目标加生命值\ntarget_hp: -N           ← 目标扣生命值\ntarget_cp: +N           ← 目标加铜币\ntarget_cp: -N           ← 目标扣铜币\nnpc_add: 名称, AC:10, HP:8/8, [中立] ← 创建新NPC并设为目标\n请使用标准的D&D物品名称。如果物品不在游戏库中，系统会提示你修改。"
         template_note = ""
         if self.template and not self.history:
             t = load_opening_template(self.template)
@@ -225,7 +243,7 @@ class GameMaster:
     def _build_messages(self, player_input: str) -> list:
         system_content = self._build_system_prompt()
         messages = [{"role": "system", "content": system_content}]
-        messages.append({"role": "user", "content": player_input + "\n\n[记住] [状态]必包含'玩家:'和'目标:'两行。有敌人/NPC就写目标行并加[敌对][中立][友方]标签。多个目标每个单独一行用'其他:'（不要用xN合并）。无目标写'目标: 无'。角色对话用「」包裹，特殊名词用【】包裹。增减物品/金钱在末尾附加[物品变更]区块，操作HP/NPC在末尾附加[状态变更]区块。金钱统一用cp，HP用hp。"})
+        messages.append({"role": "user", "content": player_input + "\n\n[记住] [状态]必包含'玩家:'和'目标:'两行。有敌人/NPC就写目标行并加[敌对][中立][友方]标签。多个目标每个单独一行用'其他:'（不要用xN合并）。无目标写'目标: 无'。目标名称禁止加括号或事件描述（如「(已逃窜)」），状态写进[事件]。角色对话用「」包裹，特殊名词用【】包裹。数据变更（物品/金钱/HP/NPC）优先调用工具；工具不可用时才在末尾附加[物品变更]/[状态变更]区块。金钱统一用cp，HP用hp。"})
         return messages
 
     def _handle_dice_roll(self, player_input: str) -> Optional[str]:
@@ -252,47 +270,103 @@ class GameMaster:
 
         return f"[投骰] {expr} = **{result}**"
 
-    def send_message_stream(self, player_input: str):
+    def send_message_stream(self, player_input: str, tools=None, tool_executor=None, status_cb=None):
         messages = self._build_messages(player_input)
+        self.last_tool_results = []
+        self._used_tools = False
 
         if not self.client:
             yield "错误: API 未配置"
             return
 
+        use_tools = bool(tools and tool_executor)
         try:
-            kwargs = dict(
-                model=Config.MODEL_NAME,
-                messages=messages,
-                stream=True,
-                temperature=0.8,
-                max_tokens=8192,
-            )
-            self.last_usage = None
-            try:
-                response = self.client.chat.completions.create(
-                    **kwargs, stream_options={"include_usage": True},
-                )
-            except Exception:
-                response = self.client.chat.completions.create(**kwargs)
-
             collected = ""
-            self._truncated = False
-            for chunk in response:
-                if getattr(chunk, "usage", None):
-                    self.last_usage = {
-                        "prompt_tokens": chunk.usage.prompt_tokens,
-                        "completion_tokens": chunk.usage.completion_tokens,
-                        "total_tokens": chunk.usage.total_tokens,
-                    }
-                    continue
-                if not chunk.choices:
-                    continue
-                if chunk.choices[0].finish_reason == "length":
-                    self._truncated = True
-                if chunk.choices[0].delta.content:
-                    content = chunk.choices[0].delta.content
-                    collected += content
-                    yield content
+            tool_rounds = 0
+            while True:
+                kwargs = dict(
+                    model=Config.MODEL_NAME,
+                    messages=messages,
+                    stream=True,
+                    temperature=0.8,
+                    max_tokens=8192,
+                )
+                if use_tools:
+                    kwargs["tools"] = tools
+                self.last_usage = None
+                try:
+                    response = self.client.chat.completions.create(
+                        **kwargs, stream_options={"include_usage": True},
+                    )
+                except Exception:
+                    if use_tools:
+                        # 后端不支持工具 → 自动回退文本协议
+                        use_tools = False
+                        continue
+                    response = self.client.chat.completions.create(**kwargs)
+
+                tool_calls_acc: dict[int, dict] = {}
+                self._truncated = False
+                for chunk in response:
+                    if getattr(chunk, "usage", None):
+                        self.last_usage = {
+                            "prompt_tokens": chunk.usage.prompt_tokens,
+                            "completion_tokens": chunk.usage.completion_tokens,
+                            "total_tokens": chunk.usage.total_tokens,
+                        }
+                        continue
+                    if not chunk.choices:
+                        continue
+                    choice = chunk.choices[0]
+                    if choice.finish_reason == "length":
+                        self._truncated = True
+                    delta = choice.delta
+                    if delta.content:
+                        content = delta.content
+                        collected += content
+                        yield content
+                    if delta.tool_calls:
+                        for tc in delta.tool_calls:
+                            acc = tool_calls_acc.setdefault(
+                                tc.index, {"id": tc.id or "", "name": "", "args": ""}
+                            )
+                            if tc.id:
+                                acc["id"] = tc.id
+                            if tc.function and tc.function.name:
+                                acc["name"] = tc.function.name
+                            if tc.function and tc.function.arguments:
+                                acc["args"] += tc.function.arguments
+
+                if not tool_calls_acc or tool_rounds >= 8:
+                    break
+                tool_rounds += 1
+                self._used_tools = True
+
+                has_target_check = any(c["name"] == "target_check" for c in tool_calls_acc.values())
+                if has_target_check and status_cb:
+                    status_cb("目标检定中...")
+
+                # 把工具调用与结果注入会话，继续取最终叙事
+                messages.append({
+                    "role": "assistant",
+                    "content": collected or None,
+                    "tool_calls": [
+                        {"id": c["id"], "type": "function",
+                         "function": {"name": c["name"], "arguments": c["args"]}}
+                        for c in tool_calls_acc.values()
+                    ],
+                })
+                for c in tool_calls_acc.values():
+                    args = {}
+                    try:
+                        args = json.loads(c["args"] or "{}")
+                    except json.JSONDecodeError:
+                        args = {}
+                    reply = tool_executor(c["name"], args)
+                    messages.append({"role": "tool", "tool_call_id": c["id"], "content": reply})
+
+                if has_target_check and status_cb:
+                    status_cb("DM 叙述检定结果...")
 
             self._round_num += 1
             self.last_assistant = collected

@@ -1,13 +1,12 @@
 from __future__ import annotations
-from typing import Optional, TYPE_CHECKING
+import re
+from typing import Optional
 from uuid import uuid4
 from resource.models import Inventory, Currency, ItemInstance, ItemDef
 from resource.item_db import item_db
 from resource.objects import NPCTemplate
 from resource.packs import RESOURCE_MODE_PACK, RESOURCE_MODE_FREE
-
-if TYPE_CHECKING:
-    from world.entity import NPC
+from world.entity import NPC
 
 
 class ResourceResult:
@@ -43,6 +42,9 @@ class ResourceManager:
         self.world = None  # set by game_loop
         self.resource_mode = RESOURCE_MODE_PACK
         self._target_npc: Optional[NPC] = None
+        # 本轮已被工具 / [状态变更] 主动改过 HP 的对象（"玩家" 或 NPC 名称），
+        # 供 sync_status_block 判定「世界值 vs [状态] 声明值」谁生效。
+        self.changed_npcs: set[str] = set()
 
     def set_target(self, name: str) -> ResourceResult:
         if not self.world:
@@ -70,8 +72,11 @@ class ResourceManager:
             return item
         return item_db.find_best(query)
 
+    def _equipped_count(self, guid: str) -> int:
+        return sum(1 for g in self.inv.equipped.values() if g == guid)
+
     def has_item(self, guid: str, quantity: int = 1) -> bool:
-        return self.inv.count(guid) >= quantity
+        return self.inv.count(guid) + self._equipped_count(guid) >= quantity
 
     def add_item(self, guid: str, quantity: int = 1) -> ResourceResult:
         item_def = item_db.get(guid)
@@ -83,11 +88,23 @@ class ResourceManager:
     def remove_item(self, guid: str, quantity: int = 1) -> ResourceResult:
         item_def = item_db.get(guid)
         name = item_def.name if item_def else guid
-        if not self.has_item(guid, quantity):
-            got = self.inv.count(guid)
-            return ResourceResult.fail(f"背包中没有足够的 {name} (需要 {quantity}, 持有 {got})")
+        bag_have = self.inv.count(guid)
+        eq_slots = [slot for slot, g in self.inv.equipped.items() if g == guid]
+        total_have = bag_have + len(eq_slots)
+        if total_have < quantity:
+            return ResourceResult.fail(f"没有足够的 {name} (需要 {quantity}, 持有 {total_have})")
         removed = self.inv.remove_by_guid(guid, quantity)
-        return ResourceResult.ok(f"-{removed}x {name}")
+        from_equip = 0
+        for slot in eq_slots:
+            if removed >= quantity:
+                break
+            self.inv.unequip(slot)
+            from_equip += 1
+            removed += self.inv.remove_by_guid(guid, quantity - removed)
+        msg = f"-{removed}x {name}"
+        if from_equip:
+            msg += "（从装备卸下）"
+        return ResourceResult.ok(msg)
 
     def equip(self, slot: str, guid: str) -> ResourceResult:
         item_def = item_db.get(guid)
@@ -214,6 +231,8 @@ class ResourceManager:
         name = str(fields.get("name", "")).strip()
         if not name:
             return "npc_add 缺少名称"
+        if re.search(r"[（）()]", name):
+            return f"NPC名称「{name}」含括号，事件描述（如“已逃窜”）应写进[事件]，名称用稳定角色名"
         if self.resource_mode == RESOURCE_MODE_FREE:
             _, errs = NPCTemplate.from_form(fields)
             return "；".join(errs) if errs else None
@@ -280,7 +299,6 @@ class ResourceManager:
         return ResourceResult.ok(f"新物品定义: {item_def.name}")
 
     def process_requests(self, requests: list[dict]) -> list[ResourceResult]:
-        from world.entity import NPC
         results = []
         for req in requests:
             action = req.get("action")

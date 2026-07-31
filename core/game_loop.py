@@ -10,11 +10,13 @@ from rich.panel import Panel
 from rich import box
 
 from core.config import Config
-from core.character import Character, modifier
+from core.character import Character, modifier, proficiency_bonus
 from core.game_master import GameMaster, ABILITY_CN_TO_EN, parse_check_from_text
 from core.supervisor import Supervisor
 from resource.regulator import Regulator
+from resource.toolbox import ResourceToolbox
 from world.state import WorldState
+from world.entity import NPC
 from core.ui import (
     console, render_dm_output, show_status, show_info,
     show_equip, show_bag, show_skills, show_time, show_help,
@@ -382,17 +384,97 @@ def log_dm_response(round_num: int, player_input: str, response_text: str):
 
 # ---------- 投骰与检定 ----------
 
+def _resolve_check(roll: int, mod: int, dc: int) -> tuple[int, bool, str, str, str]:
+    """D&D 5e 风格检定：骰面天然20=大成功（自动成功），天然1=大失败（自动失败）。
+
+    返回 (total, success, 结果词, 颜色, 展示行)。展示行带与 DC 的比较，一目了然。
+    """
+    total = roll + mod
+    if roll == 20:
+        return total, True, "大成功", "green", f"d20(20) + ({mod:+d}) = {total}"
+    if roll == 1:
+        return total, False, "大失败", "red", f"d20(1) + ({mod:+d}) = {total}"
+    success = total >= dc
+    word = "成功" if success else "失败"
+    if success:
+        op = "≥" if total == dc else ">"
+    else:
+        op = "<"
+    return total, success, word, ("green" if success else "red"), f"d20({roll}) + ({mod:+d}) = {total} {op} {dc}"
+
+
+def _attack_bonus(char: Character) -> tuple[int, str]:
+    """玩家攻击加值：近战=力量，远程=敏捷，灵巧=取高，另加熟练加值。
+
+    返回 (加值, 所用属性)。"""
+    from resource.item_db import item_db
+    prof = proficiency_bonus(char.level)
+    weapon_guid = char.inventory.equipped.get("weapon")
+    wdef = item_db.get(weapon_guid) if weapon_guid else None
+    if wdef:
+        is_finesse = any("灵巧" in p for p in wdef.properties)
+        is_ranged = wdef.weapon_range == "ranged" or any("远程" in t for t in wdef.tags)
+    else:
+        is_finesse = False
+        is_ranged = False
+    if is_finesse:
+        mod = max(modifier(char.strength), modifier(char.dexterity))
+        ability = "力量/敏捷"
+    elif is_ranged:
+        mod = modifier(char.dexterity)
+        ability = "敏捷"
+    else:
+        mod = modifier(char.strength)
+        ability = "力量"
+    return mod + prof, ability
+
+
+def _resolve_attack(roll: int, char: Character, target_ac: int | None) -> tuple[int, int, bool, str, str, str]:
+    """D&D 5e 攻击检定：d20 + 攻击加值 vs 目标 AC。
+
+    天然20=暴击（自动命中），天然1=大失败（自动未命中）。
+    返回 (total, 攻击加值, 是否命中, 结果词, 颜色, 展示行)。
+    无目标 AC 时不作命中判定（结果词为空，交由 LLM 圆场）。
+    """
+    atk_bonus, _ = _attack_bonus(char)
+    total = roll + atk_bonus
+    if roll == 20:
+        return total, atk_bonus, True, "暴击", "yellow", f"d20(20) + ({atk_bonus:+d}) = {total}"
+    if roll == 1:
+        return total, atk_bonus, False, "大失败", "red", f"d20(1) + ({atk_bonus:+d}) = {total}"
+    if target_ac is None:
+        return total, atk_bonus, False, "", "white", f"d20({roll}) + ({atk_bonus:+d}) = {total}"
+    hit = total >= target_ac
+    if hit:
+        op = "≥" if total == target_ac else ">"
+        word, color = "命中", "green"
+    else:
+        op, word, color = "<", "未命中", "red"
+    return total, atk_bonus, hit, word, color, f"d20({roll}) + ({atk_bonus:+d}) = {total} {op} AC{target_ac}"
+
+
+def _find_target_ac(gm) -> int | None:
+    """取当前战斗目标 AC：优先世界状态中的敌对活动 NPC，其次任意活动 NPC。"""
+    ws = getattr(gm, "world_state", None)
+    if not ws:
+        return None
+    for e in ws.active.values():
+        if isinstance(e, NPC) and getattr(e, "attitude", "") == "hostile":
+            return getattr(e, "ac", None)
+    for e in ws.active.values():
+        if isinstance(e, NPC):
+            return getattr(e, "ac", None)
+    return None
+
+
 def _interactive_check(char: Character, ability_cn: str, ability_key: str, dc: int) -> tuple[int, int, int, bool]:
     ability_mod = modifier(getattr(char, ability_key))
     console.print()
     console.print(f"[yellow]{ability_cn}检定[/yellow] DC [bold]{dc}[/bold] | 调整值: {ability_mod:+d}")
     roll = dice_random.randint(1, 20)
-    total = roll + ability_mod
-    success = total >= dc
-    result_word = "成功" if success else "失败"
-    result_color = "green" if success else "red"
-    console.print(f"[grey50]d20({roll}) + ({ability_mod:+d}) = {total}[/grey50]")
-    console.print(f"[bold {result_color}]{result_word}[/bold {result_color}]")
+    total, success, word, color, line = _resolve_check(roll, ability_mod, dc)
+    console.print(f"[grey50]{line}[/grey50]")
+    console.print(f"[bold {color}]{word}[/bold {color}]")
     console.print()
     return roll, ability_mod, total, success
 
@@ -434,6 +516,7 @@ def game_loop(gm: GameMaster):
     regulator = Regulator(gm.character, world_state)
     regulator.manager.resource_mode = getattr(gm, "resource_mode", "pack")
     supervisor = Supervisor(gm, regulator)
+    toolbox = ResourceToolbox(regulator)
     last_choice_record = ""
 
     while True:
@@ -501,6 +584,7 @@ def game_loop(gm: GameMaster):
                     regulator = Regulator(gm.character, world_state)
                     regulator.manager.resource_mode = getattr(gm, "resource_mode", "pack")
                     supervisor = Supervisor(gm, regulator)
+                    toolbox = ResourceToolbox(regulator)
             except ValueError:
                 console.print("[grey50]请输入有效数字[/grey50]")
             except:
@@ -540,15 +624,16 @@ def game_loop(gm: GameMaster):
                 ability_key = ABILITY_CN_TO_EN[ability_cn]
                 dc = int(dc_match.group(2))
                 r, m, t, success = _interactive_check(gm.character, ability_cn, ability_key, dc)
-                rw = "成功" if success else "失败"
+                _, _, rw, _, _ = _resolve_check(r, m, dc)
                 player_input = f"[检定] {ability_cn} DC {dc}: d20({r})+({m:+d})={t} {rw}"
             elif rest in ABILITY_CN_TO_EN:
                 ability_key = ABILITY_CN_TO_EN[rest]
                 ability_mod = modifier(getattr(gm.character, ability_key))
                 roll = dice_random.randint(1, 20)
                 total = roll + ability_mod
-                console.print(f"\n[grey50]d20({roll}) + ({ability_mod:+d}) = {total}[/grey50]")
-                player_input = f"[检定] {rest}: d20({roll})+({ability_mod:+d})={total}"
+                tag = " [大成功]" if roll == 20 else (" [大失败]" if roll == 1 else "")
+                console.print(f"\n[grey50]d20({roll}) + ({ability_mod:+d}) = {total}{tag}[/grey50]")
+                player_input = f"[检定] {rest}: d20({roll})+({ability_mod:+d})={total}{tag}"
             else:
                 total, display = _roll_expression(rest)
                 console.print(f"\n{display}")
@@ -575,16 +660,14 @@ def game_loop(gm: GameMaster):
                 ability_cn, ability_key, dc = check_info
                 ability_mod = modifier(getattr(gm.character, ability_key))
                 roll = dice_random.randint(1, 20)
-                total = roll + ability_mod
-                success = total >= dc
-                result_color = "green" if success else "red"
-                result_word = "\u6210\u529f" if success else "\u5931\u8d25"
-                check_text = f"[yellow]{ability_cn}\u68c0\u5b9a[/yellow] DC [bold]{dc}[/bold] | \u8c03\u6574\u503c: {ability_mod:+d}\n[grey50]d20({roll}) + ({ability_mod:+d}) = {total}[/grey50]\n[bold {result_color}]{result_word}[/bold {result_color}]"
-                player_input = f"[\u9009\u62e9\u9009\u9879{selected_num}] {option_text} | [\u68c0\u5b9a] d20({roll})+({ability_mod:+d})={total} {result_word}"
+                total, success, word, color, line = _resolve_check(roll, ability_mod, dc)
+                check_text = f"[yellow]{ability_cn}\u68c0\u5b9a[/yellow] DC [bold]{dc}[/bold] | \u8c03\u6574\u503c: {ability_mod:+d}\n[grey50]{line}[/grey50]\n[bold {color}]{word}[/bold {color}]"
+                player_input = f"[\u9009\u62e9\u9009\u9879{selected_num}] {option_text} | [\u68c0\u5b9a] d20({roll})+({ability_mod:+d})={total} {word}"
             elif re.search(r'[（(]\s*攻击\s*检定', option_text):
                 roll = dice_random.randint(1, 20)
-                check_text = f"[yellow]攻击检定[/yellow]\n[grey50]d20({roll})[/grey50]"
-                player_input = f"[选择选项{selected_num}] {option_text} | [攻击] d20({roll})"
+                atk_tag = " [暴击]" if roll == 20 else (" [大失败]" if roll == 1 else "")
+                check_text = f"[yellow]攻击检定[/yellow]\n[grey50]d20({roll}){atk_tag}[/grey50]"
+                player_input = f"[选择选项{selected_num}] {option_text} | [攻击] d20({roll}){atk_tag}"
             else:
                 player_input = f"[\u9009\u62e9\u9009\u9879{selected_num}] {option_text or selected_num}"
 
@@ -615,15 +698,23 @@ def game_loop(gm: GameMaster):
         try:
             player_input = supervisor.prepare_player_input(player_input)
 
+            toolbox.results = []
+            toolbox.check_results = []
             response_parts = []
             _t0 = _time.time()
             console.print()
             console.print("[grey50]DM 思考中...[/grey50]")
-            for chunk in gm.send_message_stream(player_input):
+            for chunk in gm.send_message_stream(
+                player_input,
+                tools=toolbox.schemas(),
+                tool_executor=toolbox.execute,
+                status_cb=lambda msg: console.print(f"[grey50]{msg}[/grey50]"),
+            ):
                 response_parts.append(chunk)
             _elapsed = _time.time() - _t0
 
             full = "".join(response_parts)
+            gm.last_tool_results = list(toolbox.results)
 
             # ── 监督者方向B：结构校验 → 调节器落账 → 剥离变更区块 / 修复对话 ──
             audit = supervisor.audit(full)
@@ -636,7 +727,7 @@ def game_loop(gm: GameMaster):
 
             console.print(f"[grey50]\u601d\u8003\u8017\u65f6: {_elapsed:.1f}s{gm.usage_summary()}[/grey50]")
             console.print()
-            render_dm_output(full, gm, _elapsed, audit.messages)
+            render_dm_output(full, gm, _elapsed, audit.messages, check_blocks=toolbox.check_results)
 
             if getattr(gm, '_truncated', False):
                 console.print("[grey50]（注意：回答被截断，可尝试 /continue 让 DM 继续输出，或简化指令）[/grey50]")

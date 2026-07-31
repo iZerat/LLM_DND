@@ -56,6 +56,38 @@ class ResourceSchema:
             constraints.append(f"  {f.key}: {'，'.join(parts)}")
         return tmpl_keys + "\n字段约束：\n" + "\n".join(constraints)
 
+    def to_json_schema(self) -> dict:
+        """转为 OpenAI function-calling 的 parameters JSON schema。"""
+        properties: dict[str, dict] = {}
+        required: list[str] = []
+        for f in self.fields:
+            desc = f.label
+            if f.help:
+                desc += f"（{f.help}）"
+            p: dict = {"description": desc}
+            if f.type == TYPE_INT:
+                p["type"] = "integer"
+                if f.min_value is not None:
+                    p["minimum"] = f.min_value
+                if f.max_value is not None:
+                    p["maximum"] = f.max_value
+            elif f.type == TYPE_BOOL:
+                p["type"] = "boolean"
+            elif f.type == TYPE_LIST:
+                p["type"] = "array"
+                p["items"] = {"type": "string"}
+            else:
+                p["type"] = "string"
+            if f.options:
+                p["enum"] = list(f.options)
+            properties[f.key] = p
+            if f.required:
+                required.append(f.key)
+        schema: dict = {"type": "object", "properties": properties}
+        if required:
+            schema["required"] = required
+        return schema
+
     def validate(self, values: dict) -> list[str]:
         errors: list[str] = []
         for f in self.fields:

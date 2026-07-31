@@ -95,9 +95,9 @@ def check_config():
 
 def create_character() -> Character:
     console.print(f"\n[steel_blue]创建你的角色[/steel_blue]")
-    console.print("1. 快速创建（随机生成，直接开玩）")
-    console.print("2. 详细创建（手动分配属性）")
-    mode = Prompt.ask(escape("选择 [1/2]"))
+    console.print("  1. 快速创建（随机生成，直接开玩）")
+    console.print("  2. 详细创建（手动分配属性）")
+    mode = _pre_game_ask(escape("选择 [1/2]"))
 
     if not mode or mode == "1":
         name = _ask_quick_name()
@@ -125,9 +125,9 @@ def create_character() -> Character:
 
 
 def _ask_quick_name() -> str:
-    name = Prompt.ask("角色名称（留空回车随机）")
+    name = _pre_game_ask("角色名称（留空回车随机）")
     if not name:
-        confirm = Prompt.ask("是否随机生成名字？（再次回车确认随机，或直接输入名字）")
+        confirm = _pre_game_ask("是否随机生成名字？（再次回车确认随机，或直接输入名字）")
         name = char_gen.random_name() if not confirm else confirm
     return name
 
@@ -137,7 +137,7 @@ def _confirm_character(char: Character, roll_log: str = "") -> str:
     返回 'yes'（采用）/ 'reroll'（重新生成/重新创建）/ 'cancel'（取消）。"""
     while True:
         render_character_sheet(char, roll_log)
-        choice = Prompt.ask(escape("采用？ [1]确认 [2]重新生成 [3]取消"))
+        choice = _pre_game_ask(escape("采用？ [1]确认 [2]重新生成 [3]取消"))
         if choice in ("1", "y", "yes", ""):
             return "yes"
         if choice in ("2", "n", "no"):
@@ -151,12 +151,12 @@ def _equipment_choice(label: str, a_items: list, b_gp: int) -> bool:
     console.print(f"\n[bold]选择 {label} 起始装备[/bold]")
     console.print(f"  1. 装备包: {'、'.join(a_items)}")
     console.print(f"  2. 换成 {b_gp} 金币")
-    pick = Prompt.ask(escape("选择 [1/2]"))
+    pick = _pre_game_ask(escape("选择 [1/2]"))
     return pick != "2"
 
 
 def _offer_save_template(char: Character):
-    ans = Prompt.ask(escape(f"是否将「{char.name}」保存为角色模板？ [1]不保存 [2]保存"))
+    ans = _pre_game_ask(escape(f"是否将「{char.name}」保存为角色模板？ [1]不保存 [2]保存"))
     if ans not in ("2", "y", "yes"):
         return
     from core.templates import save_template
@@ -171,13 +171,13 @@ def _offer_template_import() -> Character:
     if not stems:
         return None
     console.print(f"\n[steel_blue]检测到角色模板 {len(stems)} 个[/steel_blue]")
-    ans = Prompt.ask(escape("是否导入模板开始新冒险？ [1]否 [2]是"))
+    ans = _pre_game_ask(escape("是否导入模板开始新冒险？ [1]否 [2]是"))
     if ans not in ("2", "y", "yes"):
         return None
     for i, s in enumerate(stems, 1):
         console.print(f"  {i}. {s}")
     try:
-        idx = int(Prompt.ask(escape(f"选择编号 [1-{len(stems)}]"))) - 1
+        idx = int(_pre_game_ask(escape(f"选择编号 [1-{len(stems)}]"))) - 1
         if 0 <= idx < len(stems):
             char = load_template(stems[idx])
             console.print(f"[grey50]已导入: {char.name}[/grey50]")
@@ -194,10 +194,10 @@ def _create_world() -> GameMaster:
     from resource.packs import RESOURCE_MODE_PACK, RESOURCE_MODE_FREE, configure_resource_catalogs
     while True:
         console.print("\n[steel_blue]创建世界[/steel_blue]")
-        console.print("1. 让大模型创建世界（世界背景 + 开场模板 + 对象资源策略）")
-        console.print("2. 选择故事包（规划中）")
-        console.print("3. 程序化生成世界（规划中）")
-        choice = Prompt.ask(escape("选择 [1/2/3]"))
+        console.print("  1. 让大模型创建世界（世界背景 + 开场模板 + 对象资源策略）")
+        console.print("  2. 选择故事包（规划中）")
+        console.print("  3. 程序化生成世界（规划中）")
+        choice = _pre_game_ask(escape("选择 [1/2/3]"))
         if choice == "2":
             console.print("[grey50]方式二（选择故事包）尚未开放，敬请期待[/grey50]")
             continue
@@ -211,7 +211,7 @@ def _create_world() -> GameMaster:
         if bg_list:
             for i, (display, stem) in enumerate(bg_list, 1):
                 console.print(f"  {i}. {display}")
-            bg_choice = Prompt.ask(escape(f"选择 [1-{len(bg_list)}]"))
+            bg_choice = _pre_game_ask(escape(f"选择 [1-{len(bg_list)}]"))
             try:
                 idx = int(bg_choice) - 1
                 setting_stem = bg_list[idx][1] if 0 <= idx < len(bg_list) else bg_list[0][1]
@@ -223,9 +223,9 @@ def _create_world() -> GameMaster:
 
         # ── 对象资源策略（互斥：查表创建 或 填表创建）──
         console.print("\n[steel_blue]选择对象资源策略[/steel_blue]")
-        console.print("1. 查表创建（使用默认资源包，所有对象从资源库检索）")
-        console.print("2. 填表创建（不使用任何资源包，大模型按表单自由创建一切对象）")
-        mode_choice = Prompt.ask(escape("选择 [1/2]"))
+        console.print("  1. 查表创建（使用默认资源包，所有对象从资源库检索）")
+        console.print("  2. 填表创建（不使用任何资源包，大模型按表单自由创建一切对象）")
+        mode_choice = _pre_game_ask(escape("选择 [1/2]"))
         resource_mode = RESOURCE_MODE_PACK if mode_choice != "2" else RESOURCE_MODE_FREE
         configure_resource_catalogs(resource_mode)
         if resource_mode == RESOURCE_MODE_FREE:
@@ -243,7 +243,7 @@ def _create_world() -> GameMaster:
         console.print("  1. 随机世界（无开场模板，完全随机生成）")
         for i, (display, stem) in enumerate(tpl_list, 1):
             console.print(f"  {i + 1}. {display}")
-        tpl = Prompt.ask(escape(f"选择 [1-{len(tpl_list) + 1}]"))
+        tpl = _pre_game_ask(escape(f"选择 [1-{len(tpl_list) + 1}]"))
         try:
             idx = int(tpl) - 2
             opening_stem = tpl_list[idx][1] if 0 <= idx < len(tpl_list) else ""
@@ -290,7 +290,7 @@ def _choose_skills(prompt_label: str, options_cn: list, count: int, already_chos
 
 
 def _detailed_character() -> Character:
-    name = Prompt.ask("角色名称")
+    name = _pre_game_ask("角色名称")
 
     from rules.srd_data import SKILL_BY_EN
 
@@ -330,19 +330,19 @@ def _detailed_character() -> Character:
 
     while True:
         try:
-            age = int(Prompt.ask("年龄"))
+            age = int(_pre_game_ask("年龄"))
             if age > 0 and age < 200:
                 break
             console.print("[grey50]请输入有效年龄(1-199)[/grey50]")
         except ValueError:
             pass
 
-    desc = Prompt.ask("角色描述（外貌、性格等）")
+    desc = _pre_game_ask("角色描述（外貌、性格等）")
 
     console.print("\n[bold]选择属性生成方式[/bold]")
     console.print("  1. 标准阵列（15,14,13,12,10,8 自由分配）")
     console.print("  2. 4d6掷骰（掷六组取最高3，可重掷）")
-    method = Prompt.ask("选择 [1/2]")
+    method = _pre_game_ask("选择 [1/2]")
 
     stats = {}
     if method == "2":
@@ -352,7 +352,7 @@ def _detailed_character() -> Character:
             console.print(f"[grey50]{roll_log}[/grey50]")
             assigned = "  ".join(f"{k}:{v}" for k, v in stats.items())
             console.print(f"  {assigned}")
-            choice = Prompt.ask(escape("采用？ [1]确认 [2]重掷"))
+            choice = _pre_game_ask(escape("采用？ [1]确认 [2]重掷"))
             if choice in ("1", "y", "yes", ""):
                 break
     else:
@@ -364,7 +364,7 @@ def _detailed_character() -> Character:
             console.print(f"\n  待分配: {remaining}")
             while True:
                 try:
-                    val = int(Prompt.ask(f"{attr} = "))
+                    val = int(_pre_game_ask(f"{attr} = "))
                     if val in remaining:
                         stats[attr] = val
                         remaining.remove(val)
@@ -410,7 +410,7 @@ def _detailed_character() -> Character:
 def _menu_choice(options: list, label: str) -> str:
     while True:
         try:
-            choice = int(Prompt.ask(f"请选择{label}"))
+            choice = int(_pre_game_ask(f"请选择{label}"))
             if 1 <= choice <= len(options):
                 return options[choice - 1]
         except ValueError:
@@ -493,6 +493,60 @@ def _init_equipment(char: Character, class_a: bool = True, bg_a: bool = True):
 
 # ---------- 主菜单 ----------
 
+class _QuickStartSignal(Exception):
+    """在任意前置菜单输入 /quickstart 或 /q 时抛出的快速开始信号。"""
+
+
+def _is_quickstart(text: str) -> bool:
+    return text.strip().lower() in ("/quickstart", "/q")
+
+
+def _pre_game_ask(prompt_text: str, **kw) -> str:
+    """游戏开始前的输入：识别 /quickstart 与 /q，触发快速开始。"""
+    val = Prompt.ask(prompt_text, **kw)
+    if _is_quickstart(val):
+        raise _QuickStartSignal()
+    return val
+
+
+def _start_adventure(gm: GameMaster):
+    console.print("\n[grey62]冒险即将开始...[/grey62]")
+    try:
+        _t0 = _time.time()
+        parts = []
+        for chunk in gm.send_message_stream("DM，请开始我的冒险吧！"):
+            parts.append(chunk)
+        _elapsed = _time.time() - _t0
+        console.print(f"[grey62]生成耗时: {_elapsed:.1f}s{gm.usage_summary()}[/grey62]")
+        console.print()
+        initial_text = "".join(parts)
+        log_dm_response(0, "（游戏开始）", initial_text)
+        render_dm_output(initial_text, gm, _elapsed)
+    except Exception as e:
+        console.print(f"[indian_red]错误: {e}[/indian_red]")
+
+    result = game_loop(gm)
+    if result == "menu":
+        main(skip_api_test=True)
+
+
+def _quickstart():
+    """快速开始：全部选默认（查表创建 + 默认世界背景 + 随机开场）+ 随机角色，直接进入游戏。"""
+    from resource.packs import RESOURCE_MODE_PACK, configure_resource_catalogs
+    configure_resource_catalogs(RESOURCE_MODE_PACK)
+    setting_stem = "default-dnd"
+    setting_content = load_world_background(setting_stem)
+    char, roll_log = char_gen.roll_character(name=char_gen.random_name())
+    _init_equipment(char)
+    console.print(f"\n[grey62]快速开始：随机角色 {char.name}（Lv.{char.level} {char.race_cn} {char.class_cn}）[/grey62]")
+    gm = GameMaster(
+        char, "",
+        setting_content=setting_content, setting_stem=setting_stem,
+        resource_mode=RESOURCE_MODE_PACK,
+    )
+    _start_adventure(gm)
+
+
 def main(skip_api_test=False):
     Config.load()
     if not skip_api_test:
@@ -529,59 +583,45 @@ def main(skip_api_test=False):
     SAVE_DIR.mkdir(parents=True, exist_ok=True)
     saves = list(SAVE_DIR.glob("*.json")) + [d for d in SAVE_DIR.iterdir() if d.is_dir()]
 
-    if saves:
-        console.print("[grey62]检测到存档[/grey62]")
-        console.print("1. 继续游戏")
-        console.print("2. 新游戏")
-        console.print("3. 修改 API 配置")
-        choice = Prompt.ask(escape("选择 [1/2/3]"))
-    else:
-        console.print("1. 新游戏")
-        if Config.is_ready():
-            console.print("2. 修改 API 配置")
-            choice = Prompt.ask(escape("选择 [1/2]"))
-        else:
-            choice = "1"
-
-    if (saves and choice == "3") or (not saves and choice == "2" and Config.is_ready()):
-        _setup_interactive()
-        main()
-        return
-
-    if saves and (not choice or choice == "1"):
-        saves_list = list_saves()
-        try:
-            idx = int(Prompt.ask("选择编号")) - 1
-            if 0 <= idx < len(saves_list):
-                gm = load_game(str(saves_list[idx]))
-                _show_round_recap(gm)
-                game_loop(gm)
-                return
-        except ValueError:
-            console.print("[grey50]请输入有效数字[/grey50]")
-        except:
-            pass
-
-    gm = _create_world()
-
-    console.print("\n[grey62]冒险即将开始...[/grey62]")
     try:
-        _t0 = _time.time()
-        parts = []
-        for chunk in gm.send_message_stream("DM，请开始我的冒险吧！"):
-            parts.append(chunk)
-        _elapsed = _time.time() - _t0
-        console.print(f"[grey62]生成耗时: {_elapsed:.1f}s{gm.usage_summary()}[/grey62]")
-        console.print()
-        initial_text = "".join(parts)
-        log_dm_response(0, "（游戏开始）", initial_text)
-        render_dm_output(initial_text, gm, _elapsed)
-    except Exception as e:
-        console.print(f"[indian_red]错误: {e}[/indian_red]")
+        if saves:
+            console.print("[grey62]检测到存档[/grey62]")
+            console.print("  1. 继续游戏")
+            console.print("  2. 新游戏")
+            console.print("  3. 修改 API 配置")
+            choice = _pre_game_ask(escape("选择 [1/2/3]"))
+        else:
+            console.print("  1. 新游戏")
+            if Config.is_ready():
+                console.print("  2. 修改 API 配置")
+                choice = _pre_game_ask(escape("选择 [1/2]"))
+            else:
+                choice = "1"
 
-    result = game_loop(gm)
-    if result == "menu":
-        main(skip_api_test=True)
+        if (saves and choice == "3") or (not saves and choice == "2" and Config.is_ready()):
+            _setup_interactive()
+            main()
+            return
+
+        if saves and (not choice or choice == "1"):
+            saves_list = list_saves()
+            try:
+                idx = int(_pre_game_ask("选择编号")) - 1
+                if 0 <= idx < len(saves_list):
+                    gm = load_game(str(saves_list[idx]))
+                    _show_round_recap(gm)
+                    game_loop(gm)
+                    return
+            except _QuickStartSignal:
+                raise
+            except ValueError:
+                console.print("[grey50]请输入有效数字[/grey50]")
+            except:
+                pass
+
+        _start_adventure(_create_world())
+    except _QuickStartSignal:
+        _quickstart()
 
 
 if __name__ == "__main__":

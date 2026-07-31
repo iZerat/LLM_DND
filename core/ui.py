@@ -23,7 +23,7 @@ theme = Theme({
 })
 console = Console(theme=theme)
 
-SECTION_ORDER = ["环境", "事件", "状态", "选择", "历史"]
+SECTION_ORDER = ["环境", "事件", "副事件", "状态", "选择", "历史"]
 ENV_BASIC_FIELDS = {"地点", "时间", "温度"}
 _round_counter = 0
 
@@ -40,7 +40,8 @@ def get_round_counter() -> int:
 
 def parse_sections(text: str) -> dict:
     sections = {}
-    pattern = r"\[(环境|场景|场景细节|事件|状态|选择|历史|时间)\]\s*(.*?)(?=\[(?:环境|场景|场景细节|事件|状态|选择|历史|时间)\]|\Z)"
+    _SEC = "环境|场景|场景细节|事件|副事件|状态|选择|历史|时间"
+    pattern = rf"\[({_SEC})\]\s*(.*?)(?=\[(?:{_SEC})\]|\Z)"
     matches = re.findall(pattern, text, re.DOTALL)
     for name, content in matches:
         sections[name] = content.strip()
@@ -78,7 +79,7 @@ def _filter_env_fields(text: str, basic_only: bool = True) -> str:
     return "\n".join(lines)
 
 
-def render_dm_output(full_text: str, gm=None, elapsed: float = 0, change_messages: list[str] | None = None):
+def render_dm_output(full_text: str, gm=None, elapsed: float = 0, change_messages: list[str] | None = None, check_blocks: list[dict] | None = None):
     full_text = full_text.replace("（无需检定）", "")
     global _round_counter
     _round_counter += 1
@@ -116,6 +117,27 @@ def render_dm_output(full_text: str, gm=None, elapsed: float = 0, change_message
             Markdown(sections["事件"]),
             title="[#cc6b3e]事件[/#cc6b3e]",
             border_style="#cc6b3e",
+            box=box.SQUARE,
+        ))
+
+    if check_blocks:
+        panels = [
+            Panel(
+                cb["text"],
+                title="[#9b87c4]行动[/#9b87c4]",
+                border_style="#9b87c4",
+                box=box.SQUARE,
+            )
+            for cb in check_blocks if cb.get("text")
+        ]
+        if panels:
+            console.print(Columns(panels, equal=False, expand=False))
+
+    if "副事件" in sections:
+        console.print(Panel(
+            Markdown(sections["副事件"]),
+            title="[#d4946b]副事件[/#d4946b]",
+            border_style="#d4946b",
             box=box.SQUARE,
         ))
 

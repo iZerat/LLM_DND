@@ -9,12 +9,14 @@ from world.entity import NPC
 _ITEM_BLOCK_RE = re.compile(r"\n?\[物品变更\].*?(?=\n\[|\Z)", re.DOTALL)
 _STATUS_CHANGE_BLOCK_RE = re.compile(r"\n?\[状态变更\].*?(?=\n\[|\Z)", re.DOTALL)
 _STATUS_SYNC_RE = re.compile(
-    r"\[状态\]\s*(.*?)(?=\n\[(?:环境|场景|场景细节|事件|状态|选择|历史|时间)|\Z)",
+    r"\[状态\]\s*(.*?)(?=\n\[(?:环境|场景|场景细节|事件|副事件|状态|选择|历史|时间)|\Z)",
     re.DOTALL,
 )
 _NPC_LINE_RE = re.compile(
     r"(?:目标|其他)\s*:\s*(?:\[(.+?)\])?\s*(.+?),\s*AC:\s*(\d+),\s*HP:\s*(\d+)/(\d+)"
 )
+# 名称内禁止出现括号：叙事性描述（如「(已逃窜)」）不得混入目标名称
+_STATUS_NAME_BAD_RE = re.compile(r"[（）()]")
 _ATTITUDE_MAP = {"敌对": "hostile", "中立": "neutral", "友方": "friendly"}
 
 
@@ -161,7 +163,27 @@ class Regulator:
             changed_npcs=changed,
         )
 
-    # ── [状态] 区块 → 同步 WorldState ──
+    # ── [状态] 区块 → 校验 / 同步 WorldState ──
+
+    def validate_status_block(self, text: str) -> list[str]:
+        """校验 [状态] 区块目标名称规范：禁止括号/叙事性描述混入名称。
+
+        返回问题列表；空列表表示通过。由监督者在同步前调用，
+        不合格时打回让大模型重写 [状态] 区块。
+        """
+        issues: list[str] = []
+        match = _STATUS_SYNC_RE.search(text)
+        if not match:
+            return issues
+        for line in match.group(1).split("\n"):
+            line = line.strip()
+            npc_m = _NPC_LINE_RE.match(line)
+            if not npc_m:
+                continue
+            name = npc_m.group(2).strip()
+            if _STATUS_NAME_BAD_RE.search(name):
+                issues.append(f"目标名称「{name}」含括号，事件描述（如“已逃窜”）应写进[事件]，名称用稳定角色名")
+        return issues
 
     def sync_status_block(self, text: str, changed_npcs: set[str] | None = None) -> ChangeReport:
         """捕获 LLM 在 [状态] 中对 HP/AC/NPC 的叙事性变更并同步 WorldState。
@@ -177,12 +199,12 @@ class Regulator:
         status_text = match.group(1)
         changed_npcs = changed_npcs or set()
 
-        # 清理因 xN 格式产生的垃圾实体
+        # 清理因 xN 格式 / 名称内叙事描述 产生的垃圾实体
         for pool_name in ("active", "nearby", "distant"):
             pool = getattr(self.world, pool_name, {})
             garbage_ids = [
                 eid for eid, e in pool.items()
-                if re.search(r"\s*x\d+\s*$", e.name)
+                if re.search(r"\s*x\d+\s*$", e.name) or _STATUS_NAME_BAD_RE.search(e.name)
             ]
             for eid in garbage_ids:
                 self.world.remove(eid)
