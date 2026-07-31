@@ -1,0 +1,21 @@
+{
+  "id": "demo_knight",
+  "name": "艾丽娅·铁壁",
+  "description": "灰岩镇警备队长的独女，退役的圣武士，回到故乡调查妹妹失踪一事。",
+  "species": "人类",
+  "char_class": "圣武士",
+  "background": "士兵",
+  "stats": {
+    "力量": 15,
+    "敏捷": 10,
+    "体质": 14,
+    "智力": 10,
+    "感知": 12,
+    "魅力": 13
+  },
+  "hp": 13,
+  "max_hp": 13,
+  "skills": ["athletics", "intimidation", "religion", "perception"],
+  "equipment": ["长剑", "盾牌", "链甲"],
+  "description": "一名神情坚毅的女骑士，腰间佩着灰岩镇警备队的徽章，眼中带着失去亲人的怒火。"
+}

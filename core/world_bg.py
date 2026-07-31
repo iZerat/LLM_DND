@@ -1,23 +1,4 @@
-from pathlib import Path
+"""世界背景（旧入口，转发到 mods 统一资源 API）。"""
+from mods.api import list_world_backgrounds, load_world_background
 
-WORLD_BACKGROUNDS_DIR = Path(__file__).resolve().parent.parent / "mods" / "world" / "backgrounds"
-
-
-def list_world_backgrounds() -> list[tuple[str, str]]:
-    """Return [(display_name, file_stem), ...] for all .txt in mods/world/backgrounds/"""
-    if not WORLD_BACKGROUNDS_DIR.exists():
-        WORLD_BACKGROUNDS_DIR.mkdir(parents=True, exist_ok=True)
-    found = sorted(WORLD_BACKGROUNDS_DIR.glob("*.txt"))
-    result = []
-    for fp in found:
-        display = fp.stem.replace("-", " ").replace("_", " ").title().replace("Dnd", "DND")
-        result.append((display, fp.stem))
-    return result
-
-
-def load_world_background(stem: str) -> str:
-    """Load the content of a world background file by its stem (no extension)."""
-    fp = WORLD_BACKGROUNDS_DIR / f"{stem}.txt"
-    if not fp.exists():
-        return ""
-    return fp.read_text(encoding="utf-8").strip()
+__all__ = ["list_world_backgrounds", "load_world_background"]

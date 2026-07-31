@@ -1,0 +1,68 @@
+"""mods 故事角色模型与加载。"""
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Optional
+
+from mods.types import STORY_ROLES, display_name
+
+_STAT_DEFAULTS = {"力量": 10, "敏捷": 10, "体质": 10, "智力": 10, "感知": 10, "魅力": 10}
+
+
+@dataclass
+class StoryRole:
+    """故事角色：仅能通过故事包的 roles 引用被加载，不进入任何菜单。"""
+    role_id: str
+    name: str
+    description: str = ""
+    species: str = ""          # 种族（中文）
+    char_class: str = ""       # 职业（中文）
+    background: str = ""       # 背景（中文）
+    stats: dict = field(default_factory=dict)          # 属性
+    hp: int = 10
+    max_hp: int = 10
+    skills: list = field(default_factory=list)          # 技能（英文 key）
+    equipment: list = field(default_factory=list)       # 物品名列表
+
+
+def role_path(role_id: str) -> Path:
+    return STORY_ROLES / f"{role_id}.json"
+
+
+def load_role(role_id: str) -> Optional[StoryRole]:
+    fp = role_path(role_id)
+    if not fp.exists():
+        return None
+    try:
+        data = json.loads(fp.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    stats = dict(_STAT_DEFAULTS)
+    stats.update({k: v for k, v in (data.get("stats") or {}).items()})
+    hp = data.get("hp", _STAT_DEFAULTS["体质"] + 10)
+    return StoryRole(
+        role_id=role_id,
+        name=display_name(role_id, data),
+        description=data.get("description", ""),
+        species=data.get("species", ""),
+        char_class=data.get("char_class", ""),
+        background=data.get("background", ""),
+        stats=stats,
+        hp=hp, max_hp=data.get("max_hp", hp),
+        skills=list(data.get("skills", [])),
+        equipment=list(data.get("equipment", [])),
+    )
+
+
+def list_all_roles() -> list[tuple[str, str]]:
+    """全部故事角色 (显示名, role_id)。仅用于调试，正常流程走故事包引用。"""
+    if not STORY_ROLES.exists():
+        return []
+    out = []
+    for fp in sorted(STORY_ROLES.glob("*.json")):
+        r = load_role(fp.stem)
+        if r:
+            out.append((r.name, r.role_id))
+    return out

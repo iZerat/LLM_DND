@@ -1,0 +1,21 @@
+{
+  "id": "demo_mage",
+  "name": "薇拉·雾语",
+  "description": "游历四方的法师学徒，为了研究古精灵遗迹的秘密而滞留灰岩镇。",
+  "species": "精灵",
+  "char_class": "法师",
+  "background": "贤者",
+  "stats": {
+    "力量": 8,
+    "敏捷": 14,
+    "体质": 10,
+    "智力": 16,
+    "感知": 13,
+    "魅力": 11
+  },
+  "hp": 8,
+  "max_hp": 8,
+  "skills": ["arcana", "history", "investigation", "insight"],
+  "equipment": ["木棍", "法术书"],
+  "description": "披着灰蓝色斗篷的年轻精灵，指尖常绕着细碎的银色星屑，对遗迹秘闻如数家珍。"
+}

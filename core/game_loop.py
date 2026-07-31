@@ -91,6 +91,9 @@ def save_game(gm: GameMaster, name: str = None):
         "last_time": gm.last_time,
         "setting_stem": gm.setting_stem,
         "resource_mode": getattr(gm, "resource_mode", "pack"),
+        "story_pack_id": getattr(gm, "story_pack_id", ""),
+        "story_pack_content": getattr(gm, "story_pack_content", ""),
+        "world_source": getattr(gm, "world_source", "llm"),
     }
     (char_dir / "history.json").write_text(
         json.dumps({
@@ -345,6 +348,9 @@ def load_game(save_path: str) -> GameMaster:
                 gm.setting_stem = setting_stem
                 from core.world_bg import load_world_background
                 gm.setting_content = load_world_background(setting_stem)
+            gm.story_pack_id = meta.get("story_pack_id", "")
+            gm.story_pack_content = meta.get("story_pack_content", "")
+            gm.world_source = meta.get("world_source", "llm")
         from world.state import WorldState
         world_path = path / "world.json"
         gm.world_state = WorldState.from_dict(

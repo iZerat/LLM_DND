@@ -1,0 +1,21 @@
+{
+  "id": "demo_rogue",
+  "name": "疤脸·柯林",
+  "description": "铁犁酒馆的常客，前盗贼公会的线人，欠着酒馆老板一笔人情债。",
+  "species": "半身人",
+  "char_class": "游荡者",
+  "background": "恶棍",
+  "stats": {
+    "力量": 8,
+    "敏捷": 17,
+    "体质": 12,
+    "智力": 13,
+    "感知": 14,
+    "魅力": 10
+  },
+  "hp": 10,
+  "max_hp": 10,
+  "skills": ["stealth", "sleight_of_hand", "perception", "deception"],
+  "equipment": ["匕首", "短剑", "皮甲"],
+  "description": "脸上横着一道旧刀疤的半身人，总是一边啜着淡啤酒一边留意着酒馆里的每一个人。"
+}

@@ -9,3 +9,4 @@ venv/
 /tmp
 /templates
 /character_templates
+/llmdnd.cmd

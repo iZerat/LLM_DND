@@ -150,7 +150,8 @@ def _load_rules() -> str:
 
 
 class GameMaster:
-    def __init__(self, character: Character, template: str = "", setting_content: str = "", setting_stem: str = "", resource_mode: str = "pack"):
+    def __init__(self, character: Character, template: str = "", setting_content: str = "", setting_stem: str = "", resource_mode: str = "pack",
+                 story_pack_id: str = "", story_pack_content: str = "", world_source: str = "llm"):
         self.character = character
         self.client: Optional[OpenAI] = None
         self.history: list = []
@@ -165,6 +166,9 @@ class GameMaster:
         self.setting_content = setting_content
         self.setting_stem = setting_stem
         self.resource_mode = resource_mode
+        self.story_pack_id = story_pack_id
+        self.story_pack_content = story_pack_content
+        self.world_source = world_source
         self.compressed_history: list = []
         self._round_num: int = 0
         self._truncated: bool = False
@@ -225,11 +229,15 @@ class GameMaster:
             if t:
                 template_note = f"\n\n## 开场模板\n{t}\n严格按此模板生成第一轮输出。"
 
+        story_note = ""
+        if self.story_pack_content:
+            story_note = f"\n\n## 故事包\n{self.story_pack_content}\n故事剧情必须遵循此故事包设定，人物、地名、组织以此为准。"
+
         setting = self.setting_content if self.setting_content else "一个标准的 D&D 奇幻世界。"
         core_rules_text = _load_rules()
 
         prompt = SYSTEM_PROMPT_TEMPLATE.format(setting_content=setting, core_rules=core_rules_text)
-        prompt += f"\n\n## 当前角色信息\n{char_summary}" + format_rule + template_note
+        prompt += f"\n\n## 当前角色信息\n{char_summary}" + format_rule + template_note + story_note
         prompt += self._resource_strategy_note()
 
         if self.compressed_history:

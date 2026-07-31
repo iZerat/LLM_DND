@@ -281,18 +281,25 @@ def show_info(char: Character):
     ))
 
 
+def _bag_summary(char: Character) -> list[str]:
+    """把背包实例按 guid 合并叠放显示：箭矢 x20（数据层仍为独立实例）。"""
+    from resource.item_db import item_db
+    counts: dict[str, int] = {}
+    for inst in char.inventory.all_instances():
+        counts[inst.guid] = counts.get(inst.guid, 0) + 1
+    lines = []
+    for guid, n in counts.items():
+        item_def = item_db.get(guid)
+        name = item_def.name if item_def else guid
+        lines.append(f"• {name}" + (f" x{n}" if n > 1 else ""))
+    return lines
+
+
 def show_bag(char: Character):
     from loc import tr
-    from resource.item_db import item_db
     money = f"  {tr('general:money')}: {char.currency_str()}"
-    bag_insts = char.inventory.all_instances()
-    if bag_insts:
-        lines = []
-        for inst in bag_insts:
-            item_def = item_db.get(inst.guid)
-            name = item_def.name if item_def else inst.guid
-            tag = f"  [{name}]" + f"[grey50]#{inst.instance_id[:6]}[/grey50]"
-            lines.append(f"  • {name}")
+    lines = _bag_summary(char)
+    if lines:
         items = "\n".join(lines)
     else:
         items = "  [grey50]" + tr("general:empty") + "[/grey50]"
@@ -473,7 +480,7 @@ def render_character_sheet(char: Character, roll_log: str = ""):
         else:
             equip_grid.add_row(f"[{_MUTED}]{slot_cn}[/{_MUTED}]", f"[{_MUTED}]{tr('general:empty')}[/{_MUTED}]")
 
-    bag_rows = [f"• {item_db.get(inst.guid).name if item_db.get(inst.guid) else inst.guid}" for inst in char.inventory.all_instances()]
+    bag_rows = _bag_summary(char)
     if not bag_rows:
         bag_rows = [f"[{_MUTED}]{tr('general:empty')}[/{_MUTED}]"]
 

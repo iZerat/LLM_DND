@@ -1,0 +1,60 @@
+"""mods 预设组合：index/<preset_id>.json 的加载。"""
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Optional
+
+from mods.types import INDEX_PACKS, display_name
+
+
+@dataclass
+class Preset:
+    preset_id: str
+    name: str
+    description: str = ""
+    background: str = ""          # 世界背景 stem
+    story_pack: str = ""          # 故事包 id（可空）
+    opening: str = ""             # 开场模板 stem（可空=随机）
+    resource_pack: str = ""       # 资源包 id
+    resource_strategy: str = ""   # 资源策略 mode
+    components: dict = field(default_factory=dict)  # 原始 components
+
+
+def load_preset(preset_id: str) -> Optional[Preset]:
+    fp = INDEX_PACKS / f"{preset_id}.json"
+    if not fp.exists():
+        return None
+    try:
+        data = json.loads(fp.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    comp = data.get("components") or {}
+    return Preset(
+        preset_id=preset_id,
+        name=display_name(preset_id, data),
+        description=data.get("description", ""),
+        background=comp.get("background", ""),
+        story_pack=comp.get("story_pack", ""),
+        opening=comp.get("opening", ""),
+        resource_pack=comp.get("resource_pack", ""),
+        resource_strategy=comp.get("resource_strategy", ""),
+        components=comp,
+    )
+
+
+def list_presets() -> list[tuple[str, str]]:
+    """(显示名, preset_id)。"""
+    if not INDEX_PACKS.exists():
+        return []
+    out = []
+    for fp in sorted(INDEX_PACKS.glob("*.json")):
+        data = None
+        try:
+            data = json.loads(fp.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+        name = display_name(fp.stem, data)
+        out.append((name, fp.stem))
+    return out

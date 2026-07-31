@@ -1,0 +1,12 @@
+{
+  "id": "default-dnd",
+  "name": "default-dnd",
+  "description": "标准的 D&D 奇幻冒险：默认世界背景、随机开场、默认资源包（查表创建），无故事包。",
+  "components": {
+    "background": "default-dnd",
+    "story_pack": "",
+    "opening": "",
+    "resource_pack": "default-dnd",
+    "resource_strategy": "pack"
+  }
+}

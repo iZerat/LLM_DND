@@ -12,7 +12,7 @@ RESOURCE_MODE_LABELS = {
 
 
 def packs_dir() -> Path:
-    return Path(__file__).resolve().parent.parent / "mods" / "resource"
+    return Path(__file__).resolve().parent.parent / "mods" / "resource" / "resource_packs"
 
 
 def pack_dir(pack_id: str = DEFAULT_PACK_ID) -> Path:
@@ -23,10 +23,10 @@ def default_pack_dir() -> Path:
     return pack_dir(DEFAULT_PACK_ID)
 
 
-def configure_resource_catalogs(resource_mode: str):
+def configure_resource_catalogs(resource_mode: str, pack_id: str = DEFAULT_PACK_ID):
     """按资源策略配置全局目录。
 
-    pack（查表创建）: 加载默认资源包，所有对象从库检索。
+    pack（查表创建）: 加载指定资源包（默认 default-dnd），所有对象从库检索。
     free（填表创建）: 不带入任何资源包，对象全部由大模型填表创建。
     """
     from resource.item_db import item_db
@@ -35,5 +35,5 @@ def configure_resource_catalogs(resource_mode: str):
         item_db.set_items_dir(None)
         npc_catalog.set_base_dir(None)
     else:
-        item_db.set_items_dir(default_pack_dir() / "items")
-        npc_catalog.set_base_dir(default_pack_dir() / "npcs")
+        item_db.set_items_dir(pack_dir(pack_id) / "items")
+        npc_catalog.set_base_dir(pack_dir(pack_id) / "npcs")

@@ -94,11 +94,21 @@ def check_config():
 
 # ---------- 角色创建 ----------
 
-def create_character() -> Character:
+def create_character(story_roles: list = None) -> Character:
+    story_roles = story_roles or []
     console.print(f"\n[steel_blue]创建你的角色[/steel_blue]")
     console.print("  1. 快速创建（随机生成，直接开玩）")
     console.print("  2. 详细创建（手动分配属性）")
-    mode = _pre_game_ask(escape("选择 [1/2]"))
+    if story_roles:
+        console.print("  3. 使用故事包内的角色")
+    max_choice = 3 if story_roles else 2
+    mode = _pre_game_ask(escape(f"选择 [1/{max_choice}]"))
+
+    if mode == "3" and story_roles:
+        char = _pick_story_role(story_roles)
+        if char is not None:
+            _offer_save_template(char)
+        return char
 
     if not mode or mode == "1":
         name = _ask_quick_name()
@@ -126,9 +136,9 @@ def create_character() -> Character:
 
 
 def _ask_quick_name() -> str:
-    name = _pre_game_ask("角色名称（留空回车随机）")
+    name = _pre_game_ask("角色名称（留空回车随机生成角色名称）")
     if not name:
-        confirm = _pre_game_ask("是否随机生成名字？（再次回车确认随机，或直接输入名字）")
+        confirm = _pre_game_ask("是否随机生成名字？（再次回车确认随机生成角色名称，或直接输入名字）")
         name = char_gen.random_name() if not confirm else confirm
     return name
 
@@ -178,7 +188,8 @@ def _offer_template_import() -> Character:
     for i, s in enumerate(stems, 1):
         console.print(f"  {i}. {s}")
     try:
-        idx = int(_pre_game_ask(escape(f"选择编号 [1-{len(stems)}]"))) - 1
+        range_txt = f"[1-{len(stems)}]" if len(stems) > 1 else "[1]"
+        idx = int(_pre_game_ask(escape(f"选择编号 {range_txt}"))) - 1
         if 0 <= idx < len(stems):
             char = load_template(stems[idx])
             console.print(f"[grey50]已导入: {char.name}[/grey50]")
@@ -191,30 +202,100 @@ def _offer_template_import() -> Character:
 
 
 def _create_world() -> GameMaster:
-    """世界启动入口：三种创建世界的方式，当前仅方式一可用。"""
+    """世界启动入口：预设组合 / 让大模型创建世界 / 本地完整世界（已有的完整世界 / 程序化生成世界，规划中）。"""
     from resource.packs import RESOURCE_MODE_PACK, RESOURCE_MODE_FREE, configure_resource_catalogs
+    from mods.presets import list_presets, load_preset
+    from mods.story_packs import list_story_packs, load_story_pack, load_story_roles
+    from mods.story_roles import StoryRole
     while True:
         console.print("\n[steel_blue]创建世界[/steel_blue]")
-        console.print("  1. 让大模型创建世界（世界背景 + 故事包 + 开场模板 + 资源包）")
-        console.print("  2. 选择战役（战役包，规划中）")
-        console.print("  3. 程序化生成世界（生成规则 + 生成资源 + 资源包，规划中）")
+        console.print("  1. 使用预设组合")
+        console.print("  2. 让大模型创建世界")
+        console.print("  3. 本地完整世界（开发中）")
         # 创建世界菜单是 B 级：此处 /back 直接穿透，由 main() 返回主菜单
         choice = _pre_game_ask(escape("选择 [1/2/3]"))
-        if choice == "2":
-            console.print("[grey50]方式二（选择战役）尚未开放，敬请期待[/grey50]")
-            continue
+        if not choice:
+            choice = "1"
         if choice == "3":
-            console.print("[grey50]方式三（程序化生成世界）尚未开放，敬请期待[/grey50]")
+            # 本地完整世界子菜单（C 级：/back 回到创建世界菜单）
+            try:
+                console.print("\n[steel_blue]本地完整世界[/steel_blue]")
+                console.print("  1. 已有的完整世界（开发中）")
+                console.print("  2. 程序化生成世界（开发中）")
+                sub = _pre_game_ask(escape("选择 [1/2]（/back 返回创建世界菜单）"))
+            except _BackSignal:
+                continue
+            if sub == "1":
+                console.print("[grey50]本地完整世界（已有的完整世界）尚未开放，敬请期待[/grey50]")
+            elif sub == "2":
+                console.print("[grey50]程序化生成世界尚未开放，敬请期待[/grey50]")
+            else:
+                console.print("[grey50]无效选择[/grey50]")
             continue
 
-        # ── 方式一：选择世界背景（C 级：/back 回到创建世界菜单） ──
+        # ── 方式一：预设组合（C 级：/back 回到创建世界菜单） ──
+        if choice == "1":
+            try:
+                preset_list = list_presets()
+                if not preset_list:
+                    console.print("[grey50]暂无可用的预设组合，请先添加 mods/index/ 下的预设[/grey50]")
+                    continue
+                console.print("\n[steel_blue]选择预设组合[/steel_blue]")
+                for i, (display, pid) in enumerate(preset_list, 1):
+                    console.print(f"  {i}. {display}")
+                range_txt = f"[1-{len(preset_list)}]" if len(preset_list) > 1 else "[1]"
+                p_choice = _pre_game_ask(escape(f"选择 {range_txt}"))
+                try:
+                    idx = int(p_choice) - 1
+                    preset = load_preset(preset_list[idx][1] if 0 <= idx < len(preset_list) else preset_list[0][1])
+                except (ValueError, IndexError):
+                    preset = load_preset(preset_list[0][1])
+                if preset is None:
+                    console.print("[grey50]预设加载失败[/grey50]")
+                    continue
+
+                # 应用预设组件
+                setting_stem = preset.background or "default-dnd"
+                setting_content = load_world_background(setting_stem)
+                resource_mode = preset.resource_strategy or RESOURCE_MODE_PACK
+                if resource_mode not in (RESOURCE_MODE_PACK, RESOURCE_MODE_FREE):
+                    resource_mode = RESOURCE_MODE_PACK
+                configure_resource_catalogs(resource_mode, preset.resource_pack or "default-dnd")
+
+                story_pack = None
+                if preset.story_pack:
+                    story_pack = load_story_pack(preset.story_pack)
+                story_roles = load_story_roles(story_pack) if story_pack else []
+
+                opening_stem = preset.opening or ""
+
+                # 角色：预设若带故事包角色，创建菜单会提供"使用故事包内的角色"选项
+                char = create_character(story_roles)
+                while char is None:
+                    console.print("\n[grey50]角色未创建，请重新创建[/grey50]")
+                    char = create_character(story_roles)
+
+                return GameMaster(
+                    char, opening_stem,
+                    setting_content=setting_content, setting_stem=setting_stem,
+                    resource_mode=resource_mode,
+                    story_pack_id=story_pack.pack_id if story_pack else "",
+                    story_pack_content=story_pack.content if story_pack else "",
+                    world_source="preset",
+                )
+            except _BackSignal:
+                continue
+
+        # ── 方式二：自定义（大模型创建世界） ──
+        # 选择世界背景（C 级：/back 回到创建世界菜单）
         try:
             bg_list = list_world_backgrounds()
             console.print("\n[steel_blue]选择世界背景[/steel_blue]")
             if bg_list:
                 for i, (display, stem) in enumerate(bg_list, 1):
                     console.print(f"  {i}. {display}")
-                bg_choice = _pre_game_ask(escape(f"选择 [1-{len(bg_list)}]"))
+                bg_range = f"[1-{len(bg_list)}]" if len(bg_list) > 1 else "[1]"
+                bg_choice = _pre_game_ask(escape(f"选择 {bg_range}"))
                 try:
                     idx = int(bg_choice) - 1
                     setting_stem = bg_list[idx][1] if 0 <= idx < len(bg_list) else bg_list[0][1]
@@ -226,26 +307,50 @@ def _create_world() -> GameMaster:
         except _BackSignal:
             continue
 
-        # ── 对象资源策略（互斥：查表创建 或 填表创建）──
+        # 选择故事包（可选）
+        try:
+            pack_list = list_story_packs()
+            story_pack = None
+            if pack_list:
+                console.print(f"\n[steel_blue]检测到故事包 {len(pack_list)} 个[/steel_blue]")
+                want = _pre_game_ask(escape("是否使用故事包？y/n"))
+                if want.strip().lower() in ("y", "yes"):
+                    for i, (display, pid) in enumerate(pack_list, 1):
+                        console.print(f"  {i}. {display}")
+                    p_range = f"[1-{len(pack_list)}]" if len(pack_list) > 1 else "[1]"
+                    p_choice = _pre_game_ask(escape(f"选择 {p_range}"))
+                    try:
+                        idx = int(p_choice) - 1
+                        story_pack = load_story_pack(pack_list[idx][1]) if 0 <= idx < len(pack_list) else None
+                    except (ValueError, IndexError):
+                        story_pack = None
+            story_roles = load_story_roles(story_pack) if story_pack else []
+        except _BackSignal:
+            continue
+
+        # 对象资源策略（查表创建会再选资源包；填表创建不使用资源包）
         try:
             console.print("\n[steel_blue]选择对象资源策略[/steel_blue]")
-            console.print("  1. 查表创建（使用默认资源包，所有对象从资源库检索）")
-            console.print("  2. 填表创建（不使用任何资源包，大模型按表单自由创建一切对象）")
+            console.print("  1. 查表创建（从资源包检索，所有对象来自资源库）")
+            console.print("  2. 填表创建（不使用任何资源包，大模型通过填写表单自由创建一切对象）")
             mode_choice = _pre_game_ask(escape("选择 [1/2]"))
-            resource_mode = RESOURCE_MODE_PACK if mode_choice != "2" else RESOURCE_MODE_FREE
-            configure_resource_catalogs(resource_mode)
-            if resource_mode == RESOURCE_MODE_FREE:
+            if mode_choice == "2":
+                resource_mode = RESOURCE_MODE_FREE
+                configure_resource_catalogs(resource_mode)
                 console.print("[grey50]已启用填表创建：不使用任何资源包，对象将按表单创建并随存档保存。[/grey50]")
+            else:
+                resource_mode = RESOURCE_MODE_PACK
+                configure_resource_catalogs(resource_mode, _choose_resource_pack())
         except _BackSignal:
             continue
 
         try:
             char = _offer_template_import()
             if char is None:
-                char = create_character()
+                char = create_character(story_roles)
             while char is None:
                 console.print("\n[grey50]角色未创建，请重新创建[/grey50]")
-                char = create_character()
+                char = create_character(story_roles)
         except _BackSignal:
             continue
 
@@ -268,7 +373,88 @@ def _create_world() -> GameMaster:
             char, opening_stem,
             setting_content=setting_content, setting_stem=setting_stem,
             resource_mode=resource_mode,
+            story_pack_id=story_pack.pack_id if story_pack else "",
+            story_pack_content=story_pack.content if story_pack else "",
+            world_source="llm",
         )
+
+
+def _choose_resource_pack() -> str:
+    """列出已安装资源包并让玩家选择，返回 pack_id。"""
+    from mods.api import list_resource_packs
+    packs = list_resource_packs()
+    if not packs:
+        console.print("[grey50]未安装任何资源包，回退默认 default-dnd。[/grey50]")
+        return "default-dnd"
+    console.print("\n[steel_blue]选择资源包[/steel_blue]")
+    for i, pid in enumerate(packs, 1):
+        console.print(f"  {i}. {pid}")
+    range_txt = f"[1-{len(packs)}]" if len(packs) > 1 else "[1]"
+    while True:
+        p_choice = _pre_game_ask(escape(f"选择资源包 {range_txt}"))
+        if not p_choice:
+            return packs[0]
+        try:
+            idx = int(p_choice) - 1
+            if 0 <= idx < len(packs):
+                return packs[idx]
+        except ValueError:
+            pass
+        console.print("[grey50]无效选择[/grey50]")
+
+
+def _pick_story_role(story_roles: list) -> Character:
+    """列出故事角色并让玩家选择扮演其一；返回 Character 或 None。"""
+    while True:
+        console.print("\n[steel_blue]选择你要扮演的故事角色[/steel_blue]")
+        for i, r in enumerate(story_roles, 1):
+            console.print(f"  {i}. {r.name}（{r.char_class}）")
+            if r.description:
+                console.print(f"     [grey50]{r.description}[/grey50]")
+        r_range = f"[1-{len(story_roles)}]" if len(story_roles) > 1 else "[1]"
+        r_choice = _pre_game_ask(escape(f"选择 {r_range}"))
+        try:
+            idx = int(r_choice) - 1
+            if 0 <= idx < len(story_roles):
+                role = story_roles[idx]
+                return build_character_from_role(role)
+        except (ValueError, IndexError):
+            pass
+        console.print("[grey50]无效选择[/grey50]")
+
+
+def build_character_from_role(role) -> Character:
+    """把故事角色（StoryRole）落成可用的 Character。"""
+    from mods.story_roles import StoryRole
+    from resource.models import Inventory, Currency
+    from resource.item_db import item_db
+    stats = dict(role.stats)
+    char = Character(
+        name=role.name or char_gen.random_name(),
+        race=role.species, char_class=role.char_class,
+        background=role.background, description=role.description or f"一位来自故事包的角色。",
+        level=1, hp=role.hp, max_hp=role.max_hp or role.hp,
+        strength=stats.get("力量", 10), dexterity=stats.get("敏捷", 10),
+        constitution=stats.get("体质", 10), intelligence=stats.get("智力", 10),
+        wisdom=stats.get("感知", 10), charisma=stats.get("魅力", 10),
+        skills=list(role.skills), feats=[],
+        gender="male", age=20,
+    )
+    inv = Inventory()
+    cp = [3000]
+    for entry in role.equipment:
+        _grant_entry(inv, cp, entry)
+    if not inv.equipped.get("body"):
+        travel = item_db.find_by_name("旅行者服装") or item_db.find_by_name("棉甲")
+        if travel:
+            inv.equipped["body"] = travel.guid
+    for gear_name in ["背包", "水袋"]:
+        d = item_db.find_by_name(gear_name)
+        if d:
+            inv.add_item(d.guid)
+    inv.currency = Currency(copper=cp[0])
+    char.inventory = inv
+    return char
 
 
 def _choose_lineage(species_name_cn: str) -> str:
@@ -304,7 +490,11 @@ def _choose_skills(prompt_label: str, options_cn: list, count: int, already_chos
 
 
 def _detailed_character() -> Character:
-    name = _pre_game_ask("角色名称")
+    while True:
+        name = _pre_game_ask("角色名称")
+        if name.strip():
+            break
+        console.print("[grey50]无效角色名称，请重新输入[/grey50]")
 
     from rules.srd_data import SKILL_BY_EN
 
@@ -432,6 +622,82 @@ def _menu_choice(options: list, label: str) -> str:
         console.print("[grey50]无效选择[/grey50]")
 
 
+def _place_item(inv, item_def):
+    """把物品定义放入背包：优先装备到对应槽位，否则入包。"""
+    t = item_def.type.value
+    if t == "armor" and not inv.equipped.get("body"):
+        inv.equipped["body"] = item_def.guid
+        return
+    if t == "shield" or ("盾" in item_def.name and not inv.equipped.get("off_hand")):
+        inv.equipped["off_hand"] = item_def.guid
+        return
+    if t == "weapon" and not inv.equipped.get("weapon"):
+        inv.equipped["weapon"] = item_def.guid
+        return
+    inv.add_item(item_def.guid)
+
+
+def _resolve_item(entry):
+    """按条目解析物品：先精确名 → 再别名 → 最后模糊匹配。"""
+    from resource.item_db import item_db
+    return (item_db.find_by_name(entry)
+            or item_db.find_by_alias(entry)
+            or item_db.find_best(entry))
+
+
+def _grant_entry(inv, cp, entry):
+    """把一条起始装备条目解析进背包，保证实例数量正确。
+
+    - 金额条目（15金币 / 钱包（20金））直接加钱。
+    - 数量条目（2把匕首 / 20支箭 / 50尺绳子）：武器/护甲/盾第一件入对应槽位、
+      其余进背包；弹药条目（箭矢/弩矢）的物品定义本身就是一束（如 Arrows (20)），
+      数量前缀只是束内描述，只生成 1 个实例；其余类型按数量批量生成 N 个独立实例。
+    """
+    entry = entry.strip()
+    m = re.match(r"^(\d+)金币$", entry)
+    if m:
+        cp[0] += int(m.group(1)) * 10000
+        return
+    m = re.match(r"^(\d+)银币$", entry)
+    if m:
+        cp[0] += int(m.group(1)) * 100
+        return
+    m = re.match(r"^钱包（(\d+)金）$", entry)
+    if m:
+        cp[0] += int(m.group(1)) * 10000
+        return
+
+    item_def = _resolve_item(entry)
+    qty = 1
+    if item_def is None:
+        # 尺寸前缀（如 50尺绳子 / 10尺布料）：是物品属性，数量仍为 1
+        m = re.match(r"^(\d+)尺(.+)$", entry)
+        if m:
+            item_def = _resolve_item(m.group(2))
+        # 量词前缀：2把匕首 / 20支箭 / 8张羊皮纸
+        if item_def is None:
+            m = re.match(r"^(\d+)[个把支根张枚]?\s*(.+)$", entry)
+            if m:
+                qty = int(m.group(1))
+                item_def = _resolve_item(m.group(2))
+    if item_def is None:
+        return
+
+    t = item_def.type.value
+    if t in ("armor", "shield", "weapon"):
+        # 第一件尝试入槽，其余全部进背包
+        _place_item(inv, item_def)
+        if qty > 1:
+            inv.add_item(item_def.guid, qty - 1)
+    else:
+        # 弹药物品定义即一束（箭矢=Arrows (20)），数量前缀是束内描述，只给 1 个实例
+        if t == "ammunition":
+            inv.add_item(item_def.guid)
+        else:
+            # 消耗品/工具/装备等：批量生成 qty 个独立实例
+            inv.add_item(item_def.guid, qty)
+
+
 def _init_equipment(char: Character, class_a: bool = True, bg_a: bool = True):
     """按 rules 生成起始装备与金币。
     class_a / bg_a：True=成套装备包(A)，False=换成金币(B)。
@@ -441,40 +707,8 @@ def _init_equipment(char: Character, class_a: bool = True, bg_a: bool = True):
     inv = Inventory()
     cp = [3000]
 
-    def place(item_def):
-        t = item_def.type.value
-        if t == "armor" and not inv.equipped.get("body"):
-            inv.equipped["body"] = item_def.guid
-            return
-        if t == "shield" or ("盾" in item_def.name and not inv.equipped.get("off_hand")):
-            inv.equipped["off_hand"] = item_def.guid
-            return
-        if t == "weapon" and not inv.equipped.get("weapon"):
-            inv.equipped["weapon"] = item_def.guid
-            return
-        inv.add_item(item_def.guid)
-
     def grant(entry):
-        entry = entry.strip()
-        m = re.match(r"^(\d+)金币$", entry)
-        if m:
-            cp[0] += int(m.group(1)) * 10000
-            return
-        m = re.match(r"^(\d+)银币$", entry)
-        if m:
-            cp[0] += int(m.group(1)) * 100
-            return
-        item_def = item_db.find_by_name(entry) or item_db.find_best(entry)
-        qty = 1
-        if item_def is None:
-            m = re.match(r"^(\d+)\s*(.+)$", entry)
-            if m:
-                qty = int(m.group(1))
-                item_def = item_db.find_by_name(m.group(2)) or item_db.find_best(m.group(2))
-        if item_def is None:
-            return
-        for _ in range(qty):
-            place(item_def)
+        _grant_entry(inv, cp, entry)
 
     cd = find_class(char.char_class)
     if cd:
@@ -580,18 +814,31 @@ def _start_adventure(gm: GameMaster):
 
 
 def _quickstart():
-    """快速开始：全部选默认（查表创建 + 默认世界背景 + 随机开场）+ 随机角色，直接进入游戏。"""
+    """快速开始：使用默认预设（查表创建 + 默认世界背景 + 随机开场）+ 随机角色，直接进入游戏。"""
     from resource.packs import RESOURCE_MODE_PACK, configure_resource_catalogs
-    configure_resource_catalogs(RESOURCE_MODE_PACK)
-    setting_stem = "default-dnd"
+    from mods.presets import load_preset
+    preset = load_preset("default") or load_preset("default-dnd")
+    resource_mode = RESOURCE_MODE_PACK
+    if preset:
+        resource_mode = preset.resource_strategy or RESOURCE_MODE_PACK
+    configure_resource_catalogs(resource_mode, preset.resource_pack if preset else "default-dnd")
+    setting_stem = (preset.background if preset and preset.background else "default-dnd")
     setting_content = load_world_background(setting_stem)
+    story_pack_id = preset.story_pack if preset else ""
+    story_pack_content = ""
+    if story_pack_id:
+        from mods.story_packs import load_story_pack
+        sp = load_story_pack(story_pack_id)
+        story_pack_content = sp.content if sp else ""
     char, roll_log = char_gen.roll_character(name=char_gen.random_name())
     _init_equipment(char)
     console.print(f"\n[grey62]快速开始：随机角色 {char.name}（Lv.{char.level} {char.race_cn} {char.class_cn}）[/grey62]")
     gm = GameMaster(
-        char, "",
+        char, preset.opening if preset else "",
         setting_content=setting_content, setting_stem=setting_stem,
-        resource_mode=RESOURCE_MODE_PACK,
+        resource_mode=resource_mode,
+        story_pack_id=story_pack_id, story_pack_content=story_pack_content,
+        world_source="preset",
     )
     _start_adventure(gm)
 

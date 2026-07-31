@@ -1,0 +1,346 @@
+{
+  "srd_spear_short": {
+    "name": "短矛",
+    "name_en": "Shortspear",
+    "type": "weapon",
+    "tags": ["近战", "武器", "简易"],
+    "aliases": ["short spear", "短枪"],
+    "description": "一把较短的矛，可投掷也可持握",
+    "value_cp": 100,
+    "damage_dice": "1d6",
+    "damage_type": "穿刺",
+    "weapon_category": "simple",
+    "weapon_range": "melee",
+    "properties": ["投掷", "多用途(1d8)"]
+  },
+  "srd_sickle": {
+    "name": "镰刀",
+    "name_en": "Sickle",
+    "type": "weapon",
+    "tags": ["近战", "武器", "简易"],
+    "aliases": ["sickle", "弯镰"],
+    "description": "一把农用镰刀，也可作为武器",
+    "value_cp": 100,
+    "damage_dice": "1d4",
+    "damage_type": "挥砍",
+    "weapon_category": "simple",
+    "weapon_range": "melee",
+    "properties": ["轻型"]
+  },
+  "srd_travelers_clothes": {
+    "name": "旅行者服装",
+    "name_en": "Travelers Clothes",
+    "type": "equipment",
+    "tags": ["服装"],
+    "aliases": ["traveler's clothes", "旅行服装", "旅行者服"],
+    "description": "一套耐穿的旅行服装",
+    "value_cp": 200
+  },
+  "srd_robe": {
+    "name": "长袍",
+    "name_en": "Robe",
+    "type": "equipment",
+    "tags": ["服装"],
+    "aliases": ["robe", "法袍"],
+    "description": "一件宽大的长袍",
+    "value_cp": 100
+  },
+  "srd_fine_clothes": {
+    "name": "精致服装",
+    "name_en": "Fine Clothes",
+    "type": "equipment",
+    "tags": ["服装"],
+    "aliases": ["fine clothes", "华服"],
+    "description": "一套精致的正式服装",
+    "value_cp": 1500
+  },
+  "srd_costume": {
+    "name": "戏服",
+    "name_en": "Costume",
+    "type": "equipment",
+    "tags": ["服装"],
+    "aliases": ["costume", "演出服"],
+    "description": "一套演出用的戏服",
+    "value_cp": 500
+  },
+  "srd_blanket": {
+    "name": "毛毯",
+    "name_en": "Blanket",
+    "type": "equipment",
+    "tags": ["休息", "冒险装备"],
+    "aliases": ["blanket", "毯子"],
+    "description": "一条保暖的毛毯",
+    "value_cp": 100
+  },
+  "srd_cloth": {
+    "name": "布料",
+    "name_en": "Cloth",
+    "type": "equipment",
+    "tags": ["布料", "杂物"],
+    "aliases": ["cloth", "布匹"],
+    "description": "一块布料",
+    "value_cp": 100
+  },
+  "srd_map": {
+    "name": "地图",
+    "name_en": "Map",
+    "type": "equipment",
+    "tags": ["文书", "冒险装备"],
+    "aliases": ["map", "藏宝图", "卷轴地图"],
+    "description": "一张标记着路线或地点的地图",
+    "value_cp": 1000
+  },
+  "srd_perfume": {
+    "name": "香水",
+    "name_en": "Perfume",
+    "type": "equipment",
+    "tags": ["杂物", "化妆品"],
+    "aliases": ["perfume", "香料"],
+    "description": "一瓶香气怡人的香水",
+    "value_cp": 500
+  },
+  "srd_mirror": {
+    "name": "镜子",
+    "name_en": "Steel Mirror",
+    "type": "equipment",
+    "tags": ["杂物"],
+    "aliases": ["mirror", "钢镜"],
+    "description": "一面小钢镜",
+    "value_cp": 500
+  },
+  "srd_ledger": {
+    "name": "账本",
+    "name_en": "Ledger",
+    "type": "equipment",
+    "tags": ["文书"],
+    "aliases": ["ledger", "账簿"],
+    "description": "一本记账用的账本",
+    "value_cp": 1000
+  },
+  "srd_quill": {
+    "name": "墨水笔",
+    "name_en": "Quill",
+    "type": "equipment",
+    "tags": ["文具"],
+    "aliases": ["quill", "羽毛笔", "钢笔"],
+    "description": "一支书写用的墨水笔",
+    "value_cp": 20
+  },
+  "srd_iron_spikes": {
+    "name": "铁钉",
+    "name_en": "Iron Spikes",
+    "type": "equipment",
+    "tags": ["工具", "冒险装备"],
+    "aliases": ["iron spikes", "岩钉", "铁锥"],
+    "description": "一包用于固定绳索或封门的铁钉",
+    "value_cp": 100
+  },
+  "srd_hammer": {
+    "name": "锤子",
+    "name_en": "Hammer",
+    "type": "equipment",
+    "tags": ["工具"],
+    "aliases": ["hammer", "铁锤"],
+    "description": "一把普通的锤子",
+    "value_cp": 100
+  },
+  "srd_holy_water": {
+    "name": "圣水",
+    "name_en": "Holy Water",
+    "type": "consumable",
+    "tags": ["消耗品", "圣物"],
+    "aliases": ["holy water", "圣泉水"],
+    "description": "一瓶经过祝圣的水，对不死生物有特效",
+    "value_cp": 2500,
+    "effect": "对不死生物造成伤害"
+  },
+  "srd_holy_symbol": {
+    "name": "圣徽",
+    "name_en": "Holy Symbol",
+    "type": "equipment",
+    "tags": ["法器", "圣物", "施法"],
+    "aliases": ["holy symbol", "圣徽章", "圣契"],
+    "description": "牧师或圣武士用于施法的圣徽",
+    "value_cp": 500
+  },
+  "srd_spellbook": {
+    "name": "法术书",
+    "name_en": "Spellbook",
+    "type": "equipment",
+    "tags": ["施法", "文书"],
+    "aliases": ["spellbook", "魔法书", "魔导书"],
+    "description": "一本记载法术奥秘的厚重书籍",
+    "value_cp": 5000
+  },
+  "srd_occult_book": {
+    "name": "神秘学书",
+    "name_en": "Occult Book",
+    "type": "equipment",
+    "tags": ["文书", "邪术"],
+    "aliases": ["occult book", "禁忌之书", "黑暗典籍"],
+    "description": "一本记载黑暗知识的书籍",
+    "value_cp": 2500
+  },
+  "srd_history_book": {
+    "name": "历史书",
+    "name_en": "History Book",
+    "type": "equipment",
+    "tags": ["文书"],
+    "aliases": ["history book", "史书", "编年史"],
+    "description": "一本记载历史的书籍",
+    "value_cp": 2500
+  },
+  "srd_signet_ring": {
+    "name": "印戒",
+    "name_en": "Signet Ring",
+    "type": "equipment",
+    "tags": ["首饰", "身份"],
+    "aliases": ["signet ring", "印章戒指", "家徽戒指"],
+    "description": "一枚带有家徽的印章戒指",
+    "value_cp": 500
+  },
+  "srd_papers": {
+    "name": "身份文书",
+    "name_en": "Identity Papers",
+    "type": "equipment",
+    "tags": ["文书", "身份"],
+    "aliases": ["papers", "身份证明", "文书"],
+    "description": "一份证明身份的文件",
+    "value_cp": 200
+  },
+  "srd_purse": {
+    "name": "钱包",
+    "name_en": "Purse",
+    "type": "equipment",
+    "tags": ["容器", "货币"],
+    "aliases": ["purse", "钱袋", "钱夹"],
+    "description": "一个装钱的小钱包",
+    "value_cp": 200
+  },
+  "srd_musical_instrument": {
+    "name": "乐器",
+    "name_en": "Musical Instrument",
+    "type": "equipment",
+    "tags": ["乐器"],
+    "aliases": ["musical instrument", "鲁特琴", "竖琴", "长笛"],
+    "description": "一件常见的乐器",
+    "value_cp": 2000
+  },
+  "srd_game_set": {
+    "name": "棋盘套装",
+    "name_en": "Game Set",
+    "type": "equipment",
+    "tags": ["娱乐", "工具"],
+    "aliases": ["game set", "骰子套装", "棋子套装", "棋盘"],
+    "description": "一套棋盘游戏套装",
+    "value_cp": 100
+  },
+  "srd_thieves_tools": {
+    "name": "盗贼工具",
+    "name_en": "Thieves Tools",
+    "type": "tool",
+    "tags": ["工具", "盗贼"],
+    "aliases": ["thieves' tools", "开锁工具", "撬锁工具", "盗贼工具组"],
+    "description": "一套开锁和解除陷阱的工具",
+    "value_cp": 2500
+  },
+  "srd_herbalism_kit": {
+    "name": "草药工具",
+    "name_en": "Herbalism Kit",
+    "type": "tool",
+    "tags": ["工具", "草药"],
+    "aliases": ["herbalism kit", "草药包", "草药师工具"],
+    "description": "一套处理草药的制药工具",
+    "value_cp": 500
+  },
+  "srd_calligrapher_tools": {
+    "name": "书法工具",
+    "name_en": "Calligraphers Tools",
+    "type": "tool",
+    "tags": ["工具", "文具"],
+    "aliases": ["calligrapher's supplies", "书法用品"],
+    "description": "一套书法用具",
+    "value_cp": 1000
+  },
+  "srd_artisan_tools": {
+    "name": "工匠工具",
+    "name_en": "Artisans Tools",
+    "type": "tool",
+    "tags": ["工具", "工匠"],
+    "aliases": ["artisan's tools", "工匠工具或乐器", "铁匠工具", "木匠工具"],
+    "description": "一套工匠使用的工具",
+    "value_cp": 1000
+  },
+  "srd_scale": {
+    "name": "天秤",
+    "name_en": "Scale",
+    "type": "tool",
+    "tags": ["工具", "商贸"],
+    "aliases": ["scale", "天平", "秤"],
+    "description": "一架用于称量货物的天秤",
+    "value_cp": 500
+  },
+  "srd_arcane_focus": {
+    "name": "奥术法器",
+    "name_en": "Arcane Focus",
+    "type": "equipment",
+    "tags": ["法器", "施法"],
+    "aliases": ["奥术法器（木棍）", "奥术法器（水晶）", "奥术法器（魔珠）", "arcane focus", "水晶球", "魔杖"],
+    "description": "术士或法师用于施法的奥术法器，可为木棍、水晶或魔珠",
+    "value_cp": 1000
+  },
+  "srd_druidic_focus": {
+    "name": "德鲁伊法器",
+    "name_en": "Druidic Focus",
+    "type": "equipment",
+    "tags": ["法器", "施法"],
+    "aliases": ["德鲁伊法器（橡木法杖）", "德鲁伊法器（冬青木杖）", "druidic focus", "橡木法杖", "冬青木杖", "槲寄生"],
+    "description": "德鲁伊用于施法的圣物，可为槲寄生、冬青木杖或橡木法杖",
+    "value_cp": 500
+  },
+  "srd_dungeoneers_pack": {
+    "name": "地下城套装",
+    "name_en": "Dungeoneers Pack",
+    "type": "equipment",
+    "tags": ["套装", "冒险装备"],
+    "aliases": ["dungeoneer's pack", "地城探险套装"],
+    "description": "一套适合地下城探险的装备组合",
+    "value_cp": 1600
+  },
+  "srd_scholars_pack": {
+    "name": "学者套装",
+    "name_en": "Scholars Pack",
+    "type": "equipment",
+    "tags": ["套装", "文具"],
+    "aliases": ["scholar's pack", "学士套装"],
+    "description": "一套适合学者研究的装备组合",
+    "value_cp": 4000
+  },
+  "srd_burglars_pack": {
+    "name": "窃贼套装",
+    "name_en": "Burglars Pack",
+    "type": "equipment",
+    "tags": ["套装", "盗贼"],
+    "aliases": ["burglar's pack", "入室盗窃套装"],
+    "description": "一套适合潜入与盗窃的装备组合",
+    "value_cp": 1600
+  },
+  "srd_entertainers_pack": {
+    "name": "艺人套装",
+    "name_en": "Entertainers Pack",
+    "type": "equipment",
+    "tags": ["套装", "表演"],
+    "aliases": ["entertainer's pack", "表演套装"],
+    "description": "一套适合表演的装备组合",
+    "value_cp": 4000
+  },
+  "srd_priests_pack": {
+    "name": "牧师套装",
+    "name_en": "Priests Pack",
+    "type": "equipment",
+    "tags": ["套装", "圣物"],
+    "aliases": ["priest's pack", "祭司套装"],
+    "description": "一套适合宗教仪式的装备组合",
+    "value_cp": 1900
+  }
+}
