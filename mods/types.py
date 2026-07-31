@@ -30,9 +30,9 @@ RESOURCE_TYPE_INDEX = "index"
 
 
 def display_name(stem: str, data: Optional[dict] = None) -> str:
-    """资源的正式显示名：优先取 json 的 name 字段，缺省回退到文件 stem。"""
+    """资源的正式显示名：优先取 json 的 display_name 字段，缺省回退到文件 stem。"""
     if data:
-        name = data.get("name")
+        name = data.get("display_name") or data.get("name")
         if name:
             return name
     return stem

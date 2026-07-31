@@ -1,6 +1,6 @@
 {
   "id": "demo_rogue",
-  "name": "疤脸·柯林",
+  "display_name": "疤脸·柯林",
   "description": "铁犁酒馆的常客，前盗贼公会的线人，欠着酒馆老板一笔人情债。",
   "species": "半身人",
   "char_class": "游荡者",

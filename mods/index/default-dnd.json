@@ -1,11 +1,11 @@
 {
   "id": "default-dnd",
-  "name": "default-dnd",
-  "description": "标准的 D&D 奇幻冒险：默认世界背景、随机开场、默认资源包（查表创建），无故事包。",
+  "display_name": "default-dnd",
+  "description": "标准的 D&D 奇幻冒险：默认世界背景、中立向导开场、默认资源包（查表创建）、酒馆序章故事包。",
   "components": {
     "background": "default-dnd",
-    "story_pack": "",
-    "opening": "",
+    "story_pack": "default-dnd-demo",
+    "opening": "default-dnd-neutral-guide",
     "resource_pack": "default-dnd",
     "resource_strategy": "pack"
   }

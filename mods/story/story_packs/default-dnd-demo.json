@@ -1,6 +1,6 @@
 {
-  "id": "demo",
-  "name": "酒馆序章",
+  "id": "default-dnd-demo",
+  "display_name": "酒馆序章",
   "description": "演示故事包：以边境小镇「灰岩镇」酒馆为起点的冒险序章，附带三名可扮演的故事角色。",
   "roles": [
     "demo_knight",

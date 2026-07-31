@@ -1,6 +1,6 @@
 {
   "id": "demo_mage",
-  "name": "薇拉·雾语",
+  "display_name": "薇拉·雾语",
   "description": "游历四方的法师学徒，为了研究古精灵遗迹的秘密而滞留灰岩镇。",
   "species": "精灵",
   "char_class": "法师",
