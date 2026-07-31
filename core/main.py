@@ -149,8 +149,8 @@ def _confirm_character(char: Character, rerollable: bool = False, roll_log: str 
 
 
 def _offer_save_template(char: Character):
-    ans = Prompt.ask(escape(f"是否将「{char.name}」保存为角色模板？ [1]是 [2]否"))
-    if ans not in ("1", "y", "yes", ""):
+    ans = Prompt.ask(escape(f"是否将「{char.name}」保存为角色模板？ [1]不保存 [2]保存"))
+    if ans not in ("2", "y", "yes"):
         return
     from core.templates import save_template
     path = save_template(char)

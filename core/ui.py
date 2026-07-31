@@ -1,13 +1,15 @@
 import re
 from pathlib import Path
 
-from rich.console import Console
+from rich.console import Console, Group
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.columns import Columns
 from rich.markup import escape
 from rich.text import Text
 from rich.theme import Theme
+from rich.rule import Rule
+from rich.table import Table
 from rich import box
 
 from core.config import Config
@@ -324,97 +326,174 @@ _STAT_KEYS = [
 ]
 _SLOT_KEYS = ["weapon", "off_hand", "head", "body", "back", "neck", "ring1", "ring2"]
 
+_CARD_BORDER = "#60a5fa"
+_CARD_TITLE = "#93c5fd"
+_BLOCK_BORDER = "#64748b"
+_BLOCK_TITLE = "#cbd5e1"
+_ACCENT = "#fbbf24"
+_MUTED = "grey62"
+
+
+def _sheet_block(title: str, body, width: int = None, height: int = None) -> Panel:
+    return Panel(
+        body,
+        title=f"[bold {_BLOCK_TITLE}]{title}[/bold {_BLOCK_TITLE}]",
+        border_style=_BLOCK_BORDER,
+        box=box.SQUARE,
+        padding=(0, 1),
+        width=width,
+        height=height,
+    )
+
+
+def _measure_h(renderable, width: int) -> int:
+    """测量一个 renderable 在指定宽度下占多少终端行。"""
+    import io as _io
+    from rich.console import Console as _MeasureConsole
+    buf = _io.StringIO()
+    _MeasureConsole(width=width, file=buf, color_system=None, force_terminal=False).print(renderable)
+    return len(buf.getvalue().splitlines())
+
+
+def _row_grid(blocks: list, widths: list, gap: int = 1) -> Table:
+    """同行若干子块：先按各自宽度测高，取最大值强制等高，再排成对齐网格。"""
+    measured = [_measure_h(_sheet_block(t, b, width=w), w) for (t, b), w in zip(blocks, widths)]
+    target = max(measured)
+    grid = Table.grid(padding=(0, gap))
+    for w in widths:
+        grid.add_column(width=w)
+    grid.add_row(*[_sheet_block(t, b, width=w, height=target) for (t, b), w in zip(blocks, widths)])
+    return grid
+
 
 def render_character_sheet(char: Character, roll_log: str = ""):
-    """统一角色卡：/info + /equip + /bag + /skill 一览（创建角色预览用）。"""
+    """统一角色卡：一块大卡包裹 /info + /equip + /bag + /skill 全部子块（创建角色预览用）。"""
     from loc import tr
     from resource.item_db import item_db
 
     lineage = f"（{char.lineage}）" if char.lineage else ""
     gender_cn = tr(f"gender:{char.gender}")
+    _l = lambda t: f"[{_MUTED}]{t}[/{_MUTED}]"
 
-    header = (
-        f"[bold]{char.name}[/bold]  Lv.{char.level} {char.race_cn}{lineage} {char.class_cn}\n"
-        f"[grey50]{tr('general:bg')}:[/grey50] {char.bg_cn}   "
-        f"[grey50]{tr('general:gender')}:[/grey50] {gender_cn}   "
-        f"[grey50]{tr('general:age')}:[/grey50] {char.age}\n"
-        f"[grey50]{tr('general:hp')}:[/grey50] {char.hp}/{char.max_hp}   "
-        f"[grey50]{tr('general:ac')}:[/grey50] {char.ac}   "
-        f"[grey50]{tr('general:prof_bonus')}:[/grey50] {char.prof_bonus:+d}\n"
-        f"[grey50]{tr('general:desc')}:[/grey50] {char.description}"
+    # ── 头部：名称/等级/职业等 逐项带标签分行 ──
+    hdr = Table.grid(expand=True, padding=(0, 1))
+    hdr.add_column(width=6)
+    hdr.add_column(min_width=6)
+    hdr.add_column(width=6)
+    hdr.add_column(min_width=6)
+    hdr.add_column(width=10)
+    hdr.add_column(min_width=8)
+    hdr.add_row(
+        _l("名称"), f"[bold {_ACCENT}]{char.name}[/bold {_ACCENT}]",
+        _l("种族"), f"[bold]{char.race_cn}{lineage}[/bold]",
+        _l("背景"), f"[bold]{char.bg_cn}[/bold]",
     )
-    header_panel = Panel(
-        header,
-        title="[steel_blue]角色卡[/steel_blue]",
-        border_style="steel_blue",
-        box=box.SQUARE,
+    hdr.add_row(
+        _l("职业"), f"[bold]{char.class_cn}[/bold]",
+        _l("性别"), f"[bold]{gender_cn}[/bold]",
+        _l("年龄"), f"[bold]{char.age}[/bold]",
+    )
+    hdr.add_row(
+        _l("等级"), f"[bold]{char.level}[/bold]",
+        _l("HP"), f"[bold]{char.hp}/{char.max_hp}[/bold]",
+        _l("AC"), f"[bold]{char.ac}[/bold]",
+    )
+    hdr.add_row(
+        _l(""), "",
+        _l("熟练加值"), f"[bold]{char.prof_bonus:+d}[/bold]",
+        _l("金钱"), f"[bold]{char.currency_str()}[/bold]",
     )
 
-    stat_lines = []
+    header_parts = [hdr]
+    if char.description:
+        header_parts.append(f"{_l('描述')}  {char.description}")
+    header = Group(*header_parts)
+
+    stat_rows = []
     for cn, en in _STAT_KEYS:
         val = getattr(char, en)
-        stat_lines.append(f"  {cn}: [bold]{val}[/bold] ({mod_str(val)})")
-    stats_panel = Panel(
-        "\n".join(stat_lines),
-        title="[grey58]属性[/grey58]",
-        border_style="grey58",
-        box=box.SQUARE,
-    )
+        stat_rows.append(f"[{_MUTED}]{cn}[/{_MUTED}]  [bold]{val:>2}[/bold]  ({mod_str(val)})")
 
-    skill_lines = [f"  • {tr(f'skill:{s}')}" for s in char.skills]
-    if not skill_lines:
-        skill_lines = ["  [grey50]" + tr("general:none") + "[/grey50]"]
-    skill_panel = Panel(
-        "\n".join(skill_lines),
-        title="[grey58]" + tr("general:skill") + "[/grey58]",
-        border_style="grey58",
-        box=box.SQUARE,
-    )
+    skill_rows = [f"• {tr(f'skill:{s}')}" for s in char.skills]
+    if not skill_rows:
+        skill_rows = [f"[{_MUTED}]{tr('general:none')}[/{_MUTED}]"]
 
     save_str = "、".join(tr(f"skill:{s}") for s in char.saving_throws) or tr("general:none")
     feat_str = "、".join(char.feats) if char.feats else tr("general:none")
-    traits = "；".join(char.species_trait_lines()) or tr("general:none")
-    bonus_panel = Panel(
-        f"[grey50]{tr('general:save')}:[/grey50] {save_str}\n"
-        f"[grey50]{tr('general:feats')}:[/grey50] {feat_str}\n"
-        f"[grey50]{tr('general:traits')}:[/grey50] {traits}",
-        title="[grey58]豁免 / 专长 / 特性[/grey58]",
-        border_style="grey58",
-        box=box.SQUARE,
-    )
+    bonus_rows = [
+        f"[{_MUTED}]{tr('general:save')}[/{_MUTED}]  {save_str}",
+        f"[{_MUTED}]{tr('general:feats')}[/{_MUTED}]  {feat_str}",
+        f"[{_MUTED}]{tr('general:traits')}[/{_MUTED}]",
+    ]
+    trait_lines = []
+    for line in char.species_trait_lines():
+        trait_lines += [t.strip() for t in line.split("；") if t.strip()]
+    trait_grid = None
+    if trait_lines:
+        trait_grid = Table.grid(padding=(0, 1))
+        trait_grid.add_column("b", width=1)
+        trait_grid.add_column("t")
+        for t in trait_lines:
+            trait_grid.add_row("•", t)
+    else:
+        bonus_rows.append(f"  [{_MUTED}]{tr('general:none')}[/{_MUTED}]")
+    bonus_body = Group("\n".join(bonus_rows), trait_grid) if trait_grid else "\n".join(bonus_rows)
 
-    equip_lines = []
+    equip_grid = Table.grid(padding=(0, 2))
+    equip_grid.add_column("slot")
+    equip_grid.add_column("item")
     for slot_key in _SLOT_KEYS:
         guid = char.inventory.equipped.get(slot_key)
         item_def = item_db.get(guid) if guid else None
-        name = item_def.name if item_def else tr("general:empty")
-        equip_lines.append(f"  {tr(f'slot:{slot_key}')}: {name}")
-    equip_panel = Panel(
-        "\n".join(equip_lines),
-        title="[grey58]" + tr("general:equip") + "[/grey58]",
-        border_style="grey58",
-        box=box.SQUARE,
+        slot_cn = tr(f"slot:{slot_key}")
+        if item_def:
+            equip_grid.add_row(f"[{_MUTED}]{slot_cn}[/{_MUTED}]", f"[bold]{item_def.name}[/bold]")
+        else:
+            equip_grid.add_row(f"[{_MUTED}]{slot_cn}[/{_MUTED}]", f"[{_MUTED}]{tr('general:empty')}[/{_MUTED}]")
+
+    bag_rows = [f"• {item_db.get(inst.guid).name if item_db.get(inst.guid) else inst.guid}" for inst in char.inventory.all_instances()]
+    if not bag_rows:
+        bag_rows = [f"[{_MUTED}]{tr('general:empty')}[/{_MUTED}]"]
+
+    # ── 布局：定宽卡片，同行块强制等高 ──
+    card_w = min(console.width - 2, 112)
+    inner_w = card_w - 4
+
+    base1 = (inner_w - 6) // 7
+    widths1 = [base1 * 2, base1 * 2, inner_w - 6 - base1 * 4]
+    row1 = _row_grid(
+        [
+            ("属性", "\n".join(stat_rows)),
+            (tr("general:skill"), "\n".join(skill_rows)),
+            ("豁免 / 专长 / 特性", bonus_body),
+        ],
+        widths1,
     )
 
-    bag_lines = []
-    for inst in char.inventory.all_instances():
-        item_def = item_db.get(inst.guid)
-        bag_lines.append(f"  • {item_def.name if item_def else inst.guid}")
-    if not bag_lines:
-        bag_lines = ["  [grey50]" + tr("general:empty") + "[/grey50]"]
-    bag_panel = Panel(
-        f"[grey50]{tr('general:money')}:[/grey50] {char.currency_str()}\n\n" + "\n".join(bag_lines),
-        title="[grey58]" + tr("general:bag") + "[/grey58]",
-        border_style="grey58",
-        box=box.SQUARE,
+    base2 = (inner_w - 4) // 2
+    widths2 = [base2, inner_w - 4 - base2]
+    row2 = _row_grid(
+        [
+            (tr("general:equip"), equip_grid),
+            (tr("general:bag"), "\n".join(bag_rows)),
+        ],
+        widths2,
     )
 
-    console.print()
-    console.print(header_panel)
+    inner = Group(header, Rule(style="#3f4a5a"), row1, row2)
     if roll_log:
-        console.print(f"[grey50]{roll_log}[/grey50]")
-    console.print(Columns([stats_panel, skill_panel, bonus_panel], equal=False, expand=False))
-    console.print(Columns([equip_panel, bag_panel], equal=False, expand=False))
+        inner = Group(header, Rule(style="#3f4a5a"), row1, row2, f"  [{_MUTED}]↳ {roll_log}[/{_MUTED}]")
+
+    card = Panel(
+        inner,
+        title=f"[bold {_CARD_TITLE}]角色卡 · {char.name}[/bold {_CARD_TITLE}]",
+        border_style=_CARD_BORDER,
+        box=box.SQUARE,
+        padding=(1, 1),
+        width=card_w,
+    )
+    console.print()
+    console.print(card)
 
 
 def show_time(gm):
