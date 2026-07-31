@@ -167,8 +167,8 @@ def _equipment_choice(label: str, a_items: list, b_gp: int) -> bool:
 
 
 def _offer_save_template(char: Character):
-    ans = _pre_game_ask(escape(f"是否将「{char.name}」保存为角色模板？ [1]不保存 [2]保存"))
-    if ans not in ("2", "y", "yes"):
+    ans = _pre_game_ask(escape(f"是否将「{char.name}」保存为角色模板？y/n"))
+    if ans.strip().lower() not in ("y", "yes"):
         return
     from core.templates import save_template
     path = save_template(char)
@@ -182,8 +182,8 @@ def _offer_template_import() -> Character:
     if not stems:
         return None
     console.print(f"\n[steel_blue]检测到角色模板 {len(stems)} 个[/steel_blue]")
-    ans = _pre_game_ask(escape("是否导入模板开始新冒险？ [1]否 [2]是"))
-    if ans not in ("2", "y", "yes"):
+    ans = _pre_game_ask(escape("是否导入模板开始新冒险？y/n"))
+    if ans.strip().lower() not in ("y", "yes"):
         return None
     for i, s in enumerate(stems, 1):
         console.print(f"  {i}. {s}")
@@ -269,8 +269,10 @@ def _create_world() -> GameMaster:
 
                 opening_stem = preset.opening or ""
 
-                # 角色：预设若带故事包角色，创建菜单会提供"使用故事包内的角色"选项
-                char = create_character(story_roles)
+                # 角色：先检测本地角色模板；预设若带故事包角色，创建菜单会提供"使用故事包内的角色"选项
+                char = _offer_template_import()
+                if char is None:
+                    char = create_character(story_roles)
                 while char is None:
                     console.print("\n[grey50]角色未创建，请重新创建[/grey50]")
                     char = create_character(story_roles)
