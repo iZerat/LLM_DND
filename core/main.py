@@ -96,43 +96,48 @@ def check_config():
 
 def create_character(story_roles: list = None) -> Character:
     story_roles = story_roles or []
-    console.print(f"\n[steel_blue]创建你的角色[/steel_blue]")
-    console.print("  1. 快速创建（随机生成，直接开玩）")
-    console.print("  2. 详细创建（手动分配属性）")
-    if story_roles:
-        console.print("  3. 使用故事包内的角色")
-    max_choice = 3 if story_roles else 2
-    mode = _pre_game_ask(escape(f"选择 [1/{max_choice}]"))
-
-    if mode == "3" and story_roles:
-        char = _pick_story_role(story_roles)
-        if char is not None:
-            _offer_save_template(char)
-        return char
-
-    if not mode or mode == "1":
-        name = _ask_quick_name()
-        while True:
-            console.print("\n[grey50]正在随机生成角色...[/grey50]")
-            char, roll_log = char_gen.roll_character(name=name)
-            _init_equipment(char)
-            result = _confirm_character(char, roll_log=roll_log)
-            if result == "yes":
-                break
-            if result == "cancel":
-                return None
-        _offer_save_template(char)
-        return char
-
     while True:
-        char = _detailed_character()
-        result = _confirm_character(char)
-        if result == "yes":
-            break
-        if result == "cancel":
-            return None
-    _offer_save_template(char)
-    return char
+        console.print(f"\n[steel_blue]创建你的角色[/steel_blue]")
+        console.print("  1. 快速创建（随机生成，直接开玩）")
+        console.print("  2. 详细创建（手动分配属性）")
+        if story_roles:
+            console.print("  3. 使用故事包内的角色")
+        max_choice = 3 if story_roles else 2
+        # 模式菜单是角色创建的最顶层：此处 /back 穿透，返回上一级（创建世界菜单）
+        mode = _pre_game_ask(escape(f"选择 [1/{max_choice}]"))
+        try:
+            if mode == "3" and story_roles:
+                char = _pick_story_role(story_roles)
+                if char is not None:
+                    _offer_save_template(char)
+                return char
+
+            if not mode or mode == "1":
+                name = _ask_quick_name()
+                while True:
+                    console.print("\n[grey50]正在随机生成角色...[/grey50]")
+                    char, roll_log = char_gen.roll_character(name=name)
+                    _init_equipment(char)
+                    result = _confirm_character(char, roll_log=roll_log)
+                    if result == "yes":
+                        break
+                    if result == "cancel":
+                        return None
+                _offer_save_template(char)
+                return char
+
+            while True:
+                char = _detailed_character()
+                result = _confirm_character(char)
+                if result == "yes":
+                    break
+                if result == "cancel":
+                    return None
+            _offer_save_template(char)
+            return char
+        except _BackSignal:
+            # 快速/详细/故事角色的内部步骤按了 /back → 返回本模式菜单重选
+            continue
 
 
 def _ask_quick_name() -> str:
@@ -505,125 +510,156 @@ def _choose_skills(prompt_label: str, options_cn: list, count: int, already_chos
 
 
 def _detailed_character() -> Character:
-    while True:
-        name = _pre_game_ask("角色名称")
-        if name.strip():
-            break
-        console.print("[grey50]无效角色名称，请重新输入[/grey50]")
-
+    """详细创建向导：分步骤收集信息，输入 /back 可回退上一步（回到第一步再 /back 则上抛）。"""
     from rules.srd_data import SKILL_BY_EN
-
-    console.print("\n[bold]选择种族:[/bold]")
-    for i, s in enumerate(RACES, 1):
-        sp = find_species(s)
-        info = f"  {i}. {s}（速度{sp.speed}尺，{'/'.join(sp.size_options)}）" if sp else f"  {i}. {s}"
-        console.print(info)
-    race_cn = _menu_choice(RACES, "种族")
-    sp = find_species(race_cn)
-    race_en = sp.name_en if sp else race_cn
-    lineage = _choose_lineage(race_cn)
-
-    console.print("\n[bold]选择背景:[/bold]")
-    for i, bg_name in enumerate(BACKGROUNDS, 1):
-        bg = find_background(bg_name)
-        if bg:
-            console.print(f"  {i}. {bg_name}（专长: {bg.feat}，技能: {'/'.join(bg.skill_proficiencies)}）")
-    bg_cn = _menu_choice(BACKGROUNDS, "背景")
-    bg_data = find_background(bg_cn)
-    bg_en = bg_data.name_en if bg_data else bg_cn
-
-    console.print("\n[bold]选择职业:[/bold]")
-    for i, cn in enumerate(CLASSES, 1):
-        cd = find_class(cn)
-        if cd:
-            console.print(f"  {i}. {cn}（生命骰d{cd.hit_die}，豁免: {'/'.join(cd.saving_throws)}）")
-    class_cn = _menu_choice(CLASSES, "职业")
-    cd = find_class(class_cn)
-    class_en = cd.name_en if cd else class_cn
-
-    console.print("\n[bold]选择性别:[/bold]")
-    console.print("  1. 男")
-    console.print("  2. 女")
-    gender_cn = _menu_choice(["男", "女"], "性别")
-    gender = "male" if gender_cn == "男" else "female"
-
+    step = 0
+    st: dict = {}
     while True:
         try:
-            age = int(_pre_game_ask("年龄"))
-            if age > 0 and age < 200:
-                break
-            console.print("[grey50]请输入有效年龄(1-199)[/grey50]")
-        except ValueError:
-            pass
-
-    desc = _pre_game_ask("角色描述（外貌、性格等）")
-
-    console.print("\n[bold]选择属性生成方式[/bold]")
-    console.print("  1. 标准阵列（15,14,13,12,10,8 自由分配）")
-    console.print("  2. 4d6掷骰（掷六组取最高3，可重掷）")
-    method = _pre_game_ask("选择 [1/2]")
-
-    stats = {}
-    if method == "2":
-        attrs = ["力量", "敏捷", "体质", "智力", "感知", "魅力"]
-        while True:
-            stats, roll_log = char_gen.roll_stats_with_log("4d6")
-            console.print(f"[grey50]{roll_log}[/grey50]")
-            assigned = "  ".join(f"{k}:{v}" for k, v in stats.items())
-            console.print(f"  {assigned}")
-            choice = _pre_game_ask(escape("采用？ [1]确认 [2]重掷"))
-            if choice in ("1", "y", "yes", ""):
-                break
-    else:
-        console.print("\n[bold]分配属性点（标准阵列: 15,14,13,12,10,8）[/bold]")
-        console.print("[grey50]将以下数值依次分配到各项属性中[/grey50]")
-        stats = {"力量": 0, "敏捷": 0, "体质": 0, "智力": 0, "感知": 0, "魅力": 0}
-        remaining = [15, 14, 13, 12, 10, 8]
-        for attr in stats:
-            console.print(f"\n  待分配: {remaining}")
-            while True:
-                try:
-                    val = int(_pre_game_ask(f"{attr} = "))
-                    if val in remaining:
-                        stats[attr] = val
-                        remaining.remove(val)
+            if step == 0:
+                while True:
+                    name = _pre_game_ask("角色名称")
+                    if name.strip():
                         break
-                    console.print(f"[grey50]数值 {val} 不在待分配列表中，请从 {remaining} 中选择[/grey50]")
-                except ValueError:
-                    pass
+                    console.print("[grey50]无效角色名称，请重新输入[/grey50]")
+                st["name"] = name
+                step = 1
+            elif step == 1:
+                console.print("\n[bold]选择种族:[/bold]")
+                for i, s in enumerate(RACES, 1):
+                    sp = find_species(s)
+                    info = f"  {i}. {s}（速度{sp.speed}尺，{'/'.join(sp.size_options)}）" if sp else f"  {i}. {s}"
+                    console.print(info)
+                race_cn = _menu_choice(RACES, "种族")
+                st["race_cn"] = race_cn
+                st["sp"] = find_species(race_cn)
+                st["race_en"] = st["sp"].name_en if st["sp"] else race_cn
+                step = 2
+            elif step == 2:
+                st["lineage"] = _choose_lineage(st["race_cn"])
+                step = 3
+            elif step == 3:
+                console.print("\n[bold]选择背景:[/bold]")
+                for i, bg_name in enumerate(BACKGROUNDS, 1):
+                    bg = find_background(bg_name)
+                    if bg:
+                        console.print(f"  {i}. {bg_name}（专长: {bg.feat}，技能: {'/'.join(bg.skill_proficiencies)}）")
+                bg_cn = _menu_choice(BACKGROUNDS, "背景")
+                st["bg_data"] = find_background(bg_cn)
+                st["bg_en"] = st["bg_data"].name_en if st["bg_data"] else bg_cn
+                step = 4
+            elif step == 4:
+                console.print("\n[bold]选择职业:[/bold]")
+                for i, cn in enumerate(CLASSES, 1):
+                    cd = find_class(cn)
+                    if cd:
+                        console.print(f"  {i}. {cn}（生命骰d{cd.hit_die}，豁免: {'/'.join(cd.saving_throws)}）")
+                class_cn = _menu_choice(CLASSES, "职业")
+                st["class_cn"] = class_cn
+                st["cd"] = find_class(class_cn)
+                st["class_en"] = st["cd"].name_en if st["cd"] else class_cn
+                step = 5
+            elif step == 5:
+                console.print("\n[bold]选择性别:[/bold]")
+                console.print("  1. 男")
+                console.print("  2. 女")
+                gender_cn = _menu_choice(["男", "女"], "性别")
+                st["gender"] = "male" if gender_cn == "男" else "female"
+                step = 6
+            elif step == 6:
+                while True:
+                    try:
+                        age = int(_pre_game_ask("年龄"))
+                        if age > 0 and age < 200:
+                            break
+                        console.print("[grey50]请输入有效年龄(1-199)[/grey50]")
+                    except ValueError:
+                        pass
+                st["age"] = age
+                step = 7
+            elif step == 7:
+                st["desc"] = _pre_game_ask("角色描述（外貌、性格等）")
+                step = 8
+            elif step == 8:
+                console.print("\n[bold]选择属性生成方式[/bold]")
+                console.print("  1. 标准阵列（15,14,13,12,10,8 自由分配）")
+                console.print("  2. 4d6掷骰（掷六组取最高3，可重掷）")
+                st["method"] = _pre_game_ask("选择 [1/2]")
+                step = 9
+            elif step == 9:
+                if st["method"] == "2":
+                    attrs = ["力量", "敏捷", "体质", "智力", "感知", "魅力"]
+                    while True:
+                        stats, roll_log = char_gen.roll_stats_with_log("4d6")
+                        console.print(f"[grey50]{roll_log}[/grey50]")
+                        assigned = "  ".join(f"{k}:{v}" for k, v in stats.items())
+                        console.print(f"  {assigned}")
+                        choice = _pre_game_ask(escape("采用？ [1]确认 [2]重掷"))
+                        if choice in ("1", "y", "yes", ""):
+                            break
+                else:
+                    console.print("\n[bold]分配属性点（标准阵列: 15,14,13,12,10,8）[/bold]")
+                    console.print("[grey50]将以下数值依次分配到各项属性中[/grey50]")
+                    stats = {"力量": 0, "敏捷": 0, "体质": 0, "智力": 0, "感知": 0, "魅力": 0}
+                    remaining = [15, 14, 13, 12, 10, 8]
+                    for attr in stats:
+                        console.print(f"\n  待分配: {remaining}")
+                        while True:
+                            try:
+                                val = int(_pre_game_ask(f"{attr} = "))
+                                if val in remaining:
+                                    stats[attr] = val
+                                    remaining.remove(val)
+                                    break
+                                console.print(f"[grey50]数值 {val} 不在待分配列表中，请从 {remaining} 中选择[/grey50]")
+                            except ValueError:
+                                pass
+                st["stats"] = stats
+                step = 10
+            elif step == 10:
+                sp, cd, bg_data = st.get("sp"), st.get("cd"), st.get("bg_data")
+                skills_cn = list(bg_data.skill_proficiencies) if bg_data else []
+                if cd and cd.skill_choices:
+                    skills_cn = _choose_skills(f"选择 {st['class_cn']} 的职业技能", list(cd.skill_options), cd.skill_choices, skills_cn)
+                if sp and sp.skill_choices:
+                    skills_cn = _choose_skills(f"选择 {st['race_cn']} 的附加技能", list(sp.skill_options), sp.skill_choices, skills_cn)
+                st["skills"] = [SKILL_BY_EN.get(s, s) for s in skills_cn]
+                step = 11
+            elif step == 11:
+                class_a, bg_a = True, True
+                cd, bg_data = st.get("cd"), st.get("bg_data")
+                if cd and cd.starting_equipment_a:
+                    class_a = _equipment_choice(f"{cd.name}职业", cd.starting_equipment_a, cd.starting_equipment_b_gp)
+                if bg_data and bg_data.equipment_a:
+                    bg_a = _equipment_choice(f"{bg_data.name}背景", bg_data.equipment_a, bg_data.equipment_b_gp)
+                st["class_a"], st["bg_a"] = class_a, bg_a
+                step = 12
+            elif step == 12:
+                hd = HIT_DICE.get(st["class_cn"], 10)
+                con_mod = (st["stats"]["体质"] - 10) // 2
+                hp = hd + con_mod
 
-    skills_cn = list(bg_data.skill_proficiencies) if bg_data else []
-    if cd and cd.skill_choices:
-        skills_cn = _choose_skills(f"选择 {class_cn} 的职业技能", list(cd.skill_options), cd.skill_choices, skills_cn)
-    if sp and sp.skill_choices:
-        skills_cn = _choose_skills(f"选择 {race_cn} 的附加技能", list(sp.skill_options), sp.skill_choices, skills_cn)
-    skills = [SKILL_BY_EN.get(s, s) for s in skills_cn]
+                feats = [st["bg_data"].feat] if st.get("bg_data") else []
+                saving_throws_cn = list(st["cd"].saving_throws) if st.get("cd") else []
+                saving_throws = [SKILL_BY_EN.get(s, s) for s in saving_throws_cn]
 
-    class_a, bg_a = True, True
-    if cd and cd.starting_equipment_a:
-        class_a = _equipment_choice(f"{cd.name}职业", cd.starting_equipment_a, cd.starting_equipment_b_gp)
-    if bg_data and bg_data.equipment_a:
-        bg_a = _equipment_choice(f"{bg_data.name}背景", bg_data.equipment_a, bg_data.equipment_b_gp)
-
-    hd = HIT_DICE.get(class_cn, 10)
-    con_mod = (stats["体质"] - 10) // 2
-    hp = hd + con_mod
-
-    feats = [bg_data.feat] if bg_data else []
-    saving_throws_cn = list(cd.saving_throws) if cd else []
-    saving_throws = [SKILL_BY_EN.get(s, s) for s in saving_throws_cn]
-
-    char = Character(
-        name=name, race=race_en, lineage=lineage, char_class=class_en,
-        background=bg_en, gender=gender, age=age,
-        description=desc, level=1, hp=hp, max_hp=hp,
-        skills=skills, saving_throws=saving_throws, feats=feats,
-        strength=stats["力量"], dexterity=stats["敏捷"],
-        constitution=stats["体质"], intelligence=stats["智力"],
-        wisdom=stats["感知"], charisma=stats["魅力"],
-    )
-    _init_equipment(char, class_a=class_a, bg_a=bg_a)
-    return char
+                char = Character(
+                    name=st["name"], race=st["race_en"], lineage=st["lineage"],
+                    char_class=st["class_en"], background=st["bg_en"],
+                    gender=st["gender"], age=st["age"],
+                    description=st["desc"], level=1, hp=hp, max_hp=hp,
+                    skills=st["skills"], saving_throws=saving_throws, feats=feats,
+                    strength=st["stats"]["力量"], dexterity=st["stats"]["敏捷"],
+                    constitution=st["stats"]["体质"], intelligence=st["stats"]["智力"],
+                    wisdom=st["stats"]["感知"], charisma=st["stats"]["魅力"],
+                )
+                _init_equipment(char, class_a=st["class_a"], bg_a=st["bg_a"])
+                return char
+        except _BackSignal:
+            # /back → 回退上一步；已回到第一步则继续上抛（由 create_character 回模式菜单）
+            step -= 1
+            if step < 0:
+                raise
 
 
 def _menu_choice(options: list, label: str) -> str:
