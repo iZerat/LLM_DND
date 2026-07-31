@@ -132,7 +132,7 @@ def parse_status_changes(text: str) -> Optional[list[dict]]:
             continue
 
         npc_add_m = re.match(
-            r'npc_add\s*[:：]\s*(.+?)(?:,\s*AC:\s*(\d+))?(?:,\s*HP:\s*(\d+)/(\d+))?(?:,\s*\[(.+?)\])?',
+            r'npc_add\s*[:：]\s*(.+?)(?:,\s*AC:\s*(\d+))?(?:,\s*HP:\s*(\d+)/(\d+))?(?:,\s*\[(.+?)\])?$',
             line, re.IGNORECASE
         )
         if npc_add_m:

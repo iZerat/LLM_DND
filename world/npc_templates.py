@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 from typing import Optional
+from uuid import uuid4
 from world.entity import NPC
 
 _NPC_TEMPLATES: dict[str, dict] = {}
@@ -29,7 +30,7 @@ def spawn(template_id: str, name: str = "", attitude: str = "") -> Optional[NPC]
     if not tmpl:
         return None
     npc = NPC(
-        id=f"{template_id}_{id(tmpl)}",
+        id=f"{template_id}_{uuid4().hex[:8]}",
         name=name or tmpl["name"],
         species=tmpl.get("species", "human"),
         char_class=tmpl.get("char_class", "commoner"),

@@ -12,6 +12,8 @@ from rich import box
 from core.config import Config
 from core.character import Character, modifier
 from core.game_master import GameMaster, ABILITY_CN_TO_EN, parse_check_from_text
+from core.supervisor import Supervisor
+from resource.regulator import Regulator
 from world.state import WorldState
 from core.ui import (
     console, render_dm_output, show_status, show_info,
@@ -358,6 +360,8 @@ def game_loop(gm: GameMaster):
     console.print(f"\n[steel_blue]{gm.character.name}[/steel_blue] 的冒险开始了！输入 [grey62]/help[/grey62] 查看命令\n")
     world_state = getattr(gm, 'world_state', None) or WorldState()
     gm.world_state = world_state
+    regulator = Regulator(gm.character, world_state)
+    supervisor = Supervisor(gm, regulator)
     last_choice_record = ""
 
     while True:
@@ -393,18 +397,18 @@ def game_loop(gm: GameMaster):
         elif cmd == "/info":
             show_info(gm.character)
             continue
-        elif cmd == "/scene":
-            from core.ui import _filter_scene_fields
+        elif cmd in ("/env", "/scene"):
+            from core.ui import _filter_env_fields
             if gm.last_scene:
-                scene_text = _filter_scene_fields(gm.last_scene, basic_only=False)
+                scene_text = _filter_env_fields(gm.last_scene, basic_only=False)
                 console.print(Panel(
                     scene_text,
-                    title="[grey58]完整场景信息[/grey58]",
+                    title="[grey58]完整环境信息[/grey58]",
                     border_style="grey58",
                     box=box.SQUARE,
                 ))
             else:
-                console.print("[grey50]尚无场景信息[/grey50]")
+                console.print("[grey50]尚无环境信息[/grey50]")
             continue
         elif cmd.startswith("/save"):
             parts = player_input.strip().split(maxsplit=1)
@@ -420,6 +424,10 @@ def game_loop(gm: GameMaster):
                 if 0 <= idx < len(saves):
                     gm = load_game(str(saves[idx]))
                     show_status(gm.character)
+                    world_state = getattr(gm, 'world_state', None) or WorldState()
+                    gm.world_state = world_state
+                    regulator = Regulator(gm.character, world_state)
+                    supervisor = Supervisor(gm, regulator)
             except ValueError:
                 console.print("[grey50]请输入有效数字[/grey50]")
             except:
@@ -532,15 +540,7 @@ def game_loop(gm: GameMaster):
             ))
 
         try:
-            from core.prompt_lib import build_prompt_suffix
-            prompt_reminder = build_prompt_suffix(player_input)
-            if prompt_reminder:
-                player_input += prompt_reminder
-
-            # Inject world state context for LLM
-            ws_ctx = world_state.render_context_for_llm(gm.character.name, gm.character.ac, gm.character.hp, gm.character.max_hp)
-            if ws_ctx:
-                player_input += "\n\n" + ws_ctx
+            player_input = supervisor.prepare_player_input(player_input)
 
             response_parts = []
             _t0 = _time.time()
@@ -550,176 +550,20 @@ def game_loop(gm: GameMaster):
                 response_parts.append(chunk)
             _elapsed = _time.time() - _t0
 
-            full = "".join(response_parts).replace("（无需检定）", "")
+            full = "".join(response_parts)
 
-            # ── 资源变更处理（银行柜台） ──
-            from resource.manager import ResourceManager
-            from resource.llm_parser import parse_item_changes
-            manager = ResourceManager(gm.character.inventory, gm.character)
-            manager.world = world_state
-            retries = 0
-            max_retries = 3
-            change_messages: list[str] = []
-            while retries < max_retries:
-                requests = parse_item_changes(full)
-                if requests is None:
-                    break
-                unknown = [r for r in requests if r["action"] == "unknown"]
-                if not unknown:
-                    results = manager.process_requests(requests)
-                    full = re.sub(
-                        r'\n?\[物品变更\].*?(?=\n\[|\Z)',
-                        '', full, count=1, flags=re.DOTALL
-                    ).strip()
-                    for r in results:
-                        if r.visible:
-                            change_messages.append(r.message)
-                    break
-                retries += 1
-                missing = "、".join(r["name"] for r in unknown)
-                if retries >= max_retries:
-                    change_messages.append(f"物品库中不存在: {missing}，已忽略相关变更，故事由 DM 自行圆场")
-                    full = re.sub(
-                        r'\n?\[物品变更\].*?(?=\n\[|\Z)',
-                        '', full, count=1, flags=re.DOTALL
-                    ).strip()
-                    break
-                change_messages.append(f"物品库中不存在: {missing}，DM 正在调整故事…")
-                correction_prompt = f"[系统] 注意：以下物品不在游戏资源库中：{missing}。请修改你的输出，改用库中存在的物品，或修改叙事让这些物品不可获得。保留其他内容不变。请重新输出完整回答。"
-                try:
-                    retry_parts = []
-                    for chunk in gm.send_message_stream(correction_prompt):
-                        retry_parts.append(chunk)
-                    full = "".join(retry_parts).replace("（无需检定）", "")
-                except Exception:
-                    break
-
-            # ── [状态变更] 处理：HP / target / NPC ──
-            from resource.llm_parser import parse_status_changes
-            status_reqs = parse_status_changes(full)
-            changed_npcs: set[str] = set()
-            if status_reqs is not None:
-                results = manager.process_requests(status_reqs)
-                full = re.sub(
-                    r'\n?\[状态变更\].*?(?=\n\[|\Z)',
-                    '', full, count=1, flags=re.DOTALL
-                ).strip()
-                for r in results:
-                    if r.visible and r.success:
-                        change_messages.append(r.message)
-                        m = re.match(r'目标 (.+?)(?: HP| [+-])', r.message)
-                        if m:
-                            changed_npcs.add(m.group(1))
+            # ── 监督者方向B：结构校验 → 调节器落账 → 剥离变更区块 / 修复对话 ──
+            audit = supervisor.audit(full)
+            full = audit.text
 
             log_dm_response(get_round_counter() + 1, player_input, full)
-
-            # ── 解析[状态]并同步WorldState（捕获LLM对HP的叙事变更） ──
-            status_match = re.search(
-                r'\[状态\]\s*(.*?)(?=\n\[(?:场景|场景细节|事件|状态|选择|历史|时间)|\Z)',
-                full, re.DOTALL
-            )
-            if status_match and world_state:
-                status_text = status_match.group(1)
-                # ── 清理因 xN 格式产生的垃圾实体 ──
-                for pool_name in ("active", "nearby", "distant"):
-                    pool = getattr(world_state, pool_name, {})
-                    garbage_ids = [
-                        eid for eid, e in pool.items()
-                        if re.search(r'\s*x\d+\s*$', e.name)
-                    ]
-                    for eid in garbage_ids:
-                        world_state.remove(eid)
-                # Parse player HP
-                player_hp_m = re.search(r'HP:\s*(\d+)/(\d+)', status_text)
-                if player_hp_m:
-                    reported_hp = int(player_hp_m.group(1))
-                    if reported_hp != gm.character.hp:
-                        diff = reported_hp - gm.character.hp
-                        gm.character.hp = reported_hp
-                        change_messages.append(f"玩家HP {'+' if diff > 0 else ''}{diff}点")
-                # Parse NPC lines: 目标/其他: [tag]NPCname, AC:N, HP:N/N
-                for line in status_text.split('\n'):
-                    line = line.strip()
-                    npc_m = re.match(
-                        r'(?:目标|其他)\s*:\s*(?:\[(.+?)\])?\s*(.+?),\s*AC:\s*(\d+),\s*HP:\s*(\d+)/(\d+)',
-                        line
-                    )
-                    if npc_m:
-                        tag = npc_m.group(1) or ""
-                        name = npc_m.group(2).strip()
-                        ac = int(npc_m.group(3))
-                        hp = int(npc_m.group(4))
-                        max_hp = int(npc_m.group(5))
-
-                        # ── 展开 xN 为独立实例 ──
-                        x_m = re.search(r'\s*x(\d+)(?:\s|$)', name)
-                        if x_m:
-                            base = name[:x_m.start()].strip()
-                            count = int(x_m.group(1))
-                            # Remove garbage "base xN" entity if it exists
-                            garbage = world_state.get_by_name(name)
-                            if garbage:
-                                world_state.remove(garbage.id)
-                            for i in range(count):
-                                ind_name = f"{base}{i+1}"
-                                existing = world_state.get_by_name(ind_name)
-                                if existing:
-                                    if ind_name not in changed_npcs:
-                                        if existing.hp != hp:
-                                            diff = hp - existing.hp
-                                            change_messages.append(f"目标 {ind_name} HP {'+' if diff > 0 else ''}{diff}点")
-                                        existing.hp = hp
-                                        existing.max_hp = max_hp
-                                        existing.ac = ac
-                                    world_state.touch(existing.id)
-                                else:
-                                    from world.entity import NPC as _NPC2
-                                    attitude_map = {"敌对": "hostile", "中立": "neutral", "友方": "friendly"}
-                                    attitude = attitude_map.get(tag, "neutral")
-                                    new_npc = _NPC2(
-                                        id=f"npc_{abs(hash(ind_name)) % 1000000:x}",
-                                        name=ind_name, ac=ac, hp=hp, max_hp=max_hp,
-                                        attitude=attitude
-                                    )
-                                    world_state.add_active(new_npc)
-                            continue
-
-                        existing = world_state.get_by_name(name)
-                        if existing:
-                            if name not in changed_npcs:
-                                if existing.hp != hp:
-                                    diff = hp - existing.hp
-                                    change_messages.append(f"目标 {name} HP {'+' if diff > 0 else ''}{diff}点")
-                                existing.hp = hp
-                                existing.max_hp = max_hp
-                                existing.ac = ac
-                            world_state.touch(existing.id)
-                        else:
-                            from world.entity import NPC as _NPC
-                            attitude_map = {"敌对": "hostile", "中立": "neutral", "友方": "friendly"}
-                            attitude = attitude_map.get(tag, "neutral")
-                            new_npc = _NPC(
-                                id=f"npc_{abs(hash(name)) % 1000000:x}",
-                                name=name, ac=ac, hp=hp, max_hp=max_hp,
-                                attitude=attitude
-                            )
-                            world_state.add_active(new_npc)
-                            change_messages.append(f"NPC出现: {name} (HP:{hp}/{max_hp})")
-                # Tick GC
-                pruned = world_state.tick()
-                if pruned:
-                    change_messages.append(f"已遗忘: {', '.join(pruned)}")
 
             if not gm.history:
                 gm.set_history([])
 
-            if gm.needs_repair(full):
-                full = gm.repair_status(full)
-                log_dm_response(get_round_counter() + 1, "（修复状态）", full)
-
             console.print(f"[grey50]\u601d\u8003\u8017\u65f6: {_elapsed:.1f}s[/grey50]")
             console.print()
-            render_dm_output(full, gm, _elapsed, change_messages)
+            render_dm_output(full, gm, _elapsed, audit.messages)
 
             if getattr(gm, '_truncated', False):
                 console.print("[grey50]（注意：回答被截断，可尝试 /continue 让 DM 继续输出，或简化指令）[/grey50]")

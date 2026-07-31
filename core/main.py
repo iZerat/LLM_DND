@@ -10,11 +10,12 @@ from rich import box
 from core.config import Config
 from core.character import Character, RACES, CLASSES, BACKGROUNDS, HIT_DICE
 from rules.srd_data import (
-    SPECIES_LIST, CLASS_LIST, BACKGROUND_LIST, SKILLS,
-    find_species, find_class, find_background, calc_ac,
+    SKILLS,
+    find_species, find_class, find_background,
 )
 from core.game_master import GameMaster
-from core.ui import console, render_dm_output
+from core.ui import console, render_dm_output, render_character_sheet
+from core import char_gen
 from core.game_loop import (
     game_loop, save_game, load_game, log_dm_response,
     list_saves, SAVE_DIR, LOG_DIR, _show_round_recap,
@@ -98,9 +99,87 @@ def create_character() -> Character:
     console.print("1. 快速创建（随机生成，直接开玩）")
     console.print("2. 详细创建（手动分配属性）")
     mode = Prompt.ask(escape("选择 [1/2]"))
+
     if not mode or mode == "1":
-        return _quick_character()
-    return _detailed_character()
+        name = _ask_quick_name()
+        while True:
+            char, roll_log = char_gen.roll_character(name=name)
+            _init_equipment(char)
+            result = _confirm_character(char, rerollable=True, roll_log=roll_log)
+            if result == "yes":
+                break
+            if result == "cancel":
+                return None
+        _offer_save_template(char)
+        return char
+
+    while True:
+        char = _detailed_character()
+        result = _confirm_character(char, rerollable=False)
+        if result == "yes":
+            break
+        if result == "cancel":
+            return None
+    _offer_save_template(char)
+    return char
+
+
+def _ask_quick_name() -> str:
+    name = Prompt.ask("角色名称（留空回车随机）")
+    if not name:
+        confirm = Prompt.ask("是否随机生成名字？（再次回车确认随机，或直接输入名字）")
+        name = char_gen.random_name() if not confirm else confirm
+    return name
+
+
+def _confirm_character(char: Character, rerollable: bool = False, roll_log: str = "") -> str:
+    """统一预览确认：渲染角色卡并请求采用。返回 'yes' / 'no'（重生成或重创建）/ 'cancel'。"""
+    while True:
+        render_character_sheet(char, roll_log)
+        if rerollable:
+            choice = Prompt.ask(escape("采用？ [1]确认 [2]重新生成 [3]取消"))
+        else:
+            choice = Prompt.ask(escape("采用？ [1]确认 [2]重新创建 [3]取消"))
+        if choice in ("1", "y", "yes", ""):
+            return "yes"
+        if choice in ("2", "n", "no"):
+            return "no"
+        if choice in ("3", "q", "quit"):
+            return "cancel"
+
+
+def _offer_save_template(char: Character):
+    ans = Prompt.ask(escape(f"是否将「{char.name}」保存为角色模板？ [1]是 [2]否"))
+    if ans not in ("1", "y", "yes", ""):
+        return
+    from core.templates import save_template
+    path = save_template(char)
+    console.print(f"[grey50]角色模板已保存: {path.name}[/grey50]")
+
+
+def _offer_template_import() -> Character:
+    """检测本地角色模板，询问是否导入。返回 Character 或 None。"""
+    from core.templates import list_templates, load_template
+    stems = list_templates()
+    if not stems:
+        return None
+    console.print(f"\n[steel_blue]检测到角色模板 {len(stems)} 个[/steel_blue]")
+    for i, s in enumerate(stems, 1):
+        console.print(f"  {i}. {s}")
+    ans = Prompt.ask(escape("是否导入模板开始新冒险？ [1]是 [2]否"))
+    if ans not in ("1", "y", "yes", ""):
+        return None
+    try:
+        idx = int(Prompt.ask(escape(f"选择编号 [1-{len(stems)}]"))) - 1
+        if 0 <= idx < len(stems):
+            char = load_template(stems[idx])
+            console.print(f"[grey50]已导入: {char.name}[/grey50]")
+            render_character_sheet(char)
+            return char
+    except (ValueError, IndexError):
+        pass
+    console.print("[grey50]导入取消[/grey50]")
+    return None
 
 
 def _choose_lineage(species_name_cn: str) -> str:
@@ -131,73 +210,6 @@ def _choose_skills(prompt_label: str, options_cn: list, count: int, already_chos
         chosen_cn.append(pick)
         available.remove(pick)
     return [SKILL_BY_EN.get(s, s) for s in chosen_cn]
-
-
-def _quick_character() -> Character:
-    import random
-    from rules.srd_data import SKILL_BY_EN
-    name = Prompt.ask("角色名称（留空回车随机）")
-    if not name:
-        confirm = Prompt.ask("是否随机生成名字？（再次回车确认随机，或直接输入名字）")
-        if not confirm:
-            import random as _rand
-            fantasy_names = ["艾琳", "索恩", "灰风", "夜影", "石心", "霜牙", "火鬃", "刃歌", "晨星", "雾行"]
-            name = _rand.choice(fantasy_names)
-        else:
-            name = confirm
-
-    species_cn = random.choice(RACES)
-    sp = find_species(species_cn)
-    race_en = sp.name_en if sp else species_cn
-    lineage = ""
-    if sp and sp.lineages:
-        lin = random.choice(sp.lineages)
-        lineage = lin.name_en or lin.name
-
-    class_cn = random.choice(CLASSES)
-    cd = find_class(class_cn)
-    class_en = cd.name_en if cd else class_cn
-
-    bg_cn = random.choice(BACKGROUNDS)
-    bg = find_background(bg_cn)
-    bg_en = bg.name_en if bg else bg_cn
-
-    attrs = ["力量", "敏捷", "体质", "智力", "感知", "魅力"]
-    vals = [15, 14, 13, 12, 10, 8]
-    random.shuffle(vals)
-    stats = dict(zip(attrs, vals))
-
-    hd = HIT_DICE.get(class_cn, 10)
-    con_mod = (stats["体质"] - 10) // 2
-    hp = hd + con_mod
-
-    skills_cn = list(cd.skill_options[:cd.skill_choices]) if cd else []
-    skills = [SKILL_BY_EN.get(s, s) for s in skills_cn]
-    saving_throws_cn = list(cd.saving_throws) if cd else []
-    saving_throws = [SKILL_BY_EN.get(s, s) for s in saving_throws_cn]
-    feats = [bg.feat] if bg else []
-
-    desc = f"一位{species_cn}{class_cn}，背景是{bg_cn}。"
-
-    console.print(f"\n[steel_blue]角色已生成！[/steel_blue]")
-    console.print(f"  {species_cn} {class_cn} | 背景: {bg_cn}")
-    console.print(f"  HP:{hp} AC:{calc_ac((stats['体质']-10)//2)}")
-    stats_line = "  ".join(f"{k}:{v}" for k, v in stats.items())
-    console.print(f"  {stats_line}")
-
-    char = Character(
-        name=name, race=race_en, lineage=lineage, char_class=class_en,
-        background=bg_en, description=desc, level=1,
-        hp=hp, max_hp=hp,
-        strength=stats["力量"], dexterity=stats["敏捷"],
-        constitution=stats["体质"], intelligence=stats["智力"],
-        wisdom=stats["感知"], charisma=stats["魅力"],
-        skills=skills, saving_throws=saving_throws, feats=feats,
-        gender=random.choice(["male", "female"]),
-        age=random.randint(18, 45),
-    )
-    _init_equipment(char)
-    return char
 
 
 def _detailed_character() -> Character:
@@ -250,22 +262,39 @@ def _detailed_character() -> Character:
 
     desc = Prompt.ask("角色描述（外貌、性格等）")
 
-    console.print("\n[bold]分配属性点（标准阵列: 15,14,13,12,10,8）[/bold]")
-    console.print("[grey50]将以下数值依次分配到各项属性中[/grey50]")
-    stats = {"力量": 0, "敏捷": 0, "体质": 0, "智力": 0, "感知": 0, "魅力": 0}
-    remaining = [15, 14, 13, 12, 10, 8]
-    for attr in stats:
-        console.print(f"\n  待分配: {remaining}")
+    console.print("\n[bold]选择属性生成方式[/bold]")
+    console.print("  1. 标准阵列（15,14,13,12,10,8 自由分配）")
+    console.print("  2. 4d6掷骰（掷六组取最高3，可重掷）")
+    method = Prompt.ask("选择 [1/2]")
+
+    stats = {}
+    if method == "2":
+        attrs = ["力量", "敏捷", "体质", "智力", "感知", "魅力"]
         while True:
-            try:
-                val = int(Prompt.ask(f"{attr} = "))
-                if val in remaining:
-                    stats[attr] = val
-                    remaining.remove(val)
-                    break
-                console.print(f"[grey50]数值 {val} 不在待分配列表中，请从 {remaining} 中选择[/grey50]")
-            except ValueError:
-                pass
+            stats, roll_log = char_gen.roll_stats_with_log("4d6")
+            console.print(f"[grey50]{roll_log}[/grey50]")
+            assigned = "  ".join(f"{k}:{v}" for k, v in stats.items())
+            console.print(f"  {assigned}")
+            choice = Prompt.ask(escape("采用？ [1]确认 [2]重掷"))
+            if choice in ("1", "y", "yes", ""):
+                break
+    else:
+        console.print("\n[bold]分配属性点（标准阵列: 15,14,13,12,10,8）[/bold]")
+        console.print("[grey50]将以下数值依次分配到各项属性中[/grey50]")
+        stats = {"力量": 0, "敏捷": 0, "体质": 0, "智力": 0, "感知": 0, "魅力": 0}
+        remaining = [15, 14, 13, 12, 10, 8]
+        for attr in stats:
+            console.print(f"\n  待分配: {remaining}")
+            while True:
+                try:
+                    val = int(Prompt.ask(f"{attr} = "))
+                    if val in remaining:
+                        stats[attr] = val
+                        remaining.remove(val)
+                        break
+                    console.print(f"[grey50]数值 {val} 不在待分配列表中，请从 {remaining} 中选择[/grey50]")
+                except ValueError:
+                    pass
 
     base_skills_cn = []
     if bg_data:
@@ -439,7 +468,12 @@ def main(skip_api_test=False):
         setting_stem = "default-dnd"
     setting_content = load_setting(setting_stem)
 
-    char = create_character()
+    char = _offer_template_import()
+    if char is None:
+        char = create_character()
+    while char is None:
+        console.print("\n[grey50]角色未创建，请重新创建[/grey50]")
+        char = create_character()
 
     console.print("\n[steel_blue]选择开场模板[/steel_blue]")
     console.print("1. 随机世界（完全随机生成）")

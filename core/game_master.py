@@ -16,7 +16,7 @@ SYSTEM_PROMPT_TEMPLATE = """你是基于 D&D 5e 规则的地城主（GM），你
 
 每一轮都必须严格按照以下格式输出（使用方括号标注区块）：
 
-[场景] 严格按以下格式填写，每行一个字段：
+[环境] 严格按以下格式填写，每行一个字段：
 地点：微风港
 时间：黄昏
 温度：15℃（凉爽）
@@ -31,7 +31,7 @@ SYSTEM_PROMPT_TEMPLATE = """你是基于 D&D 5e 规则的地城主（GM），你
 季节：秋季
 时分：18:30
 时段：傍晚
-（每轮都必须填写，与[场景]中的时间保持一致）
+（每轮都必须填写，与[环境]中的时间保持一致）
 
 [事件]
 描述当前发生了什么。承接上一轮玩家的选择结果。描述要有画面感，但保持精炼。3-5句话。
@@ -53,8 +53,8 @@ SYSTEM_PROMPT_TEMPLATE = """你是基于 D&D 5e 规则的地城主（GM），你
 
 ## 字数控制
 - 每轮总输出控制在200字以内
-- [场景] 3-6行字段
-- 场景字段只填数据，不要写句子
+- [环境] 3-6行字段
+- 环境字段只填数据，不要写句子
 - [事件] 3-5句话
 - [状态] 1行
 - [选择] 3个选项，每个一行
@@ -71,7 +71,7 @@ SYSTEM_PROMPT_TEMPLATE = """你是基于 D&D 5e 规则的地城主（GM），你
 
 ## 要求
 1. 语言精炼，描述生动，拒绝长篇大论
-2. 每一轮都必须给出[场景]、[事件]、[状态]、[选择]四个区块，缺一不可
+2. 每一轮都必须给出[环境]、[事件]、[状态]、[选择]四个区块，缺一不可
 3. 用中文
 4. 保持冒险节奏紧凑
 5. [状态]必须包含'玩家:'和'目标:'两行，这是硬性要求
@@ -291,43 +291,6 @@ class GameMaster:
             self.compressed_history.append({"round": self._round_num, "summary": summary})
         except Exception:
             self.compressed_history.append({"round": self._round_num, "summary": "(摘要生成失败)"})
-
-    def needs_repair(self, response_text: str) -> bool:
-        sections = {}
-        for name, content in re.findall(r"\[(场景|场景细节|事件|状态|选择|历史)\]\s*(.*?)(?=\[(?:场景|场景细节|事件|状态|选择|历史)\]|\Z)", response_text, re.DOTALL):
-            sections[name] = content.strip()
-        status_text = sections.get("状态", "")
-        event_text = sections.get("事件", "")
-        has_target = bool(re.search(r"目标\s*:", status_text))
-        has_enemy = any(w in event_text for w in ["攻击", "敌人", "敌对", "战斗", "拔刀", "挥剑", "敌对", "追", "冲突"])
-        return not has_target and has_enemy
-
-    def repair_status(self, response_text: str) -> str:
-        """反问DM补全目标信息，返回修复后的完整文本"""
-        follow_up = (
-            "你上一轮回复中[状态]缺少目标信息。请只输出补充后的[状态]区块。"
-        )
-        messages = [{"role": "user", "content": follow_up}]
-        try:
-            r = self.client.chat.completions.create(
-                model=Config.MODEL_NAME,
-                messages=messages,
-                stream=False,
-                temperature=0.3,
-                max_tokens=300,
-            )
-            repair = r.choices[0].message.content or ""
-            m = re.search(r"\[状态\](.*?)(?=\[(?:场景|场景细节|事件|状态|选择|历史)\]|\Z)", repair, re.DOTALL)
-            if m:
-                raw = m.group(0)
-                if not raw.startswith("[状态]"):
-                    raw = "[状态]" + raw
-                new_status = raw.strip()
-                response_text = re.sub(r"\[状态\](.*?)(?=\[(?:场景|场景细节|事件|状态|选择|历史)\]|\Z)", new_status, response_text, count=1, flags=re.DOTALL)
-                self.history.append({"role": "assistant", "content": "\n（补全的目标信息）\n" + repair})
-        except:
-            pass
-        return response_text
 
     def to_dict(self) -> dict:
         return {

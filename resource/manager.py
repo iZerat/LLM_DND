@@ -207,8 +207,8 @@ class ResourceManager:
         npc.ac = ac
         npc.hp = hp
         npc.max_hp = max_hp
-        attitude_map = {"敌对": "hostile", "中立": "neutral", "友方": "friendly"}
-        npc.attitude = attitude_map.get(attitude, "neutral")
+        attitude_map = {"敌对": "hostile", "敌意": "hostile", "中立": "neutral", "友方": "friendly"}
+        npc.attitude = attitude_map.get(attitude, attitude if attitude in ("hostile", "neutral", "friendly") else "neutral")
         if self.world:
             self.world.add_active(npc)
         self._target_npc = npc

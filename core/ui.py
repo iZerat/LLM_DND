@@ -21,8 +21,8 @@ theme = Theme({
 })
 console = Console(theme=theme)
 
-SECTION_ORDER = ["场景", "事件", "状态", "选择", "历史"]
-SCENE_BASIC_FIELDS = {"地点", "时间", "温度"}
+SECTION_ORDER = ["环境", "事件", "状态", "选择", "历史"]
+ENV_BASIC_FIELDS = {"地点", "时间", "温度"}
 _round_counter = 0
 
 
@@ -38,7 +38,7 @@ def get_round_counter() -> int:
 
 def parse_sections(text: str) -> dict:
     sections = {}
-    pattern = r"\[(场景|场景细节|事件|状态|选择|历史|时间)\]\s*(.*?)(?=\[(?:场景|场景细节|事件|状态|选择|历史|时间)\]|\Z)"
+    pattern = r"\[(环境|场景|场景细节|事件|状态|选择|历史|时间)\]\s*(.*?)(?=\[(?:环境|场景|场景细节|事件|状态|选择|历史|时间)\]|\Z)"
     matches = re.findall(pattern, text, re.DOTALL)
     for name, content in matches:
         sections[name] = content.strip()
@@ -48,12 +48,18 @@ def parse_sections(text: str) -> dict:
         else:
             sections["场景"] = sections["场景细节"]
         del sections["场景细节"]
+    if "场景" in sections:
+        if "环境" in sections:
+            sections["环境"] += "\n" + sections["场景"]
+        else:
+            sections["环境"] = sections["场景"]
+        del sections["场景"]
     if not sections and text.strip():
         sections["事件"] = text.strip()
     return sections
 
 
-def _filter_scene_fields(text: str, basic_only: bool = True) -> str:
+def _filter_env_fields(text: str, basic_only: bool = True) -> str:
     lines = []
     for line in text.split("\n"):
         line = line.strip()
@@ -61,7 +67,7 @@ def _filter_scene_fields(text: str, basic_only: bool = True) -> str:
             continue
         if basic_only:
             key = line.split("：")[0].split(":")[0].strip()
-            if key in SCENE_BASIC_FIELDS:
+            if key in ENV_BASIC_FIELDS:
                 lines.append(line)
         else:
             lines.append(line)
@@ -89,16 +95,16 @@ def render_dm_output(full_text: str, gm=None, elapsed: float = 0, change_message
                 mapping[m.group(1)] = line
         gm.last_choices_map = mapping
 
-    if "场景" in sections:
-        scene_text = _filter_scene_fields(sections["场景"], basic_only=True)
+    if "环境" in sections:
+        scene_text = _filter_env_fields(sections["环境"], basic_only=True)
         console.print(Panel(
             scene_text,
-            title="[steel_blue]场景[/steel_blue]",
+            title="[steel_blue]环境[/steel_blue]",
             border_style="steel_blue",
             box=box.SQUARE,
         ))
         if gm:
-            gm.last_scene = sections["场景"]
+            gm.last_scene = sections["环境"]
 
     if gm and "时间" in sections:
         gm.last_time = sections["时间"]
@@ -195,7 +201,7 @@ def show_help():
     console.print(f"  [grey82]/roll 属性[/grey82]    属性检定，例：/roll 力量、/roll 敏捷 DC 15")
     console.print(f"  [grey82]/status[/grey82]  角色状态")
     console.print(f"  [grey82]/info[/grey82]    详细角色信息")
-    console.print(f"  [grey82]/scene[/grey82]   详细场景信息")
+    console.print(f"  [grey82]/env[/grey82]   详细环境信息（原 /scene）")
     console.print(f"  [grey82]/equip[/grey82]    查看装备栏")
     console.print(f"  [grey82]/bag[/grey82]      查看背包与金钱")
     console.print(f"  [grey82]/skill[/grey82]    查看技能")
@@ -310,6 +316,105 @@ def show_skills(char: Character):
         border_style="grey58",
         box=box.SQUARE,
     ))
+
+
+_STAT_KEYS = [
+    ("力量", "strength"), ("敏捷", "dexterity"), ("体质", "constitution"),
+    ("智力", "intelligence"), ("感知", "wisdom"), ("魅力", "charisma"),
+]
+_SLOT_KEYS = ["weapon", "off_hand", "head", "body", "back", "neck", "ring1", "ring2"]
+
+
+def render_character_sheet(char: Character, roll_log: str = ""):
+    """统一角色卡：/info + /equip + /bag + /skill 一览（创建角色预览用）。"""
+    from loc import tr
+    from resource.item_db import item_db
+
+    lineage = f"（{char.lineage}）" if char.lineage else ""
+    gender_cn = tr(f"gender:{char.gender}")
+
+    header = (
+        f"[bold]{char.name}[/bold]  Lv.{char.level} {char.race_cn}{lineage} {char.class_cn}\n"
+        f"[grey50]{tr('general:bg')}:[/grey50] {char.bg_cn}   "
+        f"[grey50]{tr('general:gender')}:[/grey50] {gender_cn}   "
+        f"[grey50]{tr('general:age')}:[/grey50] {char.age}\n"
+        f"[grey50]{tr('general:hp')}:[/grey50] {char.hp}/{char.max_hp}   "
+        f"[grey50]{tr('general:ac')}:[/grey50] {char.ac}   "
+        f"[grey50]{tr('general:prof_bonus')}:[/grey50] {char.prof_bonus:+d}\n"
+        f"[grey50]{tr('general:desc')}:[/grey50] {char.description}"
+    )
+    header_panel = Panel(
+        header,
+        title="[steel_blue]角色卡[/steel_blue]",
+        border_style="steel_blue",
+        box=box.SQUARE,
+    )
+
+    stat_lines = []
+    for cn, en in _STAT_KEYS:
+        val = getattr(char, en)
+        stat_lines.append(f"  {cn}: [bold]{val}[/bold] ({mod_str(val)})")
+    stats_panel = Panel(
+        "\n".join(stat_lines),
+        title="[grey58]属性[/grey58]",
+        border_style="grey58",
+        box=box.SQUARE,
+    )
+
+    skill_lines = [f"  • {tr(f'skill:{s}')}" for s in char.skills]
+    if not skill_lines:
+        skill_lines = ["  [grey50]" + tr("general:none") + "[/grey50]"]
+    skill_panel = Panel(
+        "\n".join(skill_lines),
+        title="[grey58]" + tr("general:skill") + "[/grey58]",
+        border_style="grey58",
+        box=box.SQUARE,
+    )
+
+    save_str = "、".join(tr(f"skill:{s}") for s in char.saving_throws) or tr("general:none")
+    feat_str = "、".join(char.feats) if char.feats else tr("general:none")
+    traits = "；".join(char.species_trait_lines()) or tr("general:none")
+    bonus_panel = Panel(
+        f"[grey50]{tr('general:save')}:[/grey50] {save_str}\n"
+        f"[grey50]{tr('general:feats')}:[/grey50] {feat_str}\n"
+        f"[grey50]{tr('general:traits')}:[/grey50] {traits}",
+        title="[grey58]豁免 / 专长 / 特性[/grey58]",
+        border_style="grey58",
+        box=box.SQUARE,
+    )
+
+    equip_lines = []
+    for slot_key in _SLOT_KEYS:
+        guid = char.inventory.equipped.get(slot_key)
+        item_def = item_db.get(guid) if guid else None
+        name = item_def.name if item_def else tr("general:empty")
+        equip_lines.append(f"  {tr(f'slot:{slot_key}')}: {name}")
+    equip_panel = Panel(
+        "\n".join(equip_lines),
+        title="[grey58]" + tr("general:equip") + "[/grey58]",
+        border_style="grey58",
+        box=box.SQUARE,
+    )
+
+    bag_lines = []
+    for inst in char.inventory.all_instances():
+        item_def = item_db.get(inst.guid)
+        bag_lines.append(f"  • {item_def.name if item_def else inst.guid}")
+    if not bag_lines:
+        bag_lines = ["  [grey50]" + tr("general:empty") + "[/grey50]"]
+    bag_panel = Panel(
+        f"[grey50]{tr('general:money')}:[/grey50] {char.currency_str()}\n\n" + "\n".join(bag_lines),
+        title="[grey58]" + tr("general:bag") + "[/grey58]",
+        border_style="grey58",
+        box=box.SQUARE,
+    )
+
+    console.print()
+    console.print(header_panel)
+    if roll_log:
+        console.print(f"[grey50]{roll_log}[/grey50]")
+    console.print(Columns([stats_panel, skill_panel, bonus_panel], equal=False, expand=False))
+    console.print(Columns([equip_panel, bag_panel], equal=False, expand=False))
 
 
 def show_time(gm):
