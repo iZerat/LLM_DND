@@ -41,6 +41,7 @@ def _test_api_connection(model: str) -> bool:
             max_tokens=1,
         )
         console.print("[#6CB77A]API 连接成功[/#6CB77A]")
+        console.print()
         return True
     except Exception as e:
         console.print(f"[grey50]连接失败: {e}[/grey50]")
@@ -197,6 +198,7 @@ def _create_world() -> GameMaster:
         console.print("  1. 让大模型创建世界（世界背景 + 故事包 + 开场模板 + 资源包）")
         console.print("  2. 选择战役（战役包，规划中）")
         console.print("  3. 程序化生成世界（生成规则 + 生成资源 + 资源包，规划中）")
+        # 创建世界菜单是 B 级：此处 /back 直接穿透，由 main() 返回主菜单
         choice = _pre_game_ask(escape("选择 [1/2/3]"))
         if choice == "2":
             console.print("[grey50]方式二（选择战役）尚未开放，敬请期待[/grey50]")
@@ -205,50 +207,62 @@ def _create_world() -> GameMaster:
             console.print("[grey50]方式三（程序化生成世界）尚未开放，敬请期待[/grey50]")
             continue
 
-        # ── 方式一：选择世界背景 ──
-        bg_list = list_world_backgrounds()
-        console.print("\n[steel_blue]选择世界背景[/steel_blue]")
-        if bg_list:
-            for i, (display, stem) in enumerate(bg_list, 1):
-                console.print(f"  {i}. {display}")
-            bg_choice = _pre_game_ask(escape(f"选择 [1-{len(bg_list)}]"))
-            try:
-                idx = int(bg_choice) - 1
-                setting_stem = bg_list[idx][1] if 0 <= idx < len(bg_list) else bg_list[0][1]
-            except (ValueError, IndexError):
-                setting_stem = bg_list[0][1]
-        else:
-            setting_stem = "default-dnd"
-        setting_content = load_world_background(setting_stem)
+        # ── 方式一：选择世界背景（C 级：/back 回到创建世界菜单） ──
+        try:
+            bg_list = list_world_backgrounds()
+            console.print("\n[steel_blue]选择世界背景[/steel_blue]")
+            if bg_list:
+                for i, (display, stem) in enumerate(bg_list, 1):
+                    console.print(f"  {i}. {display}")
+                bg_choice = _pre_game_ask(escape(f"选择 [1-{len(bg_list)}]"))
+                try:
+                    idx = int(bg_choice) - 1
+                    setting_stem = bg_list[idx][1] if 0 <= idx < len(bg_list) else bg_list[0][1]
+                except (ValueError, IndexError):
+                    setting_stem = bg_list[0][1]
+            else:
+                setting_stem = "default-dnd"
+            setting_content = load_world_background(setting_stem)
+        except _BackSignal:
+            continue
 
         # ── 对象资源策略（互斥：查表创建 或 填表创建）──
-        console.print("\n[steel_blue]选择对象资源策略[/steel_blue]")
-        console.print("  1. 查表创建（使用默认资源包，所有对象从资源库检索）")
-        console.print("  2. 填表创建（不使用任何资源包，大模型按表单自由创建一切对象）")
-        mode_choice = _pre_game_ask(escape("选择 [1/2]"))
-        resource_mode = RESOURCE_MODE_PACK if mode_choice != "2" else RESOURCE_MODE_FREE
-        configure_resource_catalogs(resource_mode)
-        if resource_mode == RESOURCE_MODE_FREE:
-            console.print("[grey50]已启用填表创建：不使用任何资源包，对象将按表单创建并随存档保存。[/grey50]")
-
-        char = _offer_template_import()
-        if char is None:
-            char = create_character()
-        while char is None:
-            console.print("\n[grey50]角色未创建，请重新创建[/grey50]")
-            char = create_character()
-
-        console.print("\n[steel_blue]选择开场模板[/steel_blue]")
-        tpl_list = list_opening_templates()
-        console.print("  1. 随机世界（无开场模板，完全随机生成）")
-        for i, (display, stem) in enumerate(tpl_list, 1):
-            console.print(f"  {i + 1}. {display}")
-        tpl = _pre_game_ask(escape(f"选择 [1-{len(tpl_list) + 1}]"))
         try:
-            idx = int(tpl) - 2
-            opening_stem = tpl_list[idx][1] if 0 <= idx < len(tpl_list) else ""
-        except (ValueError, IndexError):
-            opening_stem = ""
+            console.print("\n[steel_blue]选择对象资源策略[/steel_blue]")
+            console.print("  1. 查表创建（使用默认资源包，所有对象从资源库检索）")
+            console.print("  2. 填表创建（不使用任何资源包，大模型按表单自由创建一切对象）")
+            mode_choice = _pre_game_ask(escape("选择 [1/2]"))
+            resource_mode = RESOURCE_MODE_PACK if mode_choice != "2" else RESOURCE_MODE_FREE
+            configure_resource_catalogs(resource_mode)
+            if resource_mode == RESOURCE_MODE_FREE:
+                console.print("[grey50]已启用填表创建：不使用任何资源包，对象将按表单创建并随存档保存。[/grey50]")
+        except _BackSignal:
+            continue
+
+        try:
+            char = _offer_template_import()
+            if char is None:
+                char = create_character()
+            while char is None:
+                console.print("\n[grey50]角色未创建，请重新创建[/grey50]")
+                char = create_character()
+        except _BackSignal:
+            continue
+
+        try:
+            console.print("\n[steel_blue]选择开场模板[/steel_blue]")
+            tpl_list = list_opening_templates()
+            console.print("  1. 随机世界（无开场模板，完全随机生成）")
+            for i, (display, stem) in enumerate(tpl_list, 1):
+                console.print(f"  {i + 1}. {display}")
+            tpl = _pre_game_ask(escape(f"选择 [1-{len(tpl_list) + 1}]"))
+            try:
+                idx = int(tpl) - 2
+                opening_stem = tpl_list[idx][1] if 0 <= idx < len(tpl_list) else ""
+            except (ValueError, IndexError):
+                opening_stem = ""
+        except _BackSignal:
+            continue
 
         return GameMaster(
             char, opening_stem,
@@ -497,16 +511,51 @@ class _QuickStartSignal(Exception):
     """在任意前置菜单输入 /quickstart 或 /q 时抛出的快速开始信号。"""
 
 
+class _BackSignal(Exception):
+    """输入 /back 或 /b 时抛出：返回上一级菜单。"""
+
+
+class _MenuSignal(Exception):
+    """输入 /menu 或 /m 时抛出：返回最上级主菜单。"""
+
+
+class _QuitSignal(Exception):
+    """输入 /quit 时抛出：退出游戏。"""
+
+
 def _is_quickstart(text: str) -> bool:
     return text.strip().lower() in ("/quickstart", "/q")
 
 
+def _print_commands():
+    console.print(f"\n[steel_blue]命令[/steel_blue]")
+    console.print(f"  [grey82]/help[/grey82]    显示此命令列表")
+    console.print(f"  [grey82]/back[/grey82]    返回上一级菜单")
+    console.print(f"  [grey82]/menu[/grey82]    返回主菜单")
+    console.print(f"  [grey82]/quit[/grey82]    退出游戏")
+    console.print(f"  [grey82]/quickstart[/grey82]  快速开始（随机角色直接进入游戏）")
+
+
 def _pre_game_ask(prompt_text: str, **kw) -> str:
-    """游戏开始前的输入：识别 /quickstart 与 /q，触发快速开始。"""
-    val = Prompt.ask(prompt_text, **kw)
-    if _is_quickstart(val):
-        raise _QuickStartSignal()
-    return val
+    """游戏开始前的输入：识别 /help、/back、/menu、/quickstart 命令。"""
+    while True:
+        val = Prompt.ask(prompt_text, **kw)
+        cmd = val.strip().lower()
+        if cmd in ("/help", "/"):
+            _print_commands()
+            continue
+        if cmd in ("/b", "/back"):
+            raise _BackSignal()
+        if cmd in ("/m", "/menu"):
+            raise _MenuSignal()
+        if cmd == "/quit":
+            raise _QuitSignal()
+        if _is_quickstart(val):
+            raise _QuickStartSignal()
+        if cmd.startswith("/"):
+            console.print("[grey50]无效命令，输入 /help 查看可用命令[/grey50]")
+            continue
+        return val
 
 
 def _start_adventure(gm: GameMaster):
@@ -614,12 +663,22 @@ def main(skip_api_test=False):
                     return
             except _QuickStartSignal:
                 raise
+            except (_BackSignal, _MenuSignal, _QuitSignal):
+                raise
             except ValueError:
                 console.print("[grey50]请输入有效数字[/grey50]")
             except:
                 pass
 
         _start_adventure(_create_world())
+    except _BackSignal:
+        main(skip_api_test=True)
+        return
+    except _MenuSignal:
+        main(skip_api_test=True)
+        return
+    except _QuitSignal:
+        sys.exit(0)
     except _QuickStartSignal:
         _quickstart()
 
