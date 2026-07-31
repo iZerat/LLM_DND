@@ -127,6 +127,10 @@ class Supervisor:
         report = self.regulator.sync_status_block(text, report.changed_npcs)
         result.messages.extend(report.messages)
 
+        # 数值复核：以调节器落账为准覆盖 [状态] 块中的 HP/AC，
+        # 让玩家看到的“目标”面板永远与“变更”面板一致（允许大模型圆故事，不允许数值裸冲突）
+        text = self.regulator.reconcile_status_block(text)
+
         # 4. 结构校验：缺目标信息 → 修复对话
         if self.needs_repair(text):
             text = self.repair(text)

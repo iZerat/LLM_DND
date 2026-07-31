@@ -144,6 +144,12 @@ class Regulator:
                 applied=False,
                 issues=npc_issues,
             )
+        # 目标解析：target_hp/target_cp 若未显式带 target: 行，则回落到 [状态] 块的“目标:”行，
+        # 避免误伤“第一个 active NPC”（如把给突击兵的伤害算到其他敌人头上）。
+        target_actions = ("target_hp_add", "target_hp_remove",
+                          "target_cp_add", "target_cp_remove")
+        if any(r.get("action") in target_actions and not r.get("target") for r in requests):
+            self._seed_target_from_status(text)
         results = self.manager.process_requests(requests)
         changed: set[str] = set()
         for req in requests:
@@ -164,6 +170,80 @@ class Regulator:
         )
 
     # ── [状态] 区块 → 校验 / 同步 WorldState ──
+
+    def _seed_target_from_status(self, text: str) -> None:
+        """把 [状态] 块的“目标:”行设为当前目标（不存在则按库先创建）。
+
+        供 submit_status_changes 在 target_hp/target_cp 缺 target: 行时回退解析，
+        确保伤害落到玩家正在交战的敌人身上。
+        """
+        if not self.world:
+            return
+        matches = list(_STATUS_SYNC_RE.finditer(text))
+        if not matches:
+            return
+        status_text = matches[-1].group(1)
+        for line in status_text.split("\n"):
+            line = line.strip()
+            if not re.match(r"目标\s*:", line):
+                continue
+            nm = _NPC_LINE_RE.match(line)
+            if not nm:
+                continue
+            name = nm.group(2).strip()
+            npc = self.world.get_by_name(name)
+            if npc is None:
+                npc = self._sync_create_npc(
+                    name, name,
+                    int(nm.group(3)), int(nm.group(4)), int(nm.group(5)),
+                    nm.group(1) or "",
+                )
+                self.world.add_active(npc)
+            self.manager._target_npc = npc
+            return
+
+    def reconcile_status_block(self, text: str) -> str:
+        """用 WorldState 覆盖 [状态] 块中的玩家/目标 HP 与 AC，保证显示数值与落账一致。
+
+        大模型可以自由叙述故事，但 [状态] 里展示的数值必须以调节器落账为准，
+        不允许出现“变更块说扣了血、目标块还是满血”的赤裸裸冲突。
+        """
+        if not self.world:
+            return text
+        matches = list(_STATUS_SYNC_RE.finditer(text))
+        if not matches:
+            return text
+        status_text = matches[-1].group(1)
+        new_status = status_text
+
+        ch = self.character
+        if ch:
+            player_m = re.search(r"玩家\s*:.*", new_status)
+            if player_m:
+                player_line = player_m.group(0)
+                fixed = re.sub(
+                    r",?\s*AC:\s*\d+\s*,\s*HP:\s*\d+/\d+",
+                    f", AC:{ch.ac}, HP:{ch.hp}/{ch.max_hp}",
+                    player_line, count=1,
+                )
+                new_status = new_status.replace(player_line, fixed)
+
+        def fix_npc_line(line: str) -> str:
+            m = _NPC_LINE_RE.match(line)
+            if not m:
+                return line
+            name = m.group(2).strip()
+            npc = self.world.get_by_name(name)
+            if not npc:
+                return line
+            prefix = line[:m.start(2)]
+            return f"{prefix}{name}, AC:{npc.ac}, HP:{npc.hp}/{npc.max_hp}"
+
+        new_status = "\n".join(fix_npc_line(l) if _NPC_LINE_RE.match(l.strip()) else l
+                               for l in new_status.split("\n"))
+
+        start, end = matches[-1].span()
+        return text[:start] + "[状态]" + new_status + text[end:]
 
     def validate_status_block(self, text: str) -> list[str]:
         """校验 [状态] 区块目标名称规范：禁止括号/叙事性描述混入名称。
