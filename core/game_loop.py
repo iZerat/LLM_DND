@@ -39,7 +39,7 @@ def list_saves():
         size = save.stat().st_size
         console.print(f"  {i}. {save.stem} ({size}B) [grey50]旧格式[/grey50]")
     for i, d in enumerate(dirs, len(saves) + 1):
-        console.print(f"  {i}. {d.name} [grey50]文件夹[/grey50]")
+        console.print(f"  {i}. {d.name}")
     return saves + dirs
 
 
@@ -107,6 +107,13 @@ def save_game(gm: GameMaster, name: str = None):
     if hasattr(gm, 'world_state') and gm.world_state:
         (char_dir / "world.json").write_text(
             json.dumps(gm.world_state.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+
+    # character_template.json — 角色创建时的快照（角色模板，含初始背包/装备/金钱）
+    tmpl = getattr(gm, "character_template", None)
+    if tmpl:
+        (char_dir / "character_template.json").write_text(
+            json.dumps(tmpl, ensure_ascii=False, indent=2), encoding="utf-8"
         )
 
     # runtime_defs/ — 填表创建的对象定义（随存档保存，重启可恢复）
@@ -335,6 +342,9 @@ def load_game(save_path: str) -> GameMaster:
 
         _migrate_load_inventory(path, char)
         gm = GameMaster(char)
+        tmpl_path = path / "character_template.json"
+        if tmpl_path.exists():
+            gm.character_template = json.loads(tmpl_path.read_text(encoding="utf-8"))
         gm.resource_mode = resource_mode
         if history_data:
             gm.compressed_history = history_data.get("compressed", [])

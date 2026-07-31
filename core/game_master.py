@@ -169,6 +169,9 @@ class GameMaster:
         self.story_pack_id = story_pack_id
         self.story_pack_content = story_pack_content
         self.world_source = world_source
+        # 角色创建时的完整快照（角色模板），随存档保存，不随游戏进程变化
+        from core.templates import template_data
+        self.character_template: dict = template_data(character)
         self.compressed_history: list = []
         self._round_num: int = 0
         self._truncated: bool = False

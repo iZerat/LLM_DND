@@ -796,6 +796,14 @@ def _pre_game_ask(prompt_text: str, **kw) -> str:
 
 def _start_adventure(gm: GameMaster):
     console.print("\n[grey62]冒险即将开始...[/grey62]")
+    from core.supervisor import Supervisor
+    from resource.regulator import Regulator
+    from world.state import WorldState
+    world_state = getattr(gm, 'world_state', None) or WorldState()
+    gm.world_state = world_state
+    regulator = Regulator(gm.character, world_state)
+    regulator.manager.resource_mode = getattr(gm, "resource_mode", "pack")
+    supervisor = Supervisor(gm, regulator)
     try:
         _t0 = _time.time()
         parts = []
@@ -804,9 +812,15 @@ def _start_adventure(gm: GameMaster):
         _elapsed = _time.time() - _t0
         console.print(f"[grey62]生成耗时: {format_elapsed(_elapsed)}{gm.usage_summary()}[/grey62]")
         console.print()
-        initial_text = "".join(parts)
-        log_dm_response(0, "（游戏开始）", initial_text)
-        render_dm_output(initial_text, gm, _elapsed)
+        raw_full = "".join(parts)
+        audit = supervisor.audit(raw_full)
+        initial_text = audit.text
+        log_dm_response(
+            0, "（游戏开始）", initial_text,
+            raw_text=raw_full,
+            change_messages="\n".join(audit.messages) if audit.messages else "",
+        )
+        render_dm_output(initial_text, gm, _elapsed, audit.messages)
     except Exception as e:
         console.print(f"[indian_red]错误: {e}[/indian_red]")
 

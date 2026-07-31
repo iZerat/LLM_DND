@@ -22,9 +22,8 @@ def list_templates() -> list[str]:
     return [p.stem for p in files]
 
 
-def save_template(char: Character, name: str | None = None) -> Path:
-    """序列化角色（含背包/装备/金钱）为本地模板文件。"""
-    name = (name or char.name or "未命名角色").strip()
+def template_data(char: Character) -> dict:
+    """角色模板数据：角色卡 + 背包/装备/金钱 的完整快照（可独立持久化）。"""
     data = char.to_dict()
     data["inventory"] = {
         "bag": [
@@ -34,8 +33,14 @@ def save_template(char: Character, name: str | None = None) -> Path:
         "equip": {slot: guid for slot, guid in char.inventory.equipped.items() if guid},
         "copper": char.inventory.currency.copper,
     }
+    return data
+
+
+def save_template(char: Character, name: str | None = None) -> Path:
+    """序列化角色（含背包/装备/金钱）为本地模板文件。"""
+    name = (name or char.name or "未命名角色").strip()
     fp = _dir() / f"{name}.json"
-    fp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    fp.write_text(json.dumps(template_data(char), ensure_ascii=False, indent=2), encoding="utf-8")
     return fp
 
 

@@ -247,14 +247,13 @@ class Regulator:
                     existing = self.world.get_by_name(ind_name)
                     if existing:
                         if ind_name not in changed_npcs:
-                            if existing.hp != hp:
-                                diff = hp - existing.hp
+                            reported = min(hp, existing.max_hp)
+                            if existing.hp != reported:
+                                diff = reported - existing.hp
                                 report.messages.append(
                                     f"目标 {ind_name} HP {'+' if diff > 0 else ''}{diff}点"
                                 )
-                            existing.hp = hp
-                            existing.max_hp = max_hp
-                            existing.ac = ac
+                            existing.hp = reported
                         self.world.touch(existing.id)
                     else:
                         new_npc = self._sync_create_npc(ind_name, base, ac, hp, max_hp, tag)
@@ -264,14 +263,13 @@ class Regulator:
             existing = self.world.get_by_name(name)
             if existing:
                 if name not in changed_npcs:
-                    if existing.hp != hp:
-                        diff = hp - existing.hp
+                    reported = min(hp, existing.max_hp)
+                    if existing.hp != reported:
+                        diff = reported - existing.hp
                         report.messages.append(
                             f"目标 {name} HP {'+' if diff > 0 else ''}{diff}点"
                         )
-                    existing.hp = hp
-                    existing.max_hp = max_hp
-                    existing.ac = ac
+                    existing.hp = reported
                 self.world.touch(existing.id)
             else:
                 new_npc = self._sync_create_npc(name, name, ac, hp, max_hp, tag)
@@ -291,6 +289,7 @@ class Regulator:
         free（填表创建）: 目录为空，退化为默认 NPC 兜底。
         """
         from world.npc_templates import npc_catalog
+        hp = min(hp, max_hp)
         attitude = _ATTITUDE_MAP.get(tag, "neutral")
         tmpl = npc_catalog.find_by_name(lookup_name)
         if tmpl:
