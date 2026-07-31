@@ -276,7 +276,8 @@ class ResourceToolbox:
             kind_cn = _KIND_CN[kind]
             ability_cn = _ABILITY_CN.get(ability, ability)
             prefix = f"{npc.name} {ability_cn}{kind_cn}" if kind != "attack" else f"{npc.name} 攻击"
-            text = f"{prefix}: d20({roll}) + ({mod:+d}) = {total} {op} {dc_kind}{dc_value} [{word_color}]{word}[/{word_color}]"
+            label = "" if kind == "attack" else dc_kind
+            text = f"{prefix}: d20({roll}) + ({mod:+d}) = {total} {op} {label}{dc_value} [{word_color}]{word}[/{word_color}]"
             if note:
                 text += f"\n[grey50]{note}[/grey50]"
             self.check_results.append({"target": npc.name, "text": text, "success": success})

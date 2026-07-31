@@ -27,6 +27,35 @@ SECTION_ORDER = ["环境", "事件", "副事件", "状态", "选择", "历史"]
 ENV_BASIC_FIELDS = {"地点", "时间", "温度"}
 _round_counter = 0
 
+_HP_GREEN = "#6CB77A"      # API 连接成功的绿：满血/健康
+_HP_YELLOW = "#F9F1A5"     # 对话选项的黄：半血及以下
+_HP_RED = "#E08E8E"        # 偏亮灰的红：仅剩 1 滴血
+_HP_RE = re.compile(r"HP:\s*(\d+)/(\d+)")
+
+
+def _hp_color(hp: int, max_hp: int) -> str:
+    if hp == 1:
+        return _HP_RED
+    if hp * 2 <= max_hp:
+        return _HP_YELLOW
+    return _HP_GREEN
+
+
+def _hp_markup(hp: int, max_hp: int) -> str:
+    color = _hp_color(hp, max_hp)
+    return f"[{color}]{hp}[/{color}]"
+
+
+def _hp_full_markup(hp: int, max_hp: int) -> str:
+    return f"{_hp_markup(hp, max_hp)}[{_HP_GREEN}]/{max_hp}[/{_HP_GREEN}]"
+
+
+def _colorize_hp_in_text(text: str) -> str:
+    def repl(m):
+        hp, max_hp = int(m.group(1)), int(m.group(2))
+        return f"HP:{_hp_full_markup(hp, max_hp)}"
+    return _HP_RE.sub(repl, text)
+
 
 def set_round_counter(val: int):
     global _round_counter
@@ -159,9 +188,13 @@ def render_dm_output(full_text: str, gm=None, elapsed: float = 0, change_message
         other_matches = re.findall(r"其他\s*:\s*(.+)", status_text)
         if player_match:
             left = player_match.group(1).strip()
+            cut = re.search(r",?\s*目标\s*:", left)
+            if cut:
+                left = left[:cut.start()].strip()
+            left = _colorize_hp_in_text(left)
         if target_match:
-            right = target_match.group(1).strip()
-        extras = [m.strip() for m in other_matches if m.strip() and m.strip() != "无"]
+            right = _colorize_hp_in_text(target_match.group(1).strip())
+        extras = [_colorize_hp_in_text(m.strip()) for m in other_matches if m.strip() and m.strip() != "无"]
 
         def style_target(t: str) -> tuple:
             hostility_colors = {
@@ -240,7 +273,7 @@ def show_help():
 def show_status(char: Character):
     from loc import tr
     console.print(f"\n[steel_blue]{char.name}[/steel_blue]  Lv.{char.level} {char.race_cn} {char.class_cn}")
-    console.print(f"[grey50]{tr('general:hp')}:[/grey50] {char.hp}/{char.max_hp}  "
+    console.print(f"[grey50]{tr('general:hp')}:[/grey50] {_hp_full_markup(char.hp, char.max_hp)}  "
                   f"[grey50]{tr('general:ac')}:[/grey50] {char.ac}  "
                   f"[grey50]{tr('general:prof_bonus')}:[/grey50] {char.prof_bonus:+d}")
     console.print(Panel(
@@ -266,7 +299,7 @@ def show_info(char: Character):
         f"{tr('general:race')}: {race_cn}  {tr('general:class')}: {class_cn}  "
         f"{tr('general:bg')}: {bg_cn}\n"
         f"{tr('general:level')}: {char.level}  "
-        f"{tr('general:hp')}: {char.hp}/{char.max_hp}  "
+        f"{tr('general:hp')}: {_hp_full_markup(char.hp, char.max_hp)}  "
         f"{tr('general:ac')}: {char.ac}\n"
         f"{tr('general:prof_bonus')}: {char.prof_bonus:+d}\n"
         f"{tr('stat:strength')}: {char.strength} ({mod_str(char.strength)})  "
@@ -295,9 +328,22 @@ def _bag_summary(char: Character) -> list[str]:
     return lines
 
 
+def _currency_rich(cur) -> str:
+    """金钱富文本：前导连续为 0 的单位数字用灰色（grey50，与背包空位同色）。"""
+    leading = True
+    parts = []
+    for value, unit in ((cur.gold, "金"), (cur.silver, "银"), (cur.copper_display, "铜")):
+        if value == 0 and leading:
+            parts.append(f"[grey50]0[/grey50]{unit}")
+        else:
+            parts.append(f"{value}{unit}")
+            leading = False
+    return " ".join(parts)
+
+
 def show_bag(char: Character):
     from loc import tr
-    money = f"  {tr('general:money')}: {char.currency_str()}"
+    money = f"  {tr('general:money')}: {_currency_rich(char.inventory.currency)}"
     lines = _bag_summary(char)
     if lines:
         items = "\n".join(lines)
@@ -430,7 +476,7 @@ def render_character_sheet(char: Character, roll_log: str = ""):
     hdr.add_row(
         _l(""), "",
         _l("熟练加值"), f"[bold]{char.prof_bonus:+d}[/bold]",
-        _l("金钱"), f"[bold]{char.currency_str()}[/bold]",
+        _l("金钱"), f"[bold]{_currency_rich(char.inventory.currency)}[/bold]",
     )
 
     header_parts = [hdr]

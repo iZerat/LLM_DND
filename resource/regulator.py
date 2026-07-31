@@ -172,11 +172,14 @@ class Regulator:
         不合格时打回让大模型重写 [状态] 区块。
         """
         issues: list[str] = []
-        match = _STATUS_SYNC_RE.search(text)
-        if not match:
+        matches = list(_STATUS_SYNC_RE.finditer(text))
+        if not matches:
             return issues
-        for line in match.group(1).split("\n"):
+        for line in matches[-1].group(1).split("\n"):
             line = line.strip()
+            if re.match(r"玩家\s*:", line) and re.search(r"目标\s*:", line):
+                issues.append("玩家行混入了「目标:」，目标信息应单独成行")
+                continue
             npc_m = _NPC_LINE_RE.match(line)
             if not npc_m:
                 continue
@@ -193,10 +196,10 @@ class Regulator:
         report = ChangeReport(text=text)
         if not self.world:
             return report
-        match = _STATUS_SYNC_RE.search(text)
-        if not match:
+        matches = list(_STATUS_SYNC_RE.finditer(text))
+        if not matches:
             return report
-        status_text = match.group(1)
+        status_text = matches[-1].group(1)
         changed_npcs = changed_npcs or set()
 
         # 清理因 xN 格式 / 名称内叙事描述 产生的垃圾实体

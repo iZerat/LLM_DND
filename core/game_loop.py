@@ -474,7 +474,7 @@ def _resolve_attack(roll: int, char: Character, target_ac: int | None) -> tuple[
         word, color = "命中", "green"
     else:
         op, word, color = "<", "未命中", "red"
-    return total, atk_bonus, hit, word, color, f"d20({roll}) + ({atk_bonus:+d}) = {total} {op} AC{target_ac}"
+    return total, atk_bonus, hit, word, color, f"d20({roll}) + ({atk_bonus:+d}) = {total} {op} {target_ac}"
 
 
 def _find_target_ac(gm) -> int | None:
