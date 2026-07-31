@@ -91,6 +91,7 @@ def save_game(gm: GameMaster, name: str = None):
         "last_time": gm.last_time,
         "setting_stem": gm.setting_stem,
         "resource_mode": getattr(gm, "resource_mode", "pack"),
+        "resource_pack": getattr(gm, "resource_pack", ""),
         "story_pack_id": getattr(gm, "story_pack_id", ""),
         "story_pack_content": getattr(gm, "story_pack_content", ""),
         "world_source": getattr(gm, "world_source", "llm"),
@@ -332,12 +333,15 @@ def load_game(save_path: str) -> GameMaster:
         history_path = path / "history.json"
         history_data = None
         resource_mode = "pack"
+        resource_pack = ""
         if history_path.exists():
             data = json.loads(history_path.read_text(encoding="utf-8"))
             history_data = data
-            resource_mode = (data.get("meta") or {}).get("resource_mode", "pack")
+            meta = data.get("meta") or {}
+            resource_mode = meta.get("resource_mode", "pack")
+            resource_pack = meta.get("resource_pack", "")
         from resource.packs import configure_resource_catalogs
-        configure_resource_catalogs(resource_mode)
+        configure_resource_catalogs(resource_mode, resource_pack or "default-dnd")
         _restore_runtime_defs(path)
 
         _migrate_load_inventory(path, char)
@@ -346,6 +350,7 @@ def load_game(save_path: str) -> GameMaster:
         if tmpl_path.exists():
             gm.character_template = json.loads(tmpl_path.read_text(encoding="utf-8"))
         gm.resource_mode = resource_mode
+        gm.resource_pack = resource_pack
         if history_data:
             gm.compressed_history = history_data.get("compressed", [])
             gm.last_assistant = history_data.get("last_assistant", "")

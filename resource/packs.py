@@ -23,6 +23,23 @@ def default_pack_dir() -> Path:
     return pack_dir(DEFAULT_PACK_ID)
 
 
+_ACTIVE_PACK_ID = DEFAULT_PACK_ID
+
+
+def active_pack_id() -> str:
+    return _ACTIVE_PACK_ID
+
+
+def active_pack_dir() -> Path:
+    return pack_dir(_ACTIVE_PACK_ID)
+
+
+def set_active_pack(pack_id: str):
+    """切换当前资源包（srd 从该包读取）。"""
+    global _ACTIVE_PACK_ID
+    _ACTIVE_PACK_ID = pack_id or DEFAULT_PACK_ID
+
+
 def configure_resource_catalogs(resource_mode: str, pack_id: str = DEFAULT_PACK_ID):
     """按资源策略配置全局目录。
 
@@ -32,8 +49,15 @@ def configure_resource_catalogs(resource_mode: str, pack_id: str = DEFAULT_PACK_
     from resource.item_db import item_db
     from world.npc_templates import npc_catalog
     if resource_mode == RESOURCE_MODE_FREE:
+        set_active_pack(DEFAULT_PACK_ID)
         item_db.set_items_dir(None)
         npc_catalog.set_base_dir(None)
     else:
-        item_db.set_items_dir(pack_dir(pack_id) / "items")
-        npc_catalog.set_base_dir(pack_dir(pack_id) / "npcs")
+        set_active_pack(pack_id)
+        item_db.set_items_dir(pack_dir(_ACTIVE_PACK_ID) / "items")
+        npc_catalog.set_base_dir(pack_dir(_ACTIVE_PACK_ID) / "npcs")
+    # 按当前资源包重载 SRD（原地替换，保持既有引用）
+    from rules.srd_data import reload as srd_reload
+    from core.character import reload_srd as character_reload
+    srd_reload()
+    character_reload()

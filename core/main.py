@@ -277,10 +277,16 @@ def _create_world() -> GameMaster:
                     console.print("\n[grey50]角色未创建，请重新创建[/grey50]")
                     char = create_character(story_roles)
 
+                # 若扮演的是故事角色且该角色声明了专属开场，则覆盖预设默认开场（如叛乱方角色用叛乱开场）
+                role = getattr(char, "story_role", None)
+                if role and role.opening:
+                    opening_stem = role.opening
+
                 return GameMaster(
                     char, opening_stem,
                     setting_content=setting_content, setting_stem=setting_stem,
                     resource_mode=resource_mode,
+                    resource_pack=preset.resource_pack or "default-dnd",
                     story_pack_id=story_pack.pack_id if story_pack else "",
                     story_pack_content=story_pack.content if story_pack else "",
                     world_source="preset",
@@ -356,20 +362,25 @@ def _create_world() -> GameMaster:
         except _BackSignal:
             continue
 
-        try:
-            console.print("\n[steel_blue]选择开场模板[/steel_blue]")
-            tpl_list = list_opening_templates()
-            console.print("  1. 随机世界（无开场模板，完全随机生成）")
-            for i, (display, stem) in enumerate(tpl_list, 1):
-                console.print(f"  {i + 1}. {display}")
-            tpl = _pre_game_ask(escape(f"选择 [1-{len(tpl_list) + 1}]"))
+        role = getattr(char, "story_role", None)
+        if role and role.opening:
+            opening_stem = role.opening
+            console.print(f"[grey50]已使用故事角色的专属开场: {opening_stem}[/grey50]")
+        else:
             try:
-                idx = int(tpl) - 2
-                opening_stem = tpl_list[idx][1] if 0 <= idx < len(tpl_list) else ""
-            except (ValueError, IndexError):
-                opening_stem = ""
-        except _BackSignal:
-            continue
+                console.print("\n[steel_blue]选择开场模板[/steel_blue]")
+                tpl_list = list_opening_templates()
+                console.print("  1. 随机世界（无开场模板，完全随机生成）")
+                for i, (display, stem) in enumerate(tpl_list, 1):
+                    console.print(f"  {i + 1}. {display}")
+                tpl = _pre_game_ask(escape(f"选择 [1-{len(tpl_list) + 1}]"))
+                try:
+                    idx = int(tpl) - 2
+                    opening_stem = tpl_list[idx][1] if 0 <= idx < len(tpl_list) else ""
+                except (ValueError, IndexError):
+                    opening_stem = ""
+            except _BackSignal:
+                continue
 
         return GameMaster(
             char, opening_stem,
@@ -419,7 +430,9 @@ def _pick_story_role(story_roles: list) -> Character:
             idx = int(r_choice) - 1
             if 0 <= idx < len(story_roles):
                 role = story_roles[idx]
-                return build_character_from_role(role)
+                char = build_character_from_role(role)
+                char.story_role = role
+                return char
         except (ValueError, IndexError):
             pass
         console.print("[grey50]无效选择[/grey50]")
@@ -433,7 +446,7 @@ def build_character_from_role(role) -> Character:
     stats = dict(role.stats)
     char = Character(
         name=role.name or char_gen.random_name(),
-        race=role.species, char_class=role.char_class,
+        race=role.species, lineage=role.lineage, char_class=role.char_class,
         background=role.background, description=role.description or f"一位来自故事包的角色。",
         level=1, hp=role.hp, max_hp=role.max_hp or role.hp,
         strength=stats.get("力量", 10), dexterity=stats.get("敏捷", 10),

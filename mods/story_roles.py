@@ -18,6 +18,7 @@ class StoryRole:
     name: str
     description: str = ""
     species: str = ""          # 种族（中文）
+    lineage: str = ""          # 亚种/派系（中文）
     char_class: str = ""       # 职业（中文）
     background: str = ""       # 背景（中文）
     stats: dict = field(default_factory=dict)          # 属性
@@ -25,6 +26,7 @@ class StoryRole:
     max_hp: int = 10
     skills: list = field(default_factory=list)          # 技能（英文 key）
     equipment: list = field(default_factory=list)       # 物品名列表
+    opening: str = ""          # 该角色专属开场模板 stem；为空则用预设/手动选择的开场
 
 
 def role_path(role_id: str) -> Path:
@@ -47,12 +49,14 @@ def load_role(role_id: str) -> Optional[StoryRole]:
         name=display_name(role_id, data),
         description=data.get("description", ""),
         species=data.get("species", ""),
+        lineage=data.get("lineage", ""),
         char_class=data.get("char_class", ""),
         background=data.get("background", ""),
         stats=stats,
         hp=hp, max_hp=data.get("max_hp", hp),
         skills=list(data.get("skills", [])),
         equipment=list(data.get("equipment", [])),
+        opening=data.get("opening", ""),
     )
 
 

@@ -16,6 +16,15 @@ BACKGROUNDS = [b.name for b in BACKGROUND_LIST]
 HIT_DICE = {c.name: c.hit_die for c in CLASS_LIST}
 
 
+def reload_srd():
+    """SRD 数据（种族/职业/背景/骰子）已按新资源包原地替换，刷新派生常量。"""
+    RACES[:] = [s.name for s in SPECIES_LIST]
+    CLASSES[:] = [c.name for c in CLASS_LIST]
+    BACKGROUNDS[:] = [b.name for b in BACKGROUND_LIST]
+    HIT_DICE.clear()
+    HIT_DICE.update({c.name: c.hit_die for c in CLASS_LIST})
+
+
 def modifier(score: int) -> int:
     return (score - 10) // 2
 
@@ -85,7 +94,7 @@ class Character:
         if body_inst and body_inst.guid:
             body_def = item_db.get(body_inst.guid)
             if body_def and body_def.base_ac:
-                return calc_ac(self.dex_mod, body_def.name, has_shield)
+                return calc_ac(self.dex_mod, body_def, has_shield)
         return 10 + self.dex_mod + (2 if has_shield else 0)
 
     @property

@@ -3,12 +3,12 @@ from pathlib import Path
 import json
 from typing import Optional
 
-from resource.packs import default_pack_dir
+from resource.packs import active_pack_dir
 
 # ── 技能 ──
 
 def _srd_dir() -> Path:
-    return default_pack_dir() / "srd"
+    return active_pack_dir() / "srd"
 
 
 def _load_json(name: str) -> list:
@@ -230,8 +230,28 @@ def find_background(name: str) -> Optional[Background]:
 def find_armor(name: str) -> Optional[Armor]:
     return _ARMOR_INDEX.get(name)
 
-def calc_ac(dex_mod: int, armor_name: str = "布甲", has_shield: bool = False) -> int:
-    arm = find_armor(armor_name) or ARMOR_LIST[0]
+def calc_ac(dex_mod: int, armor: object = "布甲", has_shield: bool = False) -> int:
+    """按护甲计算 AC。armor 可为 ARMOR_LIST 中的名称，或带 base_ac/armor_category/dex_cap 的物品定义。"""
+    name = getattr(armor, "name", None) or (armor if isinstance(armor, str) else "")
+    arm = find_armor(name) if name else None
+    if arm is None and getattr(armor, "base_ac", None):
+        # 资源包物品（如战锤动力甲）：直接用物品字段
+        base_ac = int(getattr(armor, "base_ac"))
+        category = getattr(armor, "armor_category", "") or ""
+        dex_cap = int(getattr(armor, "dex_cap", 99) or 99)
+        if category in ("重甲", "heavy"):
+            ac = base_ac
+        elif category in ("中甲", "medium"):
+            ac = base_ac + min(dex_mod, dex_cap)
+        elif category in ("轻甲", "light"):
+            ac = base_ac + dex_mod
+        else:
+            ac = 10 + dex_mod
+        if has_shield:
+            ac += 2
+        return ac
+    if arm is None:
+        arm = ARMOR_LIST[0]
     if arm.category == "重甲":
         ac = arm.base_ac
     elif arm.category == "中甲":
@@ -243,3 +263,27 @@ def calc_ac(dex_mod: int, armor_name: str = "布甲", has_shield: bool = False) 
     if has_shield:
         ac += 2
     return ac
+
+
+def reload():
+    """按当前资源包重新加载 SRD（原地替换，保持已有引用）。"""
+    global SKILLS, SKILLS_EN, SKILL_BY_EN, SKILL_ABILITY
+    global SPECIES_LIST, BACKGROUND_LIST, CLASS_LIST
+    global _SPECIES_INDEX, _CLASS_INDEX, _BACKGROUND_INDEX
+    data = _load_json("skills")
+    SKILLS[:] = list(data["skills"])
+    SKILLS_EN.clear()
+    SKILLS_EN.update(data["skills_en"])
+    SKILL_BY_EN.clear()
+    SKILL_BY_EN.update({v: k for k, v in SKILLS_EN.items()})
+    SKILL_ABILITY.clear()
+    SKILL_ABILITY.update(data["skill_ability"])
+    SPECIES_LIST[:] = _build_species(_load_json("species"))
+    BACKGROUND_LIST[:] = _build_backgrounds(_load_json("backgrounds"))
+    CLASS_LIST[:] = _build_classes(_load_json("classes"))
+    _SPECIES_INDEX.clear()
+    _SPECIES_INDEX.update(_build_index(SPECIES_LIST))
+    _CLASS_INDEX.clear()
+    _CLASS_INDEX.update(_build_index(CLASS_LIST))
+    _BACKGROUND_INDEX.clear()
+    _BACKGROUND_INDEX.update(_build_index(BACKGROUND_LIST))

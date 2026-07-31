@@ -151,7 +151,7 @@ def _load_rules() -> str:
 
 class GameMaster:
     def __init__(self, character: Character, template: str = "", setting_content: str = "", setting_stem: str = "", resource_mode: str = "pack",
-                 story_pack_id: str = "", story_pack_content: str = "", world_source: str = "llm"):
+                 story_pack_id: str = "", story_pack_content: str = "", world_source: str = "llm", resource_pack: str = ""):
         self.character = character
         self.client: Optional[OpenAI] = None
         self.history: list = []
@@ -166,6 +166,7 @@ class GameMaster:
         self.setting_content = setting_content
         self.setting_stem = setting_stem
         self.resource_mode = resource_mode
+        self.resource_pack = resource_pack
         self.story_pack_id = story_pack_id
         self.story_pack_content = story_pack_content
         self.world_source = world_source
