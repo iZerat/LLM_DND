@@ -12,6 +12,7 @@ from rich import box
 from core.config import Config
 from core.character import Character, modifier, proficiency_bonus
 from core.game_master import GameMaster, ABILITY_CN_TO_EN, parse_check_from_text
+from core.npc_controller import NPCController
 from core.supervisor import Supervisor
 from resource.regulator import Regulator
 from resource.toolbox import ResourceToolbox
@@ -741,6 +742,19 @@ def game_loop(gm: GameMaster):
         try:
             player_input = supervisor.prepare_player_input(player_input)
 
+            # NPC 行动：玩家行动机械结算后、主 DM 整合前，依先攻顺序串行结算在场 NPC
+            npc_controller = NPCController(gm, regulator)
+            npc_ctx = npc_controller.run(player_input) if regulator.world.active else ""
+            if npc_ctx:
+                player_input = player_input + "\n\n" + npc_ctx
+            if npc_controller.log_lines:
+                console.print(Panel(
+                    "\n".join(f"[grey62]{l}[/grey62]" for l in npc_controller.log_lines),
+                    title="[grey58]NPC 行动[/grey58]",
+                    border_style="grey58",
+                    box=box.SQUARE,
+                ))
+
             toolbox.results = []
             toolbox.check_results = []
             response_parts = []
@@ -761,7 +775,7 @@ def game_loop(gm: GameMaster):
             gm.last_tool_results = list(toolbox.results)
 
             # ── 监督者方向B：结构校验 → 调节器落账 → 剥离变更区块 / 修复对话 ──
-            audit = supervisor.audit(full)
+            audit = supervisor.audit(full, protected_npcs=npc_controller.changed_names)
             full = audit.text
 
             log_dm_response(

@@ -410,6 +410,26 @@ class GameMaster:
         except Exception:
             self.compressed_history.append({"round": self._round_num, "summary": "(摘要生成失败)"})
 
+    def complete(self, messages: list[dict], max_tokens: int = 400,
+                 temperature: float = 0.7) -> str:
+        """非流式补全：供 NPC 行动控制器等子请求复用。
+
+        API 未配置或请求失败时返回空串（由调用方兜底）。
+        """
+        if not self.client:
+            return ""
+        try:
+            r = self.client.chat.completions.create(
+                model=Config.MODEL_NAME,
+                messages=messages,
+                stream=False,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            return r.choices[0].message.content or ""
+        except Exception:
+            return ""
+
     def usage_summary(self) -> str:
         if not self.last_usage:
             return ""

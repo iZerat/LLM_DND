@@ -292,11 +292,11 @@ class Regulator:
             for eid in garbage_ids:
                 self.world.remove(eid)
 
-        # 玩家 HP
+        # 玩家 HP（NPC 控制器已结算本轮玩家伤害时跳过，避免 [状态] 陈旧数值覆盖落账）
         player_hp_m = re.search(r"HP:\s*(\d+)/(\d+)", status_text)
         if player_hp_m:
             reported_hp = int(player_hp_m.group(1))
-            if reported_hp != self.character.hp:
+            if self.character.name not in changed_npcs and reported_hp != self.character.hp:
                 diff = reported_hp - self.character.hp
                 self.character.hp = reported_hp
                 owner = self.character.name if self.character else "玩家"

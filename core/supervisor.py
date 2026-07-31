@@ -55,7 +55,7 @@ class Supervisor:
 
     # ── 方向B：LLM 输出 → 审核 ──
 
-    def audit(self, raw_text: str) -> AuditResult:
+    def audit(self, raw_text: str, protected_npcs: set | None = None) -> AuditResult:
         result = AuditResult()
         text = raw_text.replace("（无需检定）", "")
 
@@ -124,7 +124,9 @@ class Supervisor:
                 break
             text = new_text
 
-        report = self.regulator.sync_status_block(text, report.changed_npcs)
+        report = self.regulator.sync_status_block(
+            text, report.changed_npcs | (protected_npcs or set())
+        )
         result.messages.extend(report.messages)
 
         # 数值复核：以调节器落账为准覆盖 [状态] 块中的 HP/AC，
