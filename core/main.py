@@ -194,12 +194,12 @@ def _create_world() -> GameMaster:
     from resource.packs import RESOURCE_MODE_PACK, RESOURCE_MODE_FREE, configure_resource_catalogs
     while True:
         console.print("\n[steel_blue]创建世界[/steel_blue]")
-        console.print("  1. 让大模型创建世界（世界背景 + 开场模板 + 对象资源策略）")
-        console.print("  2. 选择故事包（规划中）")
-        console.print("  3. 程序化生成世界（规划中）")
+        console.print("  1. 让大模型创建世界（世界背景 + 故事包 + 开场模板 + 资源包）")
+        console.print("  2. 选择战役（战役包，规划中）")
+        console.print("  3. 程序化生成世界（生成规则 + 生成资源 + 资源包，规划中）")
         choice = _pre_game_ask(escape("选择 [1/2/3]"))
         if choice == "2":
-            console.print("[grey50]方式二（选择故事包）尚未开放，敬请期待[/grey50]")
+            console.print("[grey50]方式二（选择战役）尚未开放，敬请期待[/grey50]")
             continue
         if choice == "3":
             console.print("[grey50]方式三（程序化生成世界）尚未开放，敬请期待[/grey50]")

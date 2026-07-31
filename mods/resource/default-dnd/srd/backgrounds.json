@@ -1,0 +1,246 @@
+[
+  {
+    "name": "贵族",
+    "ability_scores": [
+      "智力",
+      "感知",
+      "魅力"
+    ],
+    "feat": "熟练（Skilled）",
+    "skill_proficiencies": [
+      "历史",
+      "游说"
+    ],
+    "tool_proficiency": "棋盘套装",
+    "equipment_a": [
+      "精致服装",
+      "印戒",
+      "身份文书",
+      "钱包（20金）",
+      "香水",
+      "旅行者服装"
+    ],
+    "name_en": "noble",
+    "equipment_b_gp": 50
+  },
+  {
+    "name": "流浪儿",
+    "ability_scores": [
+      "敏捷",
+      "体质",
+      "智力"
+    ],
+    "feat": "幸运（Lucky）",
+    "skill_proficiencies": [
+      "巧手",
+      "隐匿"
+    ],
+    "tool_proficiency": "盗贼工具",
+    "equipment_a": [
+      "2把匕首",
+      "盗贼工具",
+      "地图",
+      "旅行者服装",
+      "钱包（10金）",
+      "灯笼"
+    ],
+    "name_en": "urchin",
+    "equipment_b_gp": 50
+  },
+  {
+    "name": "学者",
+    "ability_scores": [
+      "体质",
+      "智力",
+      "感知"
+    ],
+    "feat": "魔法学徒（法师）",
+    "skill_proficiencies": [
+      "奥秘",
+      "历史"
+    ],
+    "tool_proficiency": "书法工具",
+    "equipment_a": [
+      "木棍",
+      "书法工具",
+      "历史书",
+      "8张羊皮纸",
+      "长袍",
+      "8金币"
+    ],
+    "name_en": "sage",
+    "equipment_b_gp": 50
+  },
+  {
+    "name": "士兵",
+    "ability_scores": [
+      "力量",
+      "敏捷",
+      "体质"
+    ],
+    "feat": "凶蛮打击（Savage Attacker）",
+    "skill_proficiencies": [
+      "运动",
+      "威吓"
+    ],
+    "tool_proficiency": "棋盘套装",
+    "equipment_a": [
+      "长矛",
+      "短弓",
+      "20支箭",
+      "棋盘套装",
+      "医疗包",
+      "箭袋",
+      "旅行者服装",
+      "14金币"
+    ],
+    "name_en": "soldier",
+    "equipment_b_gp": 50
+  },
+  {
+    "name": "罪犯",
+    "ability_scores": [
+      "敏捷",
+      "体质",
+      "智力"
+    ],
+    "feat": "警觉（Alert）",
+    "skill_proficiencies": [
+      "巧手",
+      "隐匿"
+    ],
+    "tool_proficiency": "盗贼工具",
+    "equipment_a": [
+      "2把匕首",
+      "盗贼工具",
+      "撬棍",
+      "2个钱包",
+      "旅行者服装",
+      "16金币"
+    ],
+    "name_en": "criminal",
+    "equipment_b_gp": 50
+  },
+  {
+    "name": "艺人",
+    "ability_scores": [
+      "敏捷",
+      "魅力",
+      "感知"
+    ],
+    "feat": "音乐家（Musician）",
+    "skill_proficiencies": [
+      "表演",
+      "欺瞒"
+    ],
+    "tool_proficiency": "一种乐器",
+    "equipment_a": [
+      "乐器",
+      "戏服",
+      "镜子",
+      "香水",
+      "旅行者服装",
+      "15金币"
+    ],
+    "name_en": "entertainer",
+    "equipment_b_gp": 50
+  },
+  {
+    "name": "水手",
+    "ability_scores": [
+      "力量",
+      "体质",
+      "感知"
+    ],
+    "feat": "健壮（Tough）",
+    "skill_proficiencies": [
+      "运动",
+      "察觉"
+    ],
+    "tool_proficiency": "导航工具",
+    "equipment_a": [
+      "短矛",
+      "50尺绳子",
+      "攀爬钩",
+      "水袋",
+      "旅行者服装",
+      "12金币"
+    ],
+    "name_en": "sailor",
+    "equipment_b_gp": 50
+  },
+  {
+    "name": "隐士",
+    "ability_scores": [
+      "体质",
+      "感知",
+      "魅力"
+    ],
+    "feat": "治疗师（Healer）",
+    "skill_proficiencies": [
+      "医药",
+      "宗教"
+    ],
+    "tool_proficiency": "草药工具",
+    "equipment_a": [
+      "医疗包",
+      "草药工具",
+      "毛毯",
+      "5根蜡烛",
+      "圣水",
+      "旅行者服装",
+      "5金币"
+    ],
+    "name_en": "hermit",
+    "equipment_b_gp": 50
+  },
+  {
+    "name": "商贩",
+    "ability_scores": [
+      "智力",
+      "魅力",
+      "感知"
+    ],
+    "feat": "工匠（Crafter）",
+    "skill_proficiencies": [
+      "洞察",
+      "游说"
+    ],
+    "tool_proficiency": "一种工匠工具",
+    "equipment_a": [
+      "工匠工具",
+      "天秤",
+      "10尺布料",
+      "墨水笔",
+      "账本",
+      "旅行者服装",
+      "25金币"
+    ],
+    "name_en": "merchant",
+    "equipment_b_gp": 50
+  },
+  {
+    "name": "工匠",
+    "ability_scores": [
+      "力量",
+      "敏捷",
+      "智力"
+    ],
+    "feat": "工匠（Crafter）",
+    "skill_proficiencies": [
+      "调查",
+      "察觉"
+    ],
+    "tool_proficiency": "一种工匠工具",
+    "equipment_a": [
+      "工匠工具",
+      "锤子",
+      "10根铁钉",
+      "毛毯",
+      "旅行者服装",
+      "20金币"
+    ],
+    "name_en": "artisan",
+    "equipment_b_gp": 50
+  }
+]

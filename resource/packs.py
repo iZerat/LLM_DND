@@ -12,7 +12,7 @@ RESOURCE_MODE_LABELS = {
 
 
 def packs_dir() -> Path:
-    return Path(__file__).resolve().parent.parent / "data" / "packs"
+    return Path(__file__).resolve().parent.parent / "mods" / "resource"
 
 
 def pack_dir(pack_id: str = DEFAULT_PACK_ID) -> Path:

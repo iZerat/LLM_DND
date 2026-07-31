@@ -1,0 +1,258 @@
+[
+  {
+    "name": "龙裔",
+    "size_options": [
+      "中型"
+    ],
+    "speed": 30,
+    "traits": [
+      "黑暗视觉：60尺",
+      "龙族先祖（自选一种龙类决定吐息伤害类型与抗性）",
+      "吐息武器：15尺锥形/30尺线形，DC=8+体质调整+熟练，1d10伤害",
+      "伤害抗性：根据龙族先祖类型",
+      "5级：龙翼飞行（附赠动作，10分钟飞行）"
+    ],
+    "skill_choices": 0,
+    "skill_options": [],
+    "lineages": [],
+    "has_lineage": false,
+    "name_en": "dragonborn"
+  },
+  {
+    "name": "矮人",
+    "size_options": [
+      "中型"
+    ],
+    "speed": 30,
+    "traits": [
+      "黑暗视觉：120尺",
+      "矮人韧性：毒素伤害抗性，中毒豁免优势",
+      "矮人体魄：HP上限+1，每级再+1",
+      "石之感应：附赠动作获得60尺震颤感知10分钟"
+    ],
+    "skill_choices": 0,
+    "skill_options": [],
+    "lineages": [],
+    "has_lineage": false,
+    "name_en": "dwarf"
+  },
+  {
+    "name": "精灵",
+    "size_options": [
+      "中型"
+    ],
+    "speed": 30,
+    "traits": [
+      "黑暗视觉：60尺",
+      "妖精血统：魅惑豁免优势",
+      "敏锐感官：自选获得洞察/察觉/生存之一熟练",
+      "精制：无需睡眠，4小时长休"
+    ],
+    "skill_choices": 1,
+    "skill_options": [
+      "洞察",
+      "察觉",
+      "生存"
+    ],
+    "lineages": [
+      {
+        "name": "黑暗精灵",
+        "traits": [
+          "黑暗视觉提升至120尺",
+          "已知舞光术戏法",
+          "3级获得妖火",
+          "5级获得黑暗术"
+        ],
+        "cantrips_known": [],
+        "spells_known": {},
+        "name_en": "dark_elf"
+      },
+      {
+        "name": "高等精灵",
+        "traits": [
+          "已知魔法伎俩戏法（可每日切换为任意法师戏法）",
+          "3级获得侦测魔法",
+          "5级获得迷踪步"
+        ],
+        "cantrips_known": [],
+        "spells_known": {},
+        "name_en": "high_elf"
+      },
+      {
+        "name": "木精灵",
+        "traits": [
+          "速度提升至35尺",
+          "已知德鲁伊伎俩戏法",
+          "3级获得大步奔行",
+          "5级获得行动无踪"
+        ],
+        "cantrips_known": [],
+        "spells_known": {},
+        "name_en": "wood_elf"
+      }
+    ],
+    "has_lineage": true,
+    "name_en": "elf"
+  },
+  {
+    "name": "半身人",
+    "size_options": [
+      "小型"
+    ],
+    "speed": 30,
+    "traits": [
+      "勇敢：恐惧豁免优势",
+      "半身人灵巧：可通过体型大于你的生物空间",
+      "幸运：D20投出1时可重掷",
+      "天生隐匿：被大型以上生物遮挡时即可躲藏"
+    ],
+    "skill_choices": 0,
+    "skill_options": [],
+    "lineages": [],
+    "has_lineage": false,
+    "name_en": "halfling"
+  },
+  {
+    "name": "侏儒",
+    "size_options": [
+      "小型"
+    ],
+    "speed": 30,
+    "traits": [
+      "黑暗视觉：60尺",
+      "侏儒狡黠：智力/感知/魅力豁免优势"
+    ],
+    "skill_choices": 0,
+    "skill_options": [],
+    "lineages": [
+      {
+        "name": "森林侏儒",
+        "traits": [
+          "已知魔法伎俩戏法",
+          "动物交谈术：可随意准备，每日熟练次数免费施展"
+        ],
+        "cantrips_known": [],
+        "spells_known": {},
+        "name_en": "forest_gnome"
+      },
+      {
+        "name": "岩石侏儒",
+        "traits": [
+          "已知修复术和魔法伎俩",
+          "可制作小型发条装置（AC5，HP1，最多3个，持续8小时）"
+        ],
+        "cantrips_known": [],
+        "spells_known": {},
+        "name_en": "rock_gnome"
+      }
+    ],
+    "has_lineage": true,
+    "name_en": "gnome"
+  },
+  {
+    "name": "哥利亚",
+    "size_options": [
+      "中型"
+    ],
+    "speed": 35,
+    "traits": [
+      "巨人先祖（自选一项，熟练次数/长休）：云之瞬移（附赠30尺传送）、火之灼烧（命中+1d10火）、冰之寒意（命中+1d6冰+减速10尺）、山之击倒（命中大型以下应击倒）、石之忍耐（反应1d12+体质减伤）、雷之回响（反应60尺内1d8雷鸣）",
+      "5级：巨大化（附赠变大型10分钟，力量优势，速度+10）",
+      "强力体格：挣脱擒抱优势，负重算作大一级"
+    ],
+    "skill_choices": 0,
+    "skill_options": [],
+    "lineages": [],
+    "has_lineage": false,
+    "name_en": "goliath"
+  },
+  {
+    "name": "人类",
+    "size_options": [
+      "中型",
+      "小型"
+    ],
+    "speed": 30,
+    "traits": [
+      "智勇双全：每次长休后获得英雄 inspirations",
+      "技巧娴熟：自选一项技能熟练",
+      "多才多艺：获得一个起源专长"
+    ],
+    "skill_choices": 1,
+    "skill_options": "*",
+    "lineages": [],
+    "has_lineage": false,
+    "name_en": "human"
+  },
+  {
+    "name": "兽人",
+    "size_options": [
+      "中型"
+    ],
+    "speed": 30,
+    "traits": [
+      "黑暗视觉：120尺",
+      "肾上腺素爆发：附赠动作疾走，获得熟练项临时HP，熟练次数/长休",
+      "不屈不挠：HP归0时若非即死则改为1HP，每长休一次"
+    ],
+    "skill_choices": 0,
+    "skill_options": [],
+    "lineages": [],
+    "has_lineage": false,
+    "name_en": "orc"
+  },
+  {
+    "name": "提夫林",
+    "size_options": [
+      "中型",
+      "小型"
+    ],
+    "speed": 30,
+    "traits": [
+      "黑暗视觉：60尺",
+      "异界存在：已知奇术戏法"
+    ],
+    "skill_choices": 0,
+    "skill_options": [],
+    "lineages": [
+      {
+        "name": "深渊血脉",
+        "traits": [
+          "毒素伤害抗性",
+          "已知毒云术戏法",
+          "3级获得疾病射线",
+          "5级获得人类定身术"
+        ],
+        "cantrips_known": [],
+        "spells_known": {},
+        "name_en": "abyssal"
+      },
+      {
+        "name": "冥界血脉",
+        "traits": [
+          "黯蚀伤害抗性",
+          "已知冻寒之触戏法",
+          "3级获得虚假生命",
+          "5级获得衰弱射线"
+        ],
+        "cantrips_known": [],
+        "spells_known": {},
+        "name_en": "infernal"
+      },
+      {
+        "name": "炼狱血脉",
+        "traits": [
+          "火焰伤害抗性",
+          "已知火焰箭戏法",
+          "3级获得炼狱叱喝",
+          "5级获得黑暗术"
+        ],
+        "cantrips_known": [],
+        "spells_known": {},
+        "name_en": "hellish"
+      }
+    ],
+    "has_lineage": true,
+    "name_en": "tiefling"
+  }
+]

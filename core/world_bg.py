@@ -1,10 +1,10 @@
 from pathlib import Path
 
-WORLD_BACKGROUNDS_DIR = Path(__file__).resolve().parent.parent / "world_backgrounds"
+WORLD_BACKGROUNDS_DIR = Path(__file__).resolve().parent.parent / "mods" / "world" / "backgrounds"
 
 
 def list_world_backgrounds() -> list[tuple[str, str]]:
-    """Return [(display_name, file_stem), ...] for all .txt in world_backgrounds/"""
+    """Return [(display_name, file_stem), ...] for all .txt in mods/world/backgrounds/"""
     if not WORLD_BACKGROUNDS_DIR.exists():
         WORLD_BACKGROUNDS_DIR.mkdir(parents=True, exist_ok=True)
     found = sorted(WORLD_BACKGROUNDS_DIR.glob("*.txt"))

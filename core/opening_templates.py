@@ -1,10 +1,10 @@
 from pathlib import Path
 
-OPENING_TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "opening_templates"
+OPENING_TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "mods" / "story" / "openings"
 
 
 def list_opening_templates() -> list[tuple[str, str]]:
-    """Return [(display_name, file_stem), ...] for all .txt in opening_templates/"""
+    """Return [(display_name, file_stem), ...] for all .txt in mods/story/openings/"""
     if not OPENING_TEMPLATES_DIR.exists():
         OPENING_TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
     found = sorted(OPENING_TEMPLATES_DIR.glob("*.txt"))
