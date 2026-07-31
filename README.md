@@ -13,18 +13,15 @@
 
 ## 快速开始
 
-> **一行命令启动：** `python start_game.py` — 脚本会自动检测环境、创建虚拟环境、安装依赖、引导进入交互式 API 配置，填入地址、密钥。
-
 ### 1. 启动游戏
 
 ```bash
 python start_game.py
 ```
 
+首次启动会自动引导配置 API。如果希望手动管理环境，可按下面步骤操作。
 
-### 2. 也可以手动配置
-
-如果希望手动管理环境：
+### 2. 手动配置（可选）
 
 ```bash
 # 创建虚拟环境
@@ -41,8 +38,6 @@ pip install -r requirements.txt
 
 > 如果遇到网络问题，可尝试：`pip install -r requirements.txt --trusted-host pypi.org --trusted-host files.pythonhosted.org`
 
-### 3. 配置 API
-
 复制 `.env.example` 为 `.env`，填入你的 API 信息：
 
 ```bash
@@ -57,11 +52,9 @@ API_KEY=sk-your-real-api-key-here
 MODEL_NAME=deepseek-v4-flash
 ```
 
-### 4. 开始游玩
+配置完成后再次运行 `python start_game.py`。
 
-```bash
-python start_game.py
-```
+### 3. 开始冒险
 
 创建世界（选择世界背景 + 开场模板） → 创建角色 → 开始冒险。
 
