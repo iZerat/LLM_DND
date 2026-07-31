@@ -665,9 +665,13 @@ def game_loop(gm: GameMaster):
                 player_input = f"[\u9009\u62e9\u9009\u9879{selected_num}] {option_text} | [\u68c0\u5b9a] d20({roll})+({ability_mod:+d})={total} {word}"
             elif re.search(r'[（(]\s*攻击\s*检定', option_text):
                 roll = dice_random.randint(1, 20)
-                atk_tag = " [暴击]" if roll == 20 else (" [大失败]" if roll == 1 else "")
-                check_text = f"[yellow]攻击检定[/yellow]\n[grey50]d20({roll}){atk_tag}[/grey50]"
-                player_input = f"[选择选项{selected_num}] {option_text} | [攻击] d20({roll}){atk_tag}"
+                target_ac = _find_target_ac(gm)
+                total, atk_bonus, hit, word, color, line = _resolve_attack(roll, gm.character, target_ac)
+                ac_label = target_ac if target_ac is not None else "?"
+                check_text = f"[yellow]攻击检定[/yellow] AC [bold]{ac_label}[/bold] | 加值: {atk_bonus:+d}\n[grey50]{line}[/grey50]"
+                if word:
+                    check_text += f"\n[bold {color}]{word}[/bold {color}]"
+                player_input = f"[选择选项{selected_num}] {option_text} | [攻击] d20({roll})+({atk_bonus:+d})={total}" + (f" {word}" if word else "")
             else:
                 player_input = f"[\u9009\u62e9\u9009\u9879{selected_num}] {option_text or selected_num}"
 
