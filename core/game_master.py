@@ -157,6 +157,7 @@ class GameMaster:
         self.compressed_history: list = []
         self._round_num: int = 0
         self._truncated: bool = False
+        self.last_usage: dict | None = None
 
     def _init_client(self):
         if Config.is_ready():
@@ -226,17 +227,33 @@ class GameMaster:
             return
 
         try:
-            response = self.client.chat.completions.create(
+            kwargs = dict(
                 model=Config.MODEL_NAME,
                 messages=messages,
                 stream=True,
                 temperature=0.8,
                 max_tokens=8192,
             )
+            self.last_usage = None
+            try:
+                response = self.client.chat.completions.create(
+                    **kwargs, stream_options={"include_usage": True},
+                )
+            except Exception:
+                response = self.client.chat.completions.create(**kwargs)
 
             collected = ""
             self._truncated = False
             for chunk in response:
+                if getattr(chunk, "usage", None):
+                    self.last_usage = {
+                        "prompt_tokens": chunk.usage.prompt_tokens,
+                        "completion_tokens": chunk.usage.completion_tokens,
+                        "total_tokens": chunk.usage.total_tokens,
+                    }
+                    continue
+                if not chunk.choices:
+                    continue
                 if chunk.choices[0].finish_reason == "length":
                     self._truncated = True
                 if chunk.choices[0].delta.content:
@@ -273,6 +290,11 @@ class GameMaster:
             self.compressed_history.append({"round": self._round_num, "summary": summary})
         except Exception:
             self.compressed_history.append({"round": self._round_num, "summary": "(摘要生成失败)"})
+
+    def usage_summary(self) -> str:
+        if not self.last_usage:
+            return ""
+        return f"（{self.last_usage.get('total_tokens', 0)} tokens）"
 
     def to_dict(self) -> dict:
         return {

@@ -203,7 +203,7 @@ def show_help():
     console.print(f"  [grey82]/roll 属性[/grey82]    属性检定，例：/roll 力量、/roll 敏捷 DC 15")
     console.print(f"  [grey82]/status[/grey82]  角色状态")
     console.print(f"  [grey82]/info[/grey82]    详细角色信息")
-    console.print(f"  [grey82]/env[/grey82]   详细环境信息（原 /scene）")
+    console.print(f"  [grey82]/scene[/grey82]  详细环境信息")
     console.print(f"  [grey82]/equip[/grey82]    查看装备栏")
     console.print(f"  [grey82]/bag[/grey82]      查看背包与金钱")
     console.print(f"  [grey82]/skill[/grey82]    查看技能")

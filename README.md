@@ -119,7 +119,7 @@ SRD 5.2.1 由 Wizards of the Coast LLC 提供，基于 **Creative Commons Attrib
 | `/roll 属性` | 属性检定，例：`/roll 力量 DC 15` |
  | `/status` | 角色状态 |
 | `/info` | 详细角色信息 |
-| `/env` | 完整环境信息（原 `/scene`） |
+| `/scene` | 详细环境信息 |
 | `/equip` | 查看装备 |
 | `/bag` | 查看背包与金钱 |
 | `/skill` | 查看技能 |

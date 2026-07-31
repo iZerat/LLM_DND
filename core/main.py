@@ -229,17 +229,14 @@ def _create_world() -> GameMaster:
 
         console.print("\n[steel_blue]选择开场模板[/steel_blue]")
         tpl_list = list_opening_templates()
-        console.print("  0. 随机世界（无开场模板，完全随机生成）")
+        console.print("  1. 随机世界（无开场模板，完全随机生成）")
         for i, (display, stem) in enumerate(tpl_list, 1):
-            console.print(f"  {i}. {display}")
-        if tpl_list:
-            tpl = Prompt.ask(escape(f"选择 [0-{len(tpl_list)}]"))
-            try:
-                idx = int(tpl) - 1
-                opening_stem = tpl_list[idx][1] if 0 <= idx < len(tpl_list) else ""
-            except (ValueError, IndexError):
-                opening_stem = ""
-        else:
+            console.print(f"  {i + 1}. {display}")
+        tpl = Prompt.ask(escape(f"选择 [1-{len(tpl_list) + 1}]"))
+        try:
+            idx = int(tpl) - 2
+            opening_stem = tpl_list[idx][1] if 0 <= idx < len(tpl_list) else ""
+        except (ValueError, IndexError):
             opening_stem = ""
 
         return GameMaster(char, opening_stem, setting_content=setting_content, setting_stem=setting_stem)
@@ -559,7 +556,7 @@ def main(skip_api_test=False):
         for chunk in gm.send_message_stream("DM，请开始我的冒险吧！"):
             parts.append(chunk)
         _elapsed = _time.time() - _t0
-        console.print(f"[grey62]生成耗时: {_elapsed:.1f}s[/grey62]")
+        console.print(f"[grey62]生成耗时: {_elapsed:.1f}s{gm.usage_summary()}[/grey62]")
         console.print()
         initial_text = "".join(parts)
         log_dm_response(0, "（游戏开始）", initial_text)

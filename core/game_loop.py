@@ -397,7 +397,7 @@ def game_loop(gm: GameMaster):
         elif cmd == "/info":
             show_info(gm.character)
             continue
-        elif cmd in ("/env", "/scene"):
+        elif cmd in ("/scene", "/env"):
             from core.ui import _filter_env_fields
             if gm.last_scene:
                 scene_text = _filter_env_fields(gm.last_scene, basic_only=False)
@@ -561,7 +561,7 @@ def game_loop(gm: GameMaster):
             if not gm.history:
                 gm.set_history([])
 
-            console.print(f"[grey50]\u601d\u8003\u8017\u65f6: {_elapsed:.1f}s[/grey50]")
+            console.print(f"[grey50]\u601d\u8003\u8017\u65f6: {_elapsed:.1f}s{gm.usage_summary()}[/grey50]")
             console.print()
             render_dm_output(full, gm, _elapsed, audit.messages)
 
