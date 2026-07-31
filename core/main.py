@@ -17,7 +17,7 @@ from core.game_master import GameMaster
 from core.ui import console, render_dm_output, render_character_sheet
 from core import char_gen
 from core.game_loop import (
-    game_loop, save_game, load_game, log_dm_response,
+    game_loop, save_game, load_game, log_dm_response, format_elapsed,
     list_saves, SAVE_DIR, LOG_DIR, _show_round_recap,
 )
 from core.world_bg import list_world_backgrounds, load_world_background
@@ -517,7 +517,7 @@ def _start_adventure(gm: GameMaster):
         for chunk in gm.send_message_stream("DM，请开始我的冒险吧！"):
             parts.append(chunk)
         _elapsed = _time.time() - _t0
-        console.print(f"[grey62]生成耗时: {_elapsed:.1f}s{gm.usage_summary()}[/grey62]")
+        console.print(f"[grey62]生成耗时: {format_elapsed(_elapsed)}{gm.usage_summary()}[/grey62]")
         console.print()
         initial_text = "".join(parts)
         log_dm_response(0, "（游戏开始）", initial_text)

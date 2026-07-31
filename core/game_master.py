@@ -218,7 +218,7 @@ class GameMaster:
 
     def _build_system_prompt(self) -> str:
         char_summary = self.character.summary()
-        format_rule = "\n\n[记住] [状态]必须包含'玩家:'和'目标:'两行。有敌人/NPC就写目标行并加[敌对][中立][友方]标签。多个目标每个单独一行用'其他:'（不要用xN合并）。无目标写'目标: 无'。目标/其他名称必须是稳定角色名，禁止加括号或事件描述（如「(已逃窜)」）。角色信息中【装备】是穿在身上的（有槽位），【背包】是携带品，【金钱】是货币总量（单位为cp），三者不要混淆。\n角色对话用「」包裹，特殊名词（地名、物品名、法术名、组织名等）用【】包裹。\n\n## 资源变更格式\n在输出末尾附加以下区块（不要插入叙事中间）：\n\n### [物品变更] — 仅限物品和金钱\n[物品变更]\n+ 物品名称（装备槽位）   ← 加物品，可指定装备槽位\n+ 物品名称 x数量        ← 加多个\n- 物品名称              ← 移除物品\ncp: +N                  ← 加铜币（N为铜币数，1金=10000铜）\ncp: -N                  ← 扣铜币\n注意：金钱统一使用cp（铜币）为单位，不要用金币、银币。1金=10000铜，1银=100铜。\n\n### [状态变更] — HP / 目标 / NPC\n[状态变更]\nhp: +N                  ← 玩家加生命值\nhp: -N                  ← 玩家扣生命值\nmax_hp: +N              ← 增加最大生命值\nmax_hp: -N              ← 减少最大生命值\ntarget: NPC名称         ← 设置目标（后续指令作用于该目标）\ntarget_hp: +N           ← 目标加生命值\ntarget_hp: -N           ← 目标扣生命值\ntarget_cp: +N           ← 目标加铜币\ntarget_cp: -N           ← 目标扣铜币\nnpc_add: 名称, AC:10, HP:8/8, [中立] ← 创建新NPC并设为目标\n请使用标准的D&D物品名称。如果物品不在游戏库中，系统会提示你修改。"
+        format_rule = "\n\n[记住] [状态]必须包含'玩家:'和'目标:'两行。有敌人/NPC就写目标行并加[敌对][中立][友方]标签。多个目标每个单独一行用'其他:'（不要用xN合并）。无目标写'目标: 无'。目标/其他名称必须是稳定角色名，禁止加括号或事件描述（如「(已逃窜)」），名称一律用中文（如「哥布林」「地精喽啰」），禁止英文原名（如 Goblin、Orc）。角色信息中【装备】是穿在身上的（有槽位），【背包】是携带品，【金钱】是货币总量（单位为cp），三者不要混淆。\n角色对话用「」包裹，特殊名词（地名、物品名、法术名、组织名等）用【】包裹。\n\n## 资源变更格式\n在输出末尾附加以下区块（不要插入叙事中间）：\n\n### [物品变更] — 仅限物品和金钱\n[物品变更]\n+ 物品名称（装备槽位）   ← 加物品，可指定装备槽位\n+ 物品名称 x数量        ← 加多个\n- 物品名称              ← 移除物品\ncp: +N                  ← 加铜币（N为铜币数，1金=10000铜）\ncp: -N                  ← 扣铜币\n注意：金钱统一使用cp（铜币）为单位，不要用金币、银币。1金=10000铜，1银=100铜。\n\n### [状态变更] — HP / 目标 / NPC\n[状态变更]\nhp: +N                  ← 玩家加生命值\nhp: -N                  ← 玩家扣生命值\nmax_hp: +N              ← 增加最大生命值\nmax_hp: -N              ← 减少最大生命值\ntarget: NPC名称         ← 设置目标（后续指令作用于该目标）\ntarget_hp: +N           ← 目标加生命值\ntarget_hp: -N           ← 目标扣生命值\ntarget_cp: +N           ← 目标加铜币\ntarget_cp: -N           ← 目标扣铜币\nnpc_add: 名称, AC:10, HP:8/8, [中立] ← 创建新NPC并设为目标\n请使用标准的D&D物品名称。如果物品不在游戏库中，系统会提示你修改。"
         template_note = ""
         if self.template and not self.history:
             t = load_opening_template(self.template)
@@ -243,7 +243,7 @@ class GameMaster:
     def _build_messages(self, player_input: str) -> list:
         system_content = self._build_system_prompt()
         messages = [{"role": "system", "content": system_content}]
-        messages.append({"role": "user", "content": player_input + "\n\n[记住] [状态]必包含'玩家:'和'目标:'两行。有敌人/NPC就写目标行并加[敌对][中立][友方]标签。多个目标每个单独一行用'其他:'（不要用xN合并）。无目标写'目标: 无'。目标名称禁止加括号或事件描述（如「(已逃窜)」），状态写进[事件]。角色对话用「」包裹，特殊名词用【】包裹。数据变更（物品/金钱/HP/NPC）优先调用工具；工具不可用时才在末尾附加[物品变更]/[状态变更]区块。金钱统一用cp，HP用hp。"})
+        messages.append({"role": "user", "content": player_input + "\n\n[记住] [状态]必包含'玩家:'和'目标:'两行。有敌人/NPC就写目标行并加[敌对][中立][友方]标签。多个目标每个单独一行用'其他:'（不要用xN合并）。无目标写'目标: 无'。目标名称禁止加括号或事件描述（如「(已逃窜)」），状态写进[事件]，名称一律用中文（如「哥布林」「地精喽啰」），禁止英文原名（如 Goblin、Orc）。角色对话用「」包裹，特殊名词用【】包裹。数据变更（物品/金钱/HP/NPC）优先调用工具；工具不可用时才在末尾附加[物品变更]/[状态变更]区块。金钱统一用cp，HP用hp。"})
         return messages
 
     def _handle_dice_roll(self, player_input: str) -> Optional[str]:
@@ -401,7 +401,10 @@ class GameMaster:
     def usage_summary(self) -> str:
         if not self.last_usage:
             return ""
-        return f"（{self.last_usage.get('total_tokens', 0)} tokens）"
+        p = self.last_usage.get("prompt_tokens", 0)
+        c = self.last_usage.get("completion_tokens", 0)
+        t = self.last_usage.get("total_tokens", p + c)
+        return f"（upload: {p} tokens / download: {c} tokens / total: {t} tokens）"
 
     def to_dict(self) -> dict:
         return {

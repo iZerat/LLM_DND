@@ -136,7 +136,7 @@ def render_dm_output(full_text: str, gm=None, elapsed: float = 0, change_message
     if "副事件" in sections:
         console.print(Panel(
             Markdown(sections["副事件"]),
-            title="[#d4946b]副事件[/#d4946b]",
+            title="[#d4946b]事件[/#d4946b]",
             border_style="#d4946b",
             box=box.SQUARE,
         ))
@@ -315,7 +315,7 @@ def show_equip(char: Character):
             item_def = item_db.get(guid)
             name = item_def.name if item_def else guid
         else:
-            name = tr("general:empty")
+            name = f"[grey50]{tr('general:empty')}[/grey50]"
         lines.append(f"  {slot_cn}: {name}")
     console.print(Panel(
         "\n".join(lines),

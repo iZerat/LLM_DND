@@ -374,12 +374,30 @@ def load_game(save_path: str) -> GameMaster:
 
 # ---------- 日志 ----------
 
-def log_dm_response(round_num: int, player_input: str, response_text: str):
+def format_elapsed(seconds: float) -> str:
+    """耗时格式化：<60s 显示秒，否则分秒，≥1h 加小时。"""
+    if seconds < 60:
+        return f"{seconds:.1f}秒"
+    minutes = int(seconds // 60)
+    secs = round(seconds - minutes * 60)
+    if minutes < 60:
+        return f"{minutes}分{secs}秒"
+    hours = minutes // 60
+    mins = minutes % 60
+    return f"{hours}小时{mins}分{secs}秒"
+
+def log_dm_response(round_num: int, player_input: str, response_text: str,
+                    raw_text: str = "", change_messages: str = ""):
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     ts = _time.strftime("%Y%m%d_%H%M%S")
     path = LOG_DIR / f"round_{round_num:03d}_{ts}.txt"
-    content = f">>> 玩家: {player_input}\n\n{response_text}\n"
-    path.write_text(content, encoding="utf-8")
+    parts = [f">>> 玩家: {player_input}"]
+    if raw_text:
+        parts.append("\n\n--- 原始回复（LLM 未处理）---\n" + raw_text)
+    parts.append("\n\n--- 处理后文本 ---\n" + response_text)
+    if change_messages:
+        parts.append("\n\n--- 变更消息（调节器落账）---\n" + change_messages)
+    path.write_text("\n".join(parts), encoding="utf-8")
 
 
 # ---------- 投骰与检定 ----------
@@ -718,18 +736,23 @@ def game_loop(gm: GameMaster):
             _elapsed = _time.time() - _t0
 
             full = "".join(response_parts)
+            raw_full = full
             gm.last_tool_results = list(toolbox.results)
 
             # ── 监督者方向B：结构校验 → 调节器落账 → 剥离变更区块 / 修复对话 ──
             audit = supervisor.audit(full)
             full = audit.text
 
-            log_dm_response(get_round_counter() + 1, player_input, full)
+            log_dm_response(
+                get_round_counter() + 1, player_input, full,
+                raw_text=raw_full,
+                change_messages="\n".join(audit.messages) if audit.messages else "",
+            )
 
             if not gm.history:
                 gm.set_history([])
 
-            console.print(f"[grey50]\u601d\u8003\u8017\u65f6: {_elapsed:.1f}s{gm.usage_summary()}[/grey50]")
+            console.print(f"[grey50]\u601d\u8003\u8017\u65f6: {format_elapsed(_elapsed)}{gm.usage_summary()}[/grey50]")
             console.print()
             render_dm_output(full, gm, _elapsed, audit.messages, check_blocks=toolbox.check_results)
 

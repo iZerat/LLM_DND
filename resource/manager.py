@@ -152,31 +152,34 @@ class ResourceManager:
     def _hp_change_display(amount: int) -> str:
         return f"{amount}点"
 
+    def _owner_name(self) -> str:
+        return self.character.name if self.character else "玩家"
+
     def add_hp(self, amount: int) -> ResourceResult:
         if not self.character:
             return ResourceResult.fail("无法修改HP：未传入角色对象")
         self.character.hp = min(self.character.hp + amount, self.character.max_hp)
-        return ResourceResult.ok(f"HP +{self._hp_change_display(amount)}")
+        return ResourceResult.ok(f"{self._owner_name()} HP +{self._hp_change_display(amount)}")
 
     def remove_hp(self, amount: int) -> ResourceResult:
         if not self.character:
             return ResourceResult.fail("无法修改HP：未传入角色对象")
         self.character.hp = max(self.character.hp - amount, 0)
-        return ResourceResult.ok(f"HP -{self._hp_change_display(amount)}")
+        return ResourceResult.ok(f"{self._owner_name()} HP -{self._hp_change_display(amount)}")
 
     def add_maxhp(self, amount: int) -> ResourceResult:
         if not self.character:
             return ResourceResult.fail("无法修改HP：未传入角色对象")
         self.character.max_hp += amount
         self.character.hp = min(self.character.hp, self.character.max_hp)
-        return ResourceResult.ok(f"最大HP +{self._hp_change_display(amount)}")
+        return ResourceResult.ok(f"{self._owner_name()} 最大HP +{self._hp_change_display(amount)}")
 
     def remove_maxhp(self, amount: int) -> ResourceResult:
         if not self.character:
             return ResourceResult.fail("无法修改HP：未传入角色对象")
         self.character.max_hp = max(self.character.max_hp - amount, 1)
         self.character.hp = min(self.character.hp, self.character.max_hp)
-        return ResourceResult.ok(f"最大HP -{self._hp_change_display(amount)}")
+        return ResourceResult.ok(f"{self._owner_name()} 最大HP -{self._hp_change_display(amount)}")
 
     # ── NPC operations ──
 

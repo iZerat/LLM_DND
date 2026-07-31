@@ -216,7 +216,8 @@ class Regulator:
             if reported_hp != self.character.hp:
                 diff = reported_hp - self.character.hp
                 self.character.hp = reported_hp
-                report.messages.append(f"玩家HP {'+' if diff > 0 else ''}{diff}点")
+                owner = self.character.name if self.character else "玩家"
+                report.messages.append(f"{owner} HP {'+' if diff > 0 else ''}{diff}点")
 
         # NPC 行：目标/其他: [tag]名字, AC:N, HP:N/N
         for line in status_text.split("\n"):
@@ -272,7 +273,6 @@ class Regulator:
             else:
                 new_npc = self._sync_create_npc(name, name, ac, hp, max_hp, tag)
                 self.world.add_active(new_npc)
-                report.messages.append(f"NPC出现: {name} (HP:{new_npc.hp}/{new_npc.max_hp})")
 
         # GC：衰减权重，驱逐过期实体
         pruned = self.world.tick()
