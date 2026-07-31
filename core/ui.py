@@ -13,7 +13,7 @@ from rich.table import Table
 from rich import box
 
 from core.config import Config
-from core.character import Character, mod_str
+from core.character import Character, mod_str, strip_en_parens
 from core.game_master import GameMaster, ABILITY_CN_TO_EN, parse_check_from_text
 
 theme = Theme({
@@ -371,7 +371,7 @@ def render_character_sheet(char: Character, roll_log: str = ""):
     from loc import tr
     from resource.item_db import item_db
 
-    lineage = f"（{char.lineage}）" if char.lineage else ""
+    lineage = f"（{char.lineage_cn}）" if char.lineage else ""
     gender_cn = tr(f"gender:{char.gender}")
     _l = lambda t: f"[{_MUTED}]{t}[/{_MUTED}]"
 
@@ -419,7 +419,7 @@ def render_character_sheet(char: Character, roll_log: str = ""):
         skill_rows = [f"[{_MUTED}]{tr('general:none')}[/{_MUTED}]"]
 
     save_str = "、".join(tr(f"skill:{s}") for s in char.saving_throws) or tr("general:none")
-    feat_str = "、".join(char.feats) if char.feats else tr("general:none")
+    feat_str = "、".join(strip_en_parens(f) for f in char.feats) if char.feats else tr("general:none")
     bonus_rows = [
         f"[{_MUTED}]{tr('general:save')}[/{_MUTED}]  {save_str}",
         f"[{_MUTED}]{tr('general:feats')}[/{_MUTED}]  {feat_str}",
@@ -486,7 +486,7 @@ def render_character_sheet(char: Character, roll_log: str = ""):
 
     card = Panel(
         inner,
-        title=f"[bold {_CARD_TITLE}]角色卡 · {char.name}[/bold {_CARD_TITLE}]",
+        title=f"[bold {_CARD_TITLE}]角色卡[/bold {_CARD_TITLE}]",
         border_style=_CARD_BORDER,
         box=box.SQUARE,
         padding=(1, 1),

@@ -87,6 +87,18 @@ def class_skills(cd) -> list[str]:
     return [SKILL_BY_EN.get(s, s) for s in skills_cn]
 
 
+def derive_skills(cd, bg=None, sp=None) -> list[str]:
+    """按 rules 派生技能（英文 key）：背景固定 + 职业自选 N + 种族附加自选 N。"""
+    chosen_cn = list(bg.skill_proficiencies) if bg else []
+    if cd and cd.skill_choices:
+        opts = [s for s in cd.skill_options if s not in chosen_cn]
+        chosen_cn += opts[: cd.skill_choices]
+    if sp and sp.skill_choices:
+        opts = [s for s in sp.skill_options if s not in chosen_cn]
+        chosen_cn += opts[: sp.skill_choices]
+    return [SKILL_BY_EN.get(s, s) for s in chosen_cn]
+
+
 def class_saving_throws(cd) -> list[str]:
     """职业豁免（英文 key）。"""
     return [SKILL_BY_EN.get(s, s) for s in (cd.saving_throws if cd else [])]
@@ -124,7 +136,7 @@ def build_character(name: str, stats: dict, species_cn: str = "", class_cn: str 
         strength=stats["力量"], dexterity=stats["敏捷"],
         constitution=stats["体质"], intelligence=stats["智力"],
         wisdom=stats["感知"], charisma=stats["魅力"],
-        skills=class_skills(cd), saving_throws=class_saving_throws(cd),
+        skills=derive_skills(cd, bg, sp), saving_throws=class_saving_throws(cd),
         feats=[feat] if feat else [],
         gender=random.choice(["male", "female"]),
         age=random.randint(18, 45),

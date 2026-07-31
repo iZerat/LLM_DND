@@ -63,7 +63,7 @@ MODEL_NAME=deepseek-v4-flash
 python start_game.py
 ```
 
-创建角色 → 选择开场模板 → 开始冒险。
+创建世界（选择世界背景 + 开场模板） → 创建角色 → 开始冒险。
 
 ## 游戏预览
 

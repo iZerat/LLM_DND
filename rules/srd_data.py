@@ -311,29 +311,30 @@ WEAPON_BY_NAME = {w.name: w for w in WEAPON_LIST}
 
 # ── 查找函数 ──
 
+def _build_index(items) -> dict:
+    idx = {}
+    for it in items:
+        idx[it.name] = it
+        if getattr(it, "name_en", ""):
+            idx[it.name_en] = it
+    return idx
+
+_SPECIES_INDEX = _build_index(SPECIES_LIST)
+_CLASS_INDEX = _build_index(CLASS_LIST)
+_BACKGROUND_INDEX = _build_index(BACKGROUND_LIST)
+_ARMOR_INDEX = {a.name: a for a in ARMOR_LIST}
+
 def find_species(name: str) -> Optional[Species]:
-    for s in SPECIES_LIST:
-        if s.name == name or s.name_en == name:
-            return s
-    return None
+    return _SPECIES_INDEX.get(name)
 
 def find_class(name: str) -> Optional[ClassDef]:
-    for c in CLASS_LIST:
-        if c.name == name or c.name_en == name:
-            return c
-    return None
+    return _CLASS_INDEX.get(name)
 
 def find_background(name: str) -> Optional[Background]:
-    for b in BACKGROUND_LIST:
-        if b.name == name or b.name_en == name:
-            return b
-    return None
+    return _BACKGROUND_INDEX.get(name)
 
 def find_armor(name: str) -> Optional[Armor]:
-    for a in ARMOR_LIST:
-        if a.name == name:
-            return a
-    return None
+    return _ARMOR_INDEX.get(name)
 
 def calc_ac(dex_mod: int, armor_name: str = "布甲", has_shield: bool = False) -> int:
     arm = find_armor(armor_name) or ARMOR_LIST[0]

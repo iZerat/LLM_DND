@@ -1,3 +1,4 @@
+import re
 import sys
 import time as _time
 from pathlib import Path
@@ -10,7 +11,6 @@ from rich import box
 from core.config import Config
 from core.character import Character, RACES, CLASSES, BACKGROUNDS, HIT_DICE
 from rules.srd_data import (
-    SKILLS,
     find_species, find_class, find_background,
 )
 from core.game_master import GameMaster
@@ -20,9 +20,8 @@ from core.game_loop import (
     game_loop, save_game, load_game, log_dm_response,
     list_saves, SAVE_DIR, LOG_DIR, _show_round_recap,
 )
-from core.setting import list_settings, load_setting
-
-SETTINGS_DIR = Path(__file__).resolve().parent.parent / "settings"
+from core.world_bg import list_world_backgrounds, load_world_background
+from core.opening_templates import list_opening_templates
 
 
 # ---------- API 连接测试 ----------
@@ -41,7 +40,7 @@ def _test_api_connection(model: str) -> bool:
             messages=[{"role": "user", "content": "ping"}],
             max_tokens=1,
         )
-        console.print("[green]API 连接成功[/green]")
+        console.print("[#6CB77A]API 连接成功[/#6CB77A]")
         return True
     except Exception as e:
         console.print(f"[grey50]连接失败: {e}[/grey50]")
@@ -103,9 +102,10 @@ def create_character() -> Character:
     if not mode or mode == "1":
         name = _ask_quick_name()
         while True:
+            console.print("\n[grey50]正在随机生成角色...[/grey50]")
             char, roll_log = char_gen.roll_character(name=name)
             _init_equipment(char)
-            result = _confirm_character(char, rerollable=True, roll_log=roll_log)
+            result = _confirm_character(char, roll_log=roll_log)
             if result == "yes":
                 break
             if result == "cancel":
@@ -115,7 +115,7 @@ def create_character() -> Character:
 
     while True:
         char = _detailed_character()
-        result = _confirm_character(char, rerollable=False)
+        result = _confirm_character(char)
         if result == "yes":
             break
         if result == "cancel":
@@ -132,20 +132,27 @@ def _ask_quick_name() -> str:
     return name
 
 
-def _confirm_character(char: Character, rerollable: bool = False, roll_log: str = "") -> str:
-    """统一预览确认：渲染角色卡并请求采用。返回 'yes' / 'no'（重生成或重创建）/ 'cancel'。"""
+def _confirm_character(char: Character, roll_log: str = "") -> str:
+    """统一预览确认：渲染角色卡并请求采用。
+    返回 'yes'（采用）/ 'reroll'（重新生成/重新创建）/ 'cancel'（取消）。"""
     while True:
         render_character_sheet(char, roll_log)
-        if rerollable:
-            choice = Prompt.ask(escape("采用？ [1]确认 [2]重新生成 [3]取消"))
-        else:
-            choice = Prompt.ask(escape("采用？ [1]确认 [2]重新创建 [3]取消"))
+        choice = Prompt.ask(escape("采用？ [1]确认 [2]重新生成 [3]取消"))
         if choice in ("1", "y", "yes", ""):
             return "yes"
         if choice in ("2", "n", "no"):
-            return "no"
-        if choice in ("3", "q", "quit"):
+            return "reroll"
+        if choice in ("3", "q", "quit", "c"):
             return "cancel"
+
+
+def _equipment_choice(label: str, a_items: list, b_gp: int) -> bool:
+    """选择装备包(A) 或 金币(B)。返回 True=A 装备包。"""
+    console.print(f"\n[bold]选择 {label} 起始装备[/bold]")
+    console.print(f"  1. 装备包: {'、'.join(a_items)}")
+    console.print(f"  2. 换成 {b_gp} 金币")
+    pick = Prompt.ask(escape("选择 [1/2]"))
+    return pick != "2"
 
 
 def _offer_save_template(char: Character):
@@ -164,11 +171,11 @@ def _offer_template_import() -> Character:
     if not stems:
         return None
     console.print(f"\n[steel_blue]检测到角色模板 {len(stems)} 个[/steel_blue]")
+    ans = Prompt.ask(escape("是否导入模板开始新冒险？ [1]否 [2]是"))
+    if ans not in ("2", "y", "yes"):
+        return None
     for i, s in enumerate(stems, 1):
         console.print(f"  {i}. {s}")
-    ans = Prompt.ask(escape("是否导入模板开始新冒险？ [1]是 [2]否"))
-    if ans not in ("1", "y", "yes", ""):
-        return None
     try:
         idx = int(Prompt.ask(escape(f"选择编号 [1-{len(stems)}]"))) - 1
         if 0 <= idx < len(stems):
@@ -180,6 +187,62 @@ def _offer_template_import() -> Character:
         pass
     console.print("[grey50]导入取消[/grey50]")
     return None
+
+
+def _create_world() -> GameMaster:
+    """世界启动入口：三种创建世界的方式，当前仅方式一可用。"""
+    while True:
+        console.print("\n[steel_blue]创建世界[/steel_blue]")
+        console.print("1. 选择世界背景（世界背景 + 开场模板 + 大模型自由发挥）")
+        console.print("2. 程序化生成世界（严格模式 · 规划中）")
+        console.print("3. 导入世界背景 + 程序化生成（规划中）")
+        choice = Prompt.ask(escape("选择 [1/2/3]"))
+        if choice == "2":
+            console.print("[grey50]方式二（程序化生成世界）尚未开放，敬请期待[/grey50]")
+            continue
+        if choice == "3":
+            console.print("[grey50]方式三（导入世界背景 + 程序化生成）尚未开放，敬请期待[/grey50]")
+            continue
+
+        # ── 方式一：选择世界背景 ──
+        bg_list = list_world_backgrounds()
+        console.print("\n[steel_blue]选择世界背景[/steel_blue]")
+        if bg_list:
+            for i, (display, stem) in enumerate(bg_list, 1):
+                console.print(f"  {i}. {display}")
+            bg_choice = Prompt.ask(escape(f"选择 [1-{len(bg_list)}]"))
+            try:
+                idx = int(bg_choice) - 1
+                setting_stem = bg_list[idx][1] if 0 <= idx < len(bg_list) else bg_list[0][1]
+            except (ValueError, IndexError):
+                setting_stem = bg_list[0][1]
+        else:
+            setting_stem = "default-dnd"
+        setting_content = load_world_background(setting_stem)
+
+        char = _offer_template_import()
+        if char is None:
+            char = create_character()
+        while char is None:
+            console.print("\n[grey50]角色未创建，请重新创建[/grey50]")
+            char = create_character()
+
+        console.print("\n[steel_blue]选择开场模板[/steel_blue]")
+        tpl_list = list_opening_templates()
+        console.print("  0. 随机世界（无开场模板，完全随机生成）")
+        for i, (display, stem) in enumerate(tpl_list, 1):
+            console.print(f"  {i}. {display}")
+        if tpl_list:
+            tpl = Prompt.ask(escape(f"选择 [0-{len(tpl_list)}]"))
+            try:
+                idx = int(tpl) - 1
+                opening_stem = tpl_list[idx][1] if 0 <= idx < len(tpl_list) else ""
+            except (ValueError, IndexError):
+                opening_stem = ""
+        else:
+            opening_stem = ""
+
+        return GameMaster(char, opening_stem, setting_content=setting_content, setting_stem=setting_stem)
 
 
 def _choose_lineage(species_name_cn: str) -> str:
@@ -199,17 +262,19 @@ def _choose_lineage(species_name_cn: str) -> str:
 
 
 def _choose_skills(prompt_label: str, options_cn: list, count: int, already_chosen_cn: list = None) -> list:
+    """从 options_cn 中新增挑选 count 项（不计 already_chosen_cn），返回 已有+新增 的英文技能 key 列表。"""
     from rules.srd_data import SKILL_BY_EN
-    chosen_cn = list(already_chosen_cn) if already_chosen_cn else []
-    available = [s for s in options_cn if s not in chosen_cn]
-    while len(chosen_cn) < count and available:
-        console.print(f"\n[bold]{prompt_label}（还需选 {count - len(chosen_cn)} 项）[/bold]")
+    base = list(already_chosen_cn) if already_chosen_cn else []
+    available = [s for s in options_cn if s not in base]
+    picked = []
+    while len(picked) < count and available:
+        console.print(f"\n[bold]{prompt_label}（还需选 {count - len(picked)} 项）[/bold]")
         for i, s in enumerate(available, 1):
             console.print(f"  {i}. {s}")
         pick = _menu_choice(available, "技能")
-        chosen_cn.append(pick)
+        picked.append(pick)
         available.remove(pick)
-    return [SKILL_BY_EN.get(s, s) for s in chosen_cn]
+    return [SKILL_BY_EN.get(s, s) for s in base + picked]
 
 
 def _detailed_character() -> Character:
@@ -296,16 +361,18 @@ def _detailed_character() -> Character:
                 except ValueError:
                     pass
 
-    base_skills_cn = []
-    if bg_data:
-        base_skills_cn = list(bg_data.skill_proficiencies)
-    if cd:
-        sk_opts = cd.skill_options
-        if sk_opts == SKILLS:
-            sk_opts = [s for s in SKILLS]
-        skills = _choose_skills(f"选择 {class_cn} 的职业技能", sk_opts, cd.skill_choices, base_skills_cn)
-    else:
-        skills = [SKILL_BY_EN.get(s, s) for s in base_skills_cn]
+    skills_cn = list(bg_data.skill_proficiencies) if bg_data else []
+    if cd and cd.skill_choices:
+        skills_cn = _choose_skills(f"选择 {class_cn} 的职业技能", list(cd.skill_options), cd.skill_choices, skills_cn)
+    if sp and sp.skill_choices:
+        skills_cn = _choose_skills(f"选择 {race_cn} 的附加技能", list(sp.skill_options), sp.skill_choices, skills_cn)
+    skills = [SKILL_BY_EN.get(s, s) for s in skills_cn]
+
+    class_a, bg_a = True, True
+    if cd and cd.starting_equipment_a:
+        class_a = _equipment_choice(f"{cd.name}职业", cd.starting_equipment_a, cd.starting_equipment_b_gp)
+    if bg_data and bg_data.equipment_a:
+        bg_a = _equipment_choice(f"{bg_data.name}背景", bg_data.equipment_a, bg_data.equipment_b_gp)
 
     hd = HIT_DICE.get(class_cn, 10)
     con_mod = (stats["体质"] - 10) // 2
@@ -324,7 +391,7 @@ def _detailed_character() -> Character:
         constitution=stats["体质"], intelligence=stats["智力"],
         wisdom=stats["感知"], charisma=stats["魅力"],
     )
-    _init_equipment(char)
+    _init_equipment(char, class_a=class_a, bg_a=bg_a)
     return char
 
 
@@ -339,29 +406,64 @@ def _menu_choice(options: list, label: str) -> str:
         console.print("[grey50]无效选择[/grey50]")
 
 
-def _init_equipment(char: Character):
+def _init_equipment(char: Character, class_a: bool = True, bg_a: bool = True):
+    """按 rules 生成起始装备与金币。
+    class_a / bg_a：True=成套装备包(A)，False=换成金币(B)。
+    职业+背景的装备与金币累加，另给 3000cp 基础资金。"""
     from resource.models import Inventory, Currency
     from resource.item_db import item_db
     inv = Inventory()
+    cp = [3000]
+
+    def place(item_def):
+        t = item_def.type.value
+        if t == "armor" and not inv.equipped.get("body"):
+            inv.equipped["body"] = item_def.guid
+            return
+        if t == "shield" or ("盾" in item_def.name and not inv.equipped.get("off_hand")):
+            inv.equipped["off_hand"] = item_def.guid
+            return
+        if t == "weapon" and not inv.equipped.get("weapon"):
+            inv.equipped["weapon"] = item_def.guid
+            return
+        inv.add_item(item_def.guid)
+
+    def grant(entry):
+        entry = entry.strip()
+        m = re.match(r"^(\d+)金币$", entry)
+        if m:
+            cp[0] += int(m.group(1)) * 10000
+            return
+        m = re.match(r"^(\d+)银币$", entry)
+        if m:
+            cp[0] += int(m.group(1)) * 100
+            return
+        item_def = item_db.find_by_name(entry) or item_db.find_best(entry)
+        qty = 1
+        if item_def is None:
+            m = re.match(r"^(\d+)\s*(.+)$", entry)
+            if m:
+                qty = int(m.group(1))
+                item_def = item_db.find_by_name(m.group(2)) or item_db.find_best(m.group(2))
+        if item_def is None:
+            return
+        for _ in range(qty):
+            place(item_def)
 
     cd = find_class(char.char_class)
     if cd:
-        eq = cd.starting_equipment_a
-        for entry in eq:
-            if "金币" in entry:
-                continue
-            name = entry
-            item_def = item_db.find_by_name(name) or item_db.find_best(name)
-            if item_def:
-                if item_def.type.value == "armor":
-                    inv.equipped["body"] = item_def.guid
-                elif "盾" in name and item_db.find_by_name("盾牌"):
-                    shield = item_db.find_by_name("盾牌")
-                    inv.equipped["off_hand"] = shield.guid
-                elif item_def.type.value == "weapon" and not inv.equipped.get("weapon"):
-                    inv.equipped["weapon"] = item_def.guid
-                else:
-                    inv.add_item(item_def.guid)
+        if class_a:
+            for entry in cd.starting_equipment_a:
+                grant(entry)
+        else:
+            cp[0] += cd.starting_equipment_b_gp * 10000
+    bg = find_background(char.background)
+    if bg:
+        if bg_a:
+            for entry in bg.equipment_a:
+                grant(entry)
+        else:
+            cp[0] += bg.equipment_b_gp * 10000
 
     if not inv.equipped.get("body"):
         travel = item_db.find_by_name("旅行者服装") or item_db.find_by_name("棉甲")
@@ -373,7 +475,7 @@ def _init_equipment(char: Character):
         if d:
             inv.add_item(d.guid)
 
-    inv.currency = Currency(copper=3000)
+    inv.currency = Currency(copper=cp[0])
     char.inventory = inv
 
 
@@ -448,43 +550,7 @@ def main(skip_api_test=False):
         except:
             pass
 
-    # 选择世界背景
-    settings_list = list_settings()
-    console.print("\n[steel_blue]选择世界背景[/steel_blue]")
-    if settings_list:
-        for i, (display, stem) in enumerate(settings_list, 1):
-            console.print(f"  {i}. {display}")
-        if len(settings_list) == 1:
-            setting_stem = settings_list[0][1]
-            console.print(f"[grey50]使用 {settings_list[0][0]} 背景[/grey50]")
-        else:
-            bg_choice = Prompt.ask(escape(f"选择 [1-{len(settings_list)}]"))
-            try:
-                idx = int(bg_choice) - 1
-                setting_stem = settings_list[idx][1] if 0 <= idx < len(settings_list) else settings_list[0][1]
-            except (ValueError, IndexError):
-                setting_stem = settings_list[0][1]
-    else:
-        setting_stem = "default-dnd"
-    setting_content = load_setting(setting_stem)
-
-    char = _offer_template_import()
-    if char is None:
-        char = create_character()
-    while char is None:
-        console.print("\n[grey50]角色未创建，请重新创建[/grey50]")
-        char = create_character()
-
-    console.print("\n[steel_blue]选择开场模板[/steel_blue]")
-    console.print("1. 随机世界（完全随机生成）")
-    console.print("2. 渡者（开局遇到中立向导）")
-    console.print("3. 伏击（开局遭遇敌人）")
-    console.print("4. 旅伴（开局遇到友善NPC）")
-    tpl = Prompt.ask(escape("选择 [1/2/3/4]"))
-    if not tpl or tpl not in ("1", "2", "3", "4"):
-        tpl = "1"
-    template_map = {"1": "random", "2": "guide", "3": "ambush", "4": "ally"}
-    gm = GameMaster(char, template_map[tpl], setting_content=setting_content, setting_stem=setting_stem)
+    gm = _create_world()
 
     console.print("\n[grey62]冒险即将开始...[/grey62]")
     try:

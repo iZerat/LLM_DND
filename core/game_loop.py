@@ -272,8 +272,8 @@ def load_game(save_path: str) -> GameMaster:
             setting_stem = meta.get("setting_stem", "")
             if setting_stem:
                 gm.setting_stem = setting_stem
-                from core.setting import load_setting
-                gm.setting_content = load_setting(setting_stem)
+                from core.world_bg import load_world_background
+                gm.setting_content = load_world_background(setting_stem)
         from world.state import WorldState
         world_path = path / "world.json"
         gm.world_state = WorldState.from_dict(

@@ -6,7 +6,7 @@ from pathlib import Path
 from core.character import Character
 from resource.models import Inventory, Currency, ItemInstance
 
-TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "templates"
+TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "character_templates"
 
 
 def _dir() -> Path:

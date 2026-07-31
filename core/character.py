@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field, asdict
+import re
 from pathlib import Path
 from typing import Optional
 from loc import tr
@@ -26,6 +27,11 @@ def mod_str(score: int) -> str:
 
 def proficiency_bonus(level: int) -> int:
     return ((level - 1) // 4) + 2
+
+
+def strip_en_parens(text: str) -> str:
+    """去掉纯英文括号内容（如 治疗师（Healer）→治疗师），保留中文括号（如 魔法学徒（法师））。"""
+    return re.sub(r"[（(][A-Za-z0-9 _+/-]+[）)]", "", text).strip()
 
 
 @dataclass
@@ -101,6 +107,17 @@ class Character:
         bg = find_background(self.background)
         return bg.name if bg else self.background
 
+    @property
+    def lineage_cn(self) -> str:
+        if not self.lineage:
+            return ""
+        sp = find_species(self.race)
+        if sp and sp.lineages:
+            for lin in sp.lineages:
+                if lin.name_en == self.lineage or lin.name == self.lineage:
+                    return lin.name
+        return self.lineage
+
     def species_trait_lines(self) -> list[str]:
         sp = find_species(self.race)
         if not sp:
@@ -144,10 +161,10 @@ class Character:
         return d
 
     def summary(self) -> str:
-        lineage_str = f"({self.lineage})" if self.lineage else ""
+        lineage_str = f"({self.lineage_cn})" if self.lineage else ""
         traits = "；".join(self.species_trait_lines())
         save_str = "、".join(self.saving_throws) if self.saving_throws else tr("general:none")
-        feat_str = "、".join(self.feats) if self.feats else tr("general:none")
+        feat_str = "、".join(strip_en_parens(f) for f in self.feats) if self.feats else tr("general:none")
         bag_list = []
         for inst in self.inventory.all_instances():
             item_def = item_db.get(inst.guid)

@@ -129,25 +129,7 @@ def parse_check_from_text(text: str) -> tuple | None:
     return None
 
 
-OPENING_TEMPLATES = {
-    "random": None,
-    "guide": (
-        "开场模板：中立向导\n"
-        "角色来到一座新的城镇/营地/驿站，一位神秘的中立向导主动搭话，"
-        "提供当地的信息或警告。角色可以信任他、怀疑他或无视他。\n"
-        "[状态]中必须包含：目标: [中立]向导, ..."
-    ),
-    "ambush": (
-        "开场模板：敌对突袭\n"
-        "角色刚抵达某处就遭到敌对生物或匪徒的突袭，必须立即应对。\n"
-        "[状态]中必须包含：目标: [敌对]<敌人>, ..."
-    ),
-    "ally": (
-        "开场模板：友方旅伴\n"
-        "角色在路上遇到一位友善的旅人/商人/冒险者，对方主动示好并提出结伴同行或请求帮助。\n"
-        "[状态]中必须包含：目标: [友方]<NPC名>, ..."
-    ),
-}
+from core.opening_templates import load_opening_template
 
 
 RULES_DIR = Path(__file__).parent / "rules"
@@ -158,7 +140,7 @@ def _load_rules() -> str:
 
 
 class GameMaster:
-    def __init__(self, character: Character, template: str = "random", setting_content: str = "", setting_stem: str = ""):
+    def __init__(self, character: Character, template: str = "", setting_content: str = "", setting_stem: str = ""):
         self.character = character
         self.client: Optional[OpenAI] = None
         self.history: list = []
@@ -187,8 +169,8 @@ class GameMaster:
         char_summary = self.character.summary()
         format_rule = "\n\n[记住] [状态]必须包含'玩家:'和'目标:'两行。有敌人/NPC就写目标行并加[敌对][中立][友方]标签。多个目标每个单独一行用'其他:'（不要用xN合并）。无目标写'目标: 无'。角色信息中【装备】是穿在身上的（有槽位），【背包】是携带品，【金钱】是货币总量（单位为cp），三者不要混淆。\n角色对话用「」包裹，特殊名词（地名、物品名、法术名、组织名等）用【】包裹。\n\n## 资源变更格式\n在输出末尾附加以下区块（不要插入叙事中间）：\n\n### [物品变更] — 仅限物品和金钱\n[物品变更]\n+ 物品名称（装备槽位）   ← 加物品，可指定装备槽位\n+ 物品名称 x数量        ← 加多个\n- 物品名称              ← 移除物品\ncp: +N                  ← 加铜币（N为铜币数，1金=10000铜）\ncp: -N                  ← 扣铜币\n注意：金钱统一使用cp（铜币）为单位，不要用金币、银币。1金=10000铜，1银=100铜。\n\n### [状态变更] — HP / 目标 / NPC\n[状态变更]\nhp: +N                  ← 玩家加生命值\nhp: -N                  ← 玩家扣生命值\nmax_hp: +N              ← 增加最大生命值\nmax_hp: -N              ← 减少最大生命值\ntarget: NPC名称         ← 设置目标（后续指令作用于该目标）\ntarget_hp: +N           ← 目标加生命值\ntarget_hp: -N           ← 目标扣生命值\ntarget_cp: +N           ← 目标加铜币\ntarget_cp: -N           ← 目标扣铜币\nnpc_add: 名称, AC:10, HP:8/8, [中立] ← 创建新NPC并设为目标\n请使用标准的D&D物品名称。如果物品不在游戏库中，系统会提示你修改。"
         template_note = ""
-        if self.template and self.template != "random" and not self.history:
-            t = OPENING_TEMPLATES.get(self.template)
+        if self.template and not self.history:
+            t = load_opening_template(self.template)
             if t:
                 template_note = f"\n\n## 开场模板\n{t}\n严格按此模板生成第一轮输出。"
 
