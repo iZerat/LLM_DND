@@ -1,7 +1,10 @@
 from __future__ import annotations
 from typing import Optional, TYPE_CHECKING
+from uuid import uuid4
 from resource.models import Inventory, Currency, ItemInstance, ItemDef
 from resource.item_db import item_db
+from resource.objects import NPCTemplate
+from resource.packs import RESOURCE_MODE_PACK, RESOURCE_MODE_FREE
 
 if TYPE_CHECKING:
     from world.entity import NPC
@@ -38,6 +41,7 @@ class ResourceManager:
         self.inv = inventory
         self.character = character
         self.world = None  # set by game_loop
+        self.resource_mode = RESOURCE_MODE_PACK
         self._target_npc: Optional[NPC] = None
 
     def set_target(self, name: str) -> ResourceResult:
@@ -199,20 +203,81 @@ class ResourceManager:
         npc.currency.remove(amount)
         return ResourceResult.ok(f"目标 {npc.name} -{self._format_cp(amount)}")
 
-    def npc_add(self, name: str, ac: int, hp: int, max_hp: int, attitude: str) -> ResourceResult:
-        from world.npc_templates import spawn
-        npc = spawn("npc_commoner", name=name)
+    def npc_add_issue(self, req: dict) -> Optional[str]:
+        """校验 npc_add 请求是否可执行（原子拒绝前置检查）。
+
+        返回问题描述；None 表示可通过。
+        pack（查表创建）: 名称必须在资源库中。
+        free（填表创建）: 表单必须通过 NPCTemplate 校验。
+        """
+        fields = req.get("fields") or {}
+        name = str(fields.get("name", "")).strip()
+        if not name:
+            return "npc_add 缺少名称"
+        if self.resource_mode == RESOURCE_MODE_FREE:
+            _, errs = NPCTemplate.from_form(fields)
+            return "；".join(errs) if errs else None
+        from world.npc_templates import npc_catalog
+        if npc_catalog.find_by_name(name):
+            return None
+        return f"NPC「{name}」不在资源库中"
+
+    def npc_add(self, fields: dict) -> ResourceResult:
+        """按当前资源策略创建 NPC 并设为目标。
+
+        pack（查表创建）: 按名称查 statblocks/templates，命中即按库生成。
+        free（填表创建）: 按 NPCTemplate 表单校验，创建运行时模板并生成实例。
+        """
+        from world.npc_templates import npc_catalog
+        from resource.objects import ATTITUDE_CN_TO_EN
+        name = str(fields.get("name", "")).strip()
+        if not name:
+            return ResourceResult.fail("npc_add 缺少名称")
+        if self.resource_mode == RESOURCE_MODE_FREE:
+            tmpl, errs = NPCTemplate.from_form(fields)
+            if errs:
+                return ResourceResult.fail("；".join(errs))
+            tid = npc_catalog.add_runtime(
+                f"npc_runtime_{uuid4().hex[:8]}", tmpl.to_template_dict()
+            )
+            npc = npc_catalog.spawn(tid, name=name)
+        else:
+            found = npc_catalog.find_by_name(name)
+            if not found:
+                return ResourceResult.fail(f"NPC「{name}」不在资源库中")
+            npc = npc_catalog.spawn(found["id"], name=name)
+            attitude_cn = str(fields.get("attitude", "")).strip()
+            if attitude_cn:
+                npc.attitude = ATTITUDE_CN_TO_EN.get(attitude_cn, attitude_cn)
         if not npc:
-            npc = NPC(id=f"npc_{id(name)}", name=name, ac=ac, hp=hp, max_hp=max_hp)
-        npc.ac = ac
-        npc.hp = hp
-        npc.max_hp = max_hp
-        attitude_map = {"敌对": "hostile", "敌意": "hostile", "中立": "neutral", "友方": "friendly"}
-        npc.attitude = attitude_map.get(attitude, attitude if attitude in ("hostile", "neutral", "friendly") else "neutral")
+            return ResourceResult.fail(f"NPC「{name}」创建失败")
         if self.world:
             self.world.add_active(npc)
         self._target_npc = npc
         return ResourceResult.ok(f"NPC创建: {npc.name}", visible=False)
+
+    # ── 物品填表创建（仅 free 模式）──
+
+    def item_add_issue(self, req: dict) -> Optional[str]:
+        """校验 item_add 请求是否可执行（原子拒绝前置检查）。"""
+        if self.resource_mode != RESOURCE_MODE_FREE:
+            return "item_add 仅适用于填表创建模式"
+        fields = req.get("fields") or {}
+        _, errs = ItemDef.from_form(fields, guid="runtime_")
+        return "；".join(errs) if errs else None
+
+    def item_add(self, fields: dict) -> ResourceResult:
+        """填表创建物品：校验 → 运行时 ItemDef。
+
+        只定义不发放；如需进入背包，由 [物品变更] 中的 + 名称 xN 引用。
+        """
+        if self.resource_mode != RESOURCE_MODE_FREE:
+            return ResourceResult.fail("item_add 仅适用于填表创建模式")
+        item_def, errs = ItemDef.from_form(fields, guid=f"runtime_{uuid4().hex[:8]}")
+        if errs:
+            return ResourceResult.fail("；".join(errs))
+        item_db.add_runtime(item_def)
+        return ResourceResult.ok(f"新物品定义: {item_def.name}")
 
     def process_requests(self, requests: list[dict]) -> list[ResourceResult]:
         from world.entity import NPC
@@ -250,7 +315,9 @@ class ResourceManager:
             elif action == "target_cp_remove":
                 results.append(self.target_cp_remove(req["amount"]))
             elif action == "npc_add":
-                results.append(self.npc_add(req["name"], req["ac"], req["hp"], req["max_hp"], req["attitude"]))
+                results.append(self.npc_add(req["fields"]))
+            elif action == "item_add":
+                results.append(self.item_add(req["fields"]))
             else:
                 results.append(ResourceResult.fail(f"未知操作: {action}"))
         return results

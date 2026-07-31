@@ -70,17 +70,31 @@ class Supervisor:
             retries += 1
             if retries >= self.max_retries:
                 result.messages.append(
-                    f"物品库中不存在: {missing}，已忽略相关变更，故事由 DM 自行圆场"
+                    f"物品变更失败: {missing}，已忽略相关变更，故事由 DM 自行圆场"
                 )
                 text = report.text
                 break
-            result.messages.append(f"物品库中不存在: {missing}，DM 正在调整故事…")
-            text = self._ask_rewrite(missing)
+            result.messages.append(f"物品变更失败: {missing}，DM 正在调整故事…")
+            text = self._ask_rewrite(missing, "item")
 
-        # 2. [状态变更]：HP / 目标 / NPC
-        report = self.regulator.submit_status_changes(text)
-        result.messages.extend(report.messages)
-        text = report.text
+        # 2. [状态变更]：HP / 目标 / NPC；npc_add 校验失败整块重写
+        retries = 0
+        while True:
+            report = self.regulator.submit_status_changes(text)
+            result.messages.extend(report.messages)
+            if report.applied or not report.issues:
+                text = report.text
+                break
+            issue = "、".join(report.issues)
+            retries += 1
+            if retries >= self.max_retries:
+                result.messages.append(
+                    f"NPC创建失败: {issue}，已忽略相关变更，故事由 DM 自行圆场"
+                )
+                text = report.text
+                break
+            result.messages.append(f"NPC创建失败: {issue}，DM 正在调整故事…")
+            text = self._ask_rewrite(issue, "npc")
 
         # 3. [状态] 区块 → 同步 WorldState
         report = self.regulator.sync_status_block(text, report.changed_npcs)
@@ -143,14 +157,22 @@ class Supervisor:
             )
         return response_text
 
-    # ── 内部：库外物品重写对话 ──
+    # ── 内部：库外物品 / NPC 重写对话 ──
 
-    def _ask_rewrite(self, missing: str) -> str:
-        correction_prompt = (
-            f"[系统] 注意：以下物品不在游戏资源库中：{missing}。"
-            "请修改你的输出，改用库中存在的物品，或修改叙事让这些物品不可获得。"
-            "保留其他内容不变。请重新输出完整回答。"
-        )
+    def _ask_rewrite(self, missing: str, kind: str = "item") -> str:
+        if kind == "npc":
+            correction_prompt = (
+                f"[系统] 注意：无法创建 NPC：{missing}。"
+                "请修改你的输出，改用可用的 NPC，或调整叙事让该 NPC 不出现。"
+                "保留其他内容不变。请重新输出完整回答。"
+            )
+        else:
+            correction_prompt = (
+                f"[系统] 注意：以下物品变更无法执行：{missing}。"
+                "请修改你的输出，改用资源库中存在的物品，"
+                "或修正 item_add 填表字段，或修改叙事让这些物品不可获得。"
+                "保留其他内容不变。请重新输出完整回答。"
+            )
         parts = []
         for chunk in self.gm.send_message_stream(correction_prompt):
             parts.append(chunk)

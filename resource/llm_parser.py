@@ -24,6 +24,12 @@ def _resolve_slot(slot_cn: str) -> Optional[str]:
 
 # ── [物品变更] 解析：物品 + 货币 ──
 
+def parse_item_add_value(value: str) -> dict:
+    """解析 item_add 行，转换为字段字典。"""
+    fields = parse_key_value_form(value)
+    return {"action": "item_add", "fields": fields}
+
+
 def parse_item_changes(text: str) -> Optional[list[dict]]:
     m = re.search(
         r'\[物品变更\]\s*\n(.*?)(?=\n\[|\Z)',
@@ -37,6 +43,11 @@ def parse_item_changes(text: str) -> Optional[list[dict]]:
     for line in block.split("\n"):
         line = line.strip()
         if not line:
+            continue
+
+        item_add_m = re.match(r"item_add\s*[:：]\s*(.+)", line, re.IGNORECASE)
+        if item_add_m:
+            requests.append(parse_item_add_value(item_add_m.group(1)))
             continue
 
         # ── gold ──
@@ -86,7 +97,7 @@ def parse_item_changes(text: str) -> Optional[list[dict]]:
 
             item_def = item_db.find_by_name(name) or item_db.find_by_alias(name) or item_db.find_best(name)
             if not item_def:
-                requests.append({"action": "unknown", "name": name})
+                requests.append({"action": "unknown", "name": name, "quantity": qty})
                 continue
 
             if sign == "+":
@@ -107,6 +118,87 @@ def parse_item_changes(text: str) -> Optional[list[dict]]:
 
 
 # ── [状态变更] 解析：HP / NPC / target ──
+
+_FORM_KEY_ALIASES: dict[str, str] = {
+    "名称": "name", "英文名": "name_en", "种族": "species", "职业": "char_class",
+    "等级": "level", "生命值": "hp", "最大生命值": "max_hp", "护甲": "ac", "护甲等级": "ac",
+    "力量": "strength", "敏捷": "dexterity", "体质": "constitution",
+    "智力": "intelligence", "感知": "wisdom", "魅力": "charisma",
+    "熟练加值": "proficiency_bonus", "技能": "skills", "豁免": "saving_throws",
+    "态度": "attitude", "携带物品": "items", "物品": "items",
+    "标签": "tags", "描述": "description", "别名": "aliases",
+    "类型": "type", "价值": "value_cp", "价值(铜币)": "value_cp",
+    "伤害骰": "damage_dice", "伤害类型": "damage_type", "武器类别": "weapon_category",
+    "武器射程": "weapon_range", "特性": "properties", "基础护甲": "base_ac",
+    "敏捷上限": "dex_cap", "力量需求": "strength_req", "护甲类别": "armor_category",
+    "治疗骰": "heal_dice", "治疗加成": "heal_bonus", "效果": "effect",
+}
+
+_FORM_LIST_KEYS = {"skills", "saving_throws", "items", "tags", "properties", "aliases"}
+
+
+def parse_key_value_form(value: str) -> dict:
+    """把一行 key=value / key:value 表单解析为字段字典。
+
+    兼容 [敌意] 态度标签、以及紧跟列表字段的裸词片段（补全列表）。
+    """
+    fields: dict[str, str] = {}
+    last_list_key: Optional[str] = None
+
+    for seg in value.split(","):
+        seg = seg.strip()
+        if not seg:
+            continue
+        m = re.match(r"^(.+?)\s*=\s*(.+)$", seg)
+        key = val = None
+        if m:
+            key, val = m.group(1).strip(), m.group(2).strip()
+        else:
+            m2 = re.match(r"^(.+?)\s*[:：]\s*(.+)$", seg)
+            if m2:
+                key, val = m2.group(1).strip(), m2.group(2).strip()
+        if key and val:
+            tag_m = re.match(r"^\[(.+)\]$", val)
+            if tag_m:
+                val = tag_m.group(1)
+            key = _FORM_KEY_ALIASES.get(key, key).lower()
+            if key == "ac":
+                fields["ac"] = val
+            elif key == "hp":
+                if "/" in val:
+                    hp_part, _, max_part = val.partition("/")
+                    fields["hp"] = hp_part.strip()
+                    fields.setdefault("max_hp", max_part.strip())
+                else:
+                    fields["hp"] = val
+            elif key == "max_hp":
+                fields["max_hp"] = val
+            else:
+                fields[key] = val
+            last_list_key = key if key in _FORM_LIST_KEYS else None
+            continue
+        tag_m = re.match(r"^\[(.+)\]$", seg)
+        if tag_m:
+            fields["attitude"] = tag_m.group(1)
+            continue
+        if last_list_key and last_list_key in fields:
+            fields[last_list_key] = fields[last_list_key] + "/" + seg
+        else:
+            fields.setdefault("name", seg)
+            last_list_key = None
+
+    return fields
+
+
+def parse_npc_add_value(value: str) -> dict:
+    """解析一行 npc_add 的取值部分，统一转换为字段字典。
+
+    兼容两种写法：
+      紧凑: 哥布林, AC: 15, HP: 7/7, [敌意]
+      填表: name=凯拉, species=精灵, hp=24, skills=隐匿/察觉, attitude=友好
+    """
+    return {"action": "npc_add", "fields": parse_key_value_form(value)}
+
 
 def parse_status_changes(text: str) -> Optional[list[dict]]:
     m = re.search(
@@ -131,22 +223,11 @@ def parse_status_changes(text: str) -> Optional[list[dict]]:
             requests.append({"action": "set_target", "name": target_name})
             continue
 
-        npc_add_m = re.match(
-            r'npc_add\s*[:：]\s*(.+?)(?:,\s*AC:\s*(\d+))?(?:,\s*HP:\s*(\d+)/(\d+))?(?:,\s*\[(.+?)\])?$',
-            line, re.IGNORECASE
-        )
+        npc_add_m = re.match(r"npc_add\s*[:：]\s*(.+)", line, re.IGNORECASE)
         if npc_add_m:
-            name = npc_add_m.group(1).strip()
-            ac = int(npc_add_m.group(2)) if npc_add_m.group(2) else 10
-            hp = int(npc_add_m.group(3)) if npc_add_m.group(3) else 8
-            max_hp = int(npc_add_m.group(4)) if npc_add_m.group(4) else hp
-            tag = npc_add_m.group(5) or "中立"
-            requests.append({
-                "action": "npc_add",
-                "name": name, "ac": ac,
-                "hp": hp, "max_hp": max_hp,
-                "attitude": tag,
-            })
+            req = parse_npc_add_value(npc_add_m.group(1))
+            name = req["fields"].get("name", "").strip()
+            requests.append(req)
             target_name = name
             continue
 

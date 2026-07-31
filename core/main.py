@@ -191,17 +191,18 @@ def _offer_template_import() -> Character:
 
 def _create_world() -> GameMaster:
     """世界启动入口：三种创建世界的方式，当前仅方式一可用。"""
+    from resource.packs import RESOURCE_MODE_PACK, RESOURCE_MODE_FREE, configure_resource_catalogs
     while True:
         console.print("\n[steel_blue]创建世界[/steel_blue]")
-        console.print("1. 选择世界背景（世界背景 + 开场模板 + 大模型自由发挥）")
-        console.print("2. 程序化生成世界（严格模式 · 规划中）")
-        console.print("3. 导入世界背景 + 程序化生成（规划中）")
+        console.print("1. 让大模型创建世界（世界背景 + 开场模板 + 对象资源策略）")
+        console.print("2. 选择故事包（规划中）")
+        console.print("3. 程序化生成世界（规划中）")
         choice = Prompt.ask(escape("选择 [1/2/3]"))
         if choice == "2":
-            console.print("[grey50]方式二（程序化生成世界）尚未开放，敬请期待[/grey50]")
+            console.print("[grey50]方式二（选择故事包）尚未开放，敬请期待[/grey50]")
             continue
         if choice == "3":
-            console.print("[grey50]方式三（导入世界背景 + 程序化生成）尚未开放，敬请期待[/grey50]")
+            console.print("[grey50]方式三（程序化生成世界）尚未开放，敬请期待[/grey50]")
             continue
 
         # ── 方式一：选择世界背景 ──
@@ -219,6 +220,16 @@ def _create_world() -> GameMaster:
         else:
             setting_stem = "default-dnd"
         setting_content = load_world_background(setting_stem)
+
+        # ── 对象资源策略（互斥：查表创建 或 填表创建）──
+        console.print("\n[steel_blue]选择对象资源策略[/steel_blue]")
+        console.print("1. 查表创建（使用默认资源包，所有对象从资源库检索）")
+        console.print("2. 填表创建（不使用任何资源包，大模型按表单自由创建一切对象）")
+        mode_choice = Prompt.ask(escape("选择 [1/2]"))
+        resource_mode = RESOURCE_MODE_PACK if mode_choice != "2" else RESOURCE_MODE_FREE
+        configure_resource_catalogs(resource_mode)
+        if resource_mode == RESOURCE_MODE_FREE:
+            console.print("[grey50]已启用填表创建：不使用任何资源包，对象将按表单创建并随存档保存。[/grey50]")
 
         char = _offer_template_import()
         if char is None:
@@ -239,7 +250,11 @@ def _create_world() -> GameMaster:
         except (ValueError, IndexError):
             opening_stem = ""
 
-        return GameMaster(char, opening_stem, setting_content=setting_content, setting_stem=setting_stem)
+        return GameMaster(
+            char, opening_stem,
+            setting_content=setting_content, setting_stem=setting_stem,
+            resource_mode=resource_mode,
+        )
 
 
 def _choose_lineage(species_name_cn: str) -> str:

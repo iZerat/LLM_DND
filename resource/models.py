@@ -1,5 +1,6 @@
 from __future__ import annotations
-from dataclasses import dataclass, field
+import re
+from dataclasses import dataclass, field, asdict
 from enum import Enum
 from typing import Optional
 from uuid import uuid4
@@ -91,6 +92,101 @@ class ItemDef:
             if q == tag.lower():
                 return 0.6
         return 0.0
+
+    @classmethod
+    def schema(cls):
+        from resource.objects import FieldSpec, ResourceSchema, TYPE_INT, TYPE_LIST
+        return ResourceSchema(fields=[
+            FieldSpec("name", "名称", required=True),
+            FieldSpec("name_en", "英文名", required=False),
+            FieldSpec("type", "类型", required=False, options=["武器", "护甲", "盾牌", "消耗品", "弹药", "工具", "装备", "任务", "杂物"], default="杂物"),
+            FieldSpec("tags", "标签", type=TYPE_LIST, required=False),
+            FieldSpec("aliases", "别名", type=TYPE_LIST, required=False),
+            FieldSpec("description", "描述", required=False),
+            FieldSpec("value_cp", "价值(铜币)", type=TYPE_INT, min_value=0, required=False, default=0),
+            FieldSpec("damage_dice", "伤害骰(如2d6)", required=False),
+            FieldSpec("damage_type", "伤害类型", required=False),
+            FieldSpec("weapon_category", "武器类别", required=False, options=["简易", "军用"]),
+            FieldSpec("weapon_range", "武器射程", required=False),
+            FieldSpec("properties", "特性", type=TYPE_LIST, required=False),
+            FieldSpec("base_ac", "基础护甲", type=TYPE_INT, min_value=0, required=False, default=0),
+            FieldSpec("dex_cap", "敏捷上限", type=TYPE_INT, min_value=0, required=False, default=99),
+            FieldSpec("strength_req", "力量需求", type=TYPE_INT, min_value=0, required=False, default=0),
+            FieldSpec("armor_category", "护甲类别", required=False, options=["轻甲", "中甲", "重甲"]),
+            FieldSpec("heal_dice", "治疗骰(如1d4)", required=False),
+            FieldSpec("heal_bonus", "治疗加成", type=TYPE_INT, min_value=0, required=False, default=0),
+            FieldSpec("effect", "效果", required=False),
+        ])
+
+    @classmethod
+    def from_form(cls, values: dict, guid: str) -> tuple[Optional[ItemDef], list[str]]:
+        schema = cls.schema()
+        errors = schema.validate(values)
+        if errors:
+            return None, errors
+        vals = schema.clamp(values)
+
+        ITEM_TYPE_CN_TO_EN = {
+            "武器": "weapon", "护甲": "armor", "盾牌": "shield", "消耗品": "consumable",
+            "弹药": "ammunition", "工具": "tool", "装备": "equipment", "任务": "quest", "杂物": "misc",
+        }
+        WEAPON_CAT_CN_TO_EN = {"简易": "simple", "军用": "martial"}
+        ARMOR_CAT_CN_TO_EN = {"轻甲": "light", "中甲": "medium", "重甲": "heavy"}
+
+        def split_list(v) -> list[str]:
+            if not v:
+                return []
+            if isinstance(v, list):
+                raw = v
+            else:
+                raw = [x.strip() for x in re.split(r"[,/、]", str(v)) if x.strip()]
+            out = []
+            for x in raw:
+                x = str(x).strip().strip("[]")
+                if x and x not in out:
+                    out.append(x)
+            return out
+
+        def to_int(v, default):
+            try:
+                return int(str(v).strip())
+            except (TypeError, ValueError):
+                return default
+
+        type_cn = str(vals.get("type") or "杂物").strip()
+        try:
+            item_type = ItemType(ITEM_TYPE_CN_TO_EN.get(type_cn, type_cn))
+        except ValueError:
+            return None, [f"type 无效的类型: {type_cn}"]
+
+        item = cls(
+            guid=guid,
+            name=str(vals.get("name", "")).strip(),
+            name_en=str(vals.get("name_en", "")).strip(),
+            type=item_type,
+            tags=split_list(vals.get("tags")),
+            aliases=split_list(vals.get("aliases")),
+            description=str(vals.get("description", "")).strip(),
+            value_cp=to_int(vals.get("value_cp"), 0),
+            damage_dice=str(vals.get("damage_dice", "")).strip(),
+            damage_type=str(vals.get("damage_type", "")).strip(),
+            weapon_category=WEAPON_CAT_CN_TO_EN.get(str(vals.get("weapon_category", "")).strip(), str(vals.get("weapon_category", "")).strip()),
+            weapon_range=str(vals.get("weapon_range", "")).strip(),
+            properties=split_list(vals.get("properties")),
+            base_ac=to_int(vals.get("base_ac"), 0),
+            dex_cap=to_int(vals.get("dex_cap"), 99),
+            strength_req=to_int(vals.get("strength_req"), 0),
+            armor_category=ARMOR_CAT_CN_TO_EN.get(str(vals.get("armor_category", "")).strip(), str(vals.get("armor_category", "")).strip()),
+            heal_dice=str(vals.get("heal_dice", "")).strip(),
+            heal_bonus=to_int(vals.get("heal_bonus"), 0),
+            effect=str(vals.get("effect", "")).strip(),
+        )
+        return item, []
+
+    def to_dict(self) -> dict:
+        d = asdict(self)
+        d["type"] = self.type.value
+        return d
 
 
 @dataclass

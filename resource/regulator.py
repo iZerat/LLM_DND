@@ -2,6 +2,7 @@ from __future__ import annotations
 import re
 from typing import Optional
 from resource.manager import ResourceManager
+from resource.item_db import item_db
 from resource.llm_parser import parse_item_changes, parse_status_changes
 from world.entity import NPC
 
@@ -53,20 +54,63 @@ class Regulator:
     def submit_item_changes(self, text: str) -> ChangeReport:
         """解析并落账 [物品变更] 区块，返回剥离该区块后的文本。
 
-        若出现库外物品（issues 非空），不改动任何数据，
+        两阶段执行：
+          1) 先整体原子校验并执行 item_add 填表创建；
+          2) 再用新建物品的名称解析区块内对它们的 +name 引用。
+        若出现库外物品或 item_add 校验失败（issues 非空），不改动任何数据，
         由监督者决定：发起重写对话，或忽略该区块。
         """
         requests = parse_item_changes(text)
         if requests is None:
             return ChangeReport(text=text)
-        unknown = [r["name"] for r in requests if r["action"] == "unknown"]
+
+        item_adds = [r for r in requests if r.get("action") == "item_add"]
+        others = [r for r in requests if r.get("action") != "item_add"]
+
+        # 1) 原子校验 item_add
+        item_issues: list[str] = []
+        for req in item_adds:
+            issue = self.manager.item_add_issue(req)
+            if issue:
+                item_issues.append(issue)
+        if item_issues:
+            return ChangeReport(
+                text=_ITEM_BLOCK_RE.sub("", text, count=1).strip(),
+                applied=False,
+                issues=item_issues,
+            )
+
+        # 2) 执行 item_add，收集新建名称
+        results = [self.manager.item_add(req["fields"]) for req in item_adds]
+        created_names = set()
+        for req, res in zip(item_adds, results):
+            if res.success:
+                created_names.add(str((req.get("fields") or {}).get("name", "")).strip())
+
+        # 3) 解析剩余请求；区块内新建物品的名称引用可解析
+        remaining: list[dict] = []
+        for req in others:
+            if req.get("action") == "unknown" and req.get("name") in created_names:
+                d = item_db.find_best(req["name"])
+                if d:
+                    remaining.append({
+                        "action": "add",
+                        "guid": d.guid,
+                        "quantity": req.get("quantity", 1),
+                    })
+                else:
+                    remaining.append(req)
+            else:
+                remaining.append(req)
+
+        unknown = [r["name"] for r in remaining if r["action"] == "unknown"]
         if unknown:
             return ChangeReport(
                 text=_ITEM_BLOCK_RE.sub("", text, count=1).strip(),
                 applied=False,
                 issues=unknown,
             )
-        results = self.manager.process_requests(requests)
+        results += self.manager.process_requests(remaining)
         return ChangeReport(
             text=_ITEM_BLOCK_RE.sub("", text, count=1).strip(),
             applied=True,
@@ -78,14 +122,33 @@ class Regulator:
     def submit_status_changes(self, text: str) -> ChangeReport:
         """解析并落账 [状态变更] 区块，返回剥离该区块后的文本。
 
+        npc_add 请求先整体校验（原子拒绝）：任一条失败则整个区块不落账，
+        由监督者发起重写对话或圆场。
         changed_npcs 记录本轮被 [状态变更] 主动改过的 NPC，
         供 sync_status_block 跳过这些 NPC 的重复叠加。
         """
         requests = parse_status_changes(text)
         if requests is None:
             return ChangeReport(text=text)
+        npc_issues: list[str] = []
+        for req in requests:
+            if req.get("action") == "npc_add":
+                issue = self.manager.npc_add_issue(req)
+                if issue:
+                    npc_issues.append(issue)
+        if npc_issues:
+            return ChangeReport(
+                text=_STATUS_CHANGE_BLOCK_RE.sub("", text, count=1).strip(),
+                applied=False,
+                issues=npc_issues,
+            )
         results = self.manager.process_requests(requests)
         changed: set[str] = set()
+        for req in requests:
+            if req.get("action") == "npc_add":
+                f = req.get("fields") or {}
+                if f.get("name"):
+                    changed.add(str(f["name"]).strip())
         for r in results:
             if r.visible and r.success:
                 m = re.match(r"目标 (.+?)(?: HP| [+-])", r.message)
@@ -168,11 +231,7 @@ class Regulator:
                             existing.ac = ac
                         self.world.touch(existing.id)
                     else:
-                        new_npc = NPC(
-                            id=f"npc_{abs(hash(ind_name)) % 1000000:x}",
-                            name=ind_name, ac=ac, hp=hp, max_hp=max_hp,
-                            attitude=_ATTITUDE_MAP.get(tag, "neutral"),
-                        )
+                        new_npc = self._sync_create_npc(ind_name, base, ac, hp, max_hp, tag)
                         self.world.add_active(new_npc)
                 continue
 
@@ -189,16 +248,32 @@ class Regulator:
                     existing.ac = ac
                 self.world.touch(existing.id)
             else:
-                new_npc = NPC(
-                    id=f"npc_{abs(hash(name)) % 1000000:x}",
-                    name=name, ac=ac, hp=hp, max_hp=max_hp,
-                    attitude=_ATTITUDE_MAP.get(tag, "neutral"),
-                )
+                new_npc = self._sync_create_npc(name, name, ac, hp, max_hp, tag)
                 self.world.add_active(new_npc)
-                report.messages.append(f"NPC出现: {name} (HP:{hp}/{max_hp})")
+                report.messages.append(f"NPC出现: {name} (HP:{new_npc.hp}/{new_npc.max_hp})")
 
         # GC：衰减权重，驱逐过期实体
         pruned = self.world.tick()
         if pruned:
             report.messages.append(f"已遗忘: {', '.join(pruned)}")
         return report
+
+    def _sync_create_npc(self, name: str, lookup_name: str, ac: int, hp: int,
+                         max_hp: int, tag: str) -> NPC:
+        """按资源策略创建 [状态] 同步用的 NPC。
+
+        pack（查表创建）: 命中 statblocks/templates 则按库生成真实属性。
+        free（填表创建）: 目录为空，退化为默认 NPC 兜底。
+        """
+        from world.npc_templates import npc_catalog
+        attitude = _ATTITUDE_MAP.get(tag, "neutral")
+        tmpl = npc_catalog.find_by_name(lookup_name)
+        if tmpl:
+            npc = npc_catalog.spawn(tmpl["id"], name=name, attitude=attitude)
+            if npc:
+                return npc
+        return NPC(
+            id=f"npc_{abs(hash(name)) % 1000000:x}",
+            name=name, ac=ac, hp=hp, max_hp=max_hp,
+            attitude=attitude,
+        )

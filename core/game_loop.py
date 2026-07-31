@@ -88,6 +88,7 @@ def save_game(gm: GameMaster, name: str = None):
         "last_scene_detail": gm.last_scene_detail,
         "last_time": gm.last_time,
         "setting_stem": gm.setting_stem,
+        "resource_mode": getattr(gm, "resource_mode", "pack"),
     }
     (char_dir / "history.json").write_text(
         json.dumps({
@@ -103,8 +104,64 @@ def save_game(gm: GameMaster, name: str = None):
             json.dumps(gm.world_state.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8"
         )
 
+    # runtime_defs/ — 填表创建的对象定义（随存档保存，重启可恢复）
+    _save_runtime_defs(char_dir)
+
     console.print(f"[grey50]已保存: {name}[/grey50]")
     console.print()
+
+
+def _save_runtime_defs(char_dir: Path):
+    """把运行时目录（填表创建的对象定义）分类写入存档子文件夹。"""
+    from resource.item_db import item_db
+    from world.npc_templates import npc_catalog
+    runtime_items = item_db.runtime_items()
+    runtime_npcs = npc_catalog.runtime_templates()
+    if not runtime_items and not runtime_npcs:
+        return
+    runtime_dir = char_dir / "runtime_defs"
+    if runtime_items:
+        items_dir = runtime_dir / "items"
+        items_dir.mkdir(parents=True, exist_ok=True)
+        for guid, item in runtime_items.items():
+            (items_dir / f"{guid}.json").write_text(
+                json.dumps(item.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+    if runtime_npcs:
+        npcs_dir = runtime_dir / "npcs"
+        npcs_dir.mkdir(parents=True, exist_ok=True)
+        for tid, entry in runtime_npcs.items():
+            (npcs_dir / f"{tid}.json").write_text(
+                json.dumps(entry, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+
+
+def _restore_runtime_defs(char_dir: Path):
+    """从存档恢复运行时目录（先于背包迁移，保证运行时 guid 可解析）。"""
+    from resource.item_db import item_db
+    from resource.models import ItemType, ItemDef
+    from world.npc_templates import npc_catalog
+    runtime_dir = char_dir / "runtime_defs"
+    if not runtime_dir.exists():
+        return
+    items_dir = runtime_dir / "items"
+    if items_dir.exists():
+        defs: dict[str, ItemDef] = {}
+        for fpath in items_dir.glob("*.json"):
+            entry = json.loads(fpath.read_text(encoding="utf-8"))
+            entry["guid"] = fpath.stem
+            if "type" in entry and isinstance(entry["type"], str):
+                entry["type"] = ItemType(entry["type"])
+            defs[entry["guid"]] = ItemDef(**entry)
+        item_db.replace_runtime(defs)
+    npcs_dir = runtime_dir / "npcs"
+    if npcs_dir.exists():
+        entries: dict[str, dict] = {}
+        for fpath in npcs_dir.glob("*.json"):
+            d = json.loads(fpath.read_text(encoding="utf-8"))
+            d["id"] = fpath.stem
+            entries[d["id"]] = d
+        npc_catalog.replace_runtime(entries)
 
 
 _SLOT_CN_TO_EN = {
@@ -258,14 +315,26 @@ def load_game(save_path: str) -> GameMaster:
         info = json.loads((path / "info.json").read_text(encoding="utf-8"))
         info = _migrate_char_data(info)
         char = Character(**info)
-        _migrate_load_inventory(path, char)
-        gm = GameMaster(char)
+
+        # 先读资源策略并恢复目录（运行时定义先于背包迁移加载，guid 才可解析）
         history_path = path / "history.json"
+        history_data = None
+        resource_mode = "pack"
         if history_path.exists():
             data = json.loads(history_path.read_text(encoding="utf-8"))
-            gm.compressed_history = data.get("compressed", [])
-            gm.last_assistant = data.get("last_assistant", "")
-            meta = data.get("meta", {})
+            history_data = data
+            resource_mode = (data.get("meta") or {}).get("resource_mode", "pack")
+        from resource.packs import configure_resource_catalogs
+        configure_resource_catalogs(resource_mode)
+        _restore_runtime_defs(path)
+
+        _migrate_load_inventory(path, char)
+        gm = GameMaster(char)
+        gm.resource_mode = resource_mode
+        if history_data:
+            gm.compressed_history = history_data.get("compressed", [])
+            gm.last_assistant = history_data.get("last_assistant", "")
+            meta = history_data.get("meta", {})
             gm.last_scene = meta.get("last_scene", "")
             gm.last_scene_detail = meta.get("last_scene_detail", "")
             gm.last_time = meta.get("last_time", "")
@@ -285,6 +354,8 @@ def load_game(save_path: str) -> GameMaster:
         char = Character(**char_data)
         _migrate_old_inventory(char)
         gm = GameMaster(char)
+        from resource.packs import configure_resource_catalogs
+        configure_resource_catalogs("pack")
         if "history" in data:
             gm.set_history(data["history"])
         if "last_scene" in data:
@@ -361,6 +432,7 @@ def game_loop(gm: GameMaster):
     world_state = getattr(gm, 'world_state', None) or WorldState()
     gm.world_state = world_state
     regulator = Regulator(gm.character, world_state)
+    regulator.manager.resource_mode = getattr(gm, "resource_mode", "pack")
     supervisor = Supervisor(gm, regulator)
     last_choice_record = ""
 
@@ -427,6 +499,7 @@ def game_loop(gm: GameMaster):
                     world_state = getattr(gm, 'world_state', None) or WorldState()
                     gm.world_state = world_state
                     regulator = Regulator(gm.character, world_state)
+                    regulator.manager.resource_mode = getattr(gm, "resource_mode", "pack")
                     supervisor = Supervisor(gm, regulator)
             except ValueError:
                 console.print("[grey50]请输入有效数字[/grey50]")

@@ -37,6 +37,10 @@ class NPC(Entity):
     wisdom: int = 10
     charisma: int = 10
 
+    proficiency_bonus: int = 2
+    skills: list[str] = field(default_factory=list)
+    saving_throws: list[str] = field(default_factory=list)
+
     attitude: str = "neutral"
     currency: Currency = field(default_factory=Currency)
     inventory: list[str] = field(default_factory=list)

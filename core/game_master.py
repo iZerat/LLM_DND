@@ -130,6 +130,7 @@ def parse_check_from_text(text: str) -> tuple | None:
 
 
 from core.opening_templates import load_opening_template
+from resource.packs import RESOURCE_MODE_PACK
 
 
 RULES_DIR = Path(__file__).parent / "rules"
@@ -140,7 +141,7 @@ def _load_rules() -> str:
 
 
 class GameMaster:
-    def __init__(self, character: Character, template: str = "", setting_content: str = "", setting_stem: str = ""):
+    def __init__(self, character: Character, template: str = "", setting_content: str = "", setting_stem: str = "", resource_mode: str = "pack"):
         self.character = character
         self.client: Optional[OpenAI] = None
         self.history: list = []
@@ -154,6 +155,7 @@ class GameMaster:
         self.template = template
         self.setting_content = setting_content
         self.setting_stem = setting_stem
+        self.resource_mode = resource_mode
         self.compressed_history: list = []
         self._round_num: int = 0
         self._truncated: bool = False
@@ -165,6 +167,36 @@ class GameMaster:
                 base_url=Config.API_BASE_URL,
                 api_key=Config.API_KEY,
             )
+
+    def _resource_strategy_note(self) -> str:
+        """按资源策略生成创建提示：pack 查表 / free 填表（schema 驱动表单）。"""
+        if self.resource_mode == RESOURCE_MODE_PACK:
+            return (
+                "\n\n## 资源策略：查表创建\n"
+                "本世界使用资源包：NPC 与物品均从资源库查询生成，不要凭空捏造。"
+                "npc_add 请用紧凑格式：npc_add: 名称, AC:10, HP:8/8, [态度]。"
+                "物品请使用资源库中存在的名称。若你提到的 NPC/物品不在资源库，"
+                "系统会提示你改用库中存在的条目或调整叙事。"
+            )
+        from resource.objects import NPCTemplate
+        from resource.models import ItemDef
+        npc_form = NPCTemplate.schema().render_form()
+        item_form = ItemDef.schema().render_form()
+        return (
+            "\n\n## 资源策略：填表创建\n"
+            "本世界不使用资源包：NPC 与物品由你填表创建，无需查库。\n"
+            "填表创建必须贴合上面的世界背景设定（世界观、风格、属性平衡），"
+            "属性要符合 D&D 规则常识，超出范围会被拒绝并触发修正。\n"
+            "创建 NPC：npc_add: <字段>，字段可填：\n"
+            f"{npc_form}\n"
+            "示例：npc_add: name=山贼首领, char_class=盗贼, level=5, hp=32, ac=15, "
+            "dexterity=17, skills=隐匿/欺瞒, attitude=敌对\n"
+            "创建物品：item_add: <字段>，字段可填：\n"
+            f"{item_form}\n"
+            "示例：item_add: name=灰烬长刀, type=武器, damage_dice=1d8, "
+            "damage_type=火焰, value_cp=500\n"
+            "item_add 只定义物品；要放进背包，需在同一[物品变更]区块中再写 + 名称 x数量。"
+        )
 
     def _build_system_prompt(self) -> str:
         char_summary = self.character.summary()
@@ -180,6 +212,7 @@ class GameMaster:
 
         prompt = SYSTEM_PROMPT_TEMPLATE.format(setting_content=setting, core_rules=core_rules_text)
         prompt += f"\n\n## 当前角色信息\n{char_summary}" + format_rule + template_note
+        prompt += self._resource_strategy_note()
 
         if self.compressed_history:
             history_lines = []
@@ -306,6 +339,7 @@ class GameMaster:
             "last_assistant": self.last_assistant,
             "compressed_history": self.compressed_history,
             "setting_stem": self.setting_stem,
+            "resource_mode": self.resource_mode,
         }
 
     def get_history(self) -> list:
