@@ -54,6 +54,43 @@ def _tool_reply(success: bool, message: str, data: dict | None = None) -> str:
     return json.dumps(payload, ensure_ascii=False)
 
 
+def build_action_text(
+    actor: str, label: str, dc_kind: str, dc, mod_label: str, mod: int,
+    line: str, word: str, color: str, target: str = "", dmg: int = 0,
+    att_delta: int | None = None, note: str = "",
+) -> str:
+    """统一行动块文本（唯一入口，玩家/NPC 行动共用，禁止各路径自行拼接）。
+
+    actor=行动者名，label=检定名（如「攻击检定」「敏捷检定」），
+    dc_kind=DC/AC，mod_label=调整值/加值，line=骰面算式行，
+    word 为统一结果词（成功/失败/大成功/大失败），color 为其颜色。
+    dmg 命中伤害单独一行、不加色；att_delta 显示目标态度变化；note 为检定说明。
+    """
+    header = f"[yellow]{actor} {label}[/yellow]"
+    if target:
+        header += f" 目标 [bold]{target}[/bold]"
+    header += f" {dc_kind} [bold]{dc}[/bold] | {mod_label}: {mod:+d}"
+    text = f"{header}\n[grey50]{line}[/grey50]"
+    if word:
+        text += f"\n[bold {color}]{word}[/bold {color}]"
+    if dmg:
+        text += f"\n造成 {dmg} 点伤害"
+    if att_delta is not None:
+        text += f"\n[grey50]{target or actor} 态度 {att_delta:+d}[/grey50]"
+    if note:
+        text += f"\n[grey50]{note}[/grey50]"
+    return text
+
+
+def _attack_display(roll: int, hit: bool) -> tuple[str, str]:
+    """攻击检定结果词统一为属性检定同款：大成功/成功/失败/大失败。"""
+    if roll == 20:
+        return "大成功", "green"
+    if roll == 1:
+        return "大失败", "red"
+    return ("成功", "green") if hit else ("失败", "red")
+
+
 class Checker:
     """D20 检定唯一实现。构造需 character（玩家）、world（世界状态）、manager（调节器）。"""
 
@@ -238,24 +275,24 @@ class Checker:
         ac, roll, atk_bonus, total, hit = (
             r["ac"], r["roll"], r["atk_bonus"], r["total"], r["hit"],
         )
-        word, color, line, dmg = r["word"], r["color"], r["line"], r["dmg"]
+        raw_word, line, dmg = r["word"], r["line"], r["dmg"]
         attitude_applied, attitude_delta = r["attitude_applied"], r["attitude_delta"]
 
-        check_text = (
-            f"[yellow]{char.name} 攻击检定[/yellow] 目标 [bold]{tgt.name}[/bold]"
-            f" AC [bold]{ac}[/bold] | 加值: {atk_bonus:+d}\n[grey50]{line}[/grey50]"
+        word, color = _attack_display(roll, hit)
+        check_text = build_action_text(
+            char.name, "攻击检定", "AC", ac, "加值", atk_bonus,
+            line, word, color, target=tgt.name, dmg=dmg,
+            att_delta=attitude_delta if attitude_applied else None,
         )
         fragment = f"[攻击] d20({roll})+({atk_bonus:+d})={total}"
         parts = [f"对「{tgt.name}」发起攻击"]
         if hit:
-            check_text += f"\n[bold {color}]命中，造成 {dmg} 点伤害[/bold {color}]"
             fragment += f" 命中 造成{dmg}伤害"
             parts.append(f"命中，造成 {dmg} 点伤害")
         else:
-            if word:
-                check_text += f"\n[bold {color}]{word}[/bold {color}]"
-                fragment += f" {word}"
-            parts.append(word or "未命中")
+            if raw_word:
+                fragment += f" {raw_word}"
+            parts.append(raw_word or "未命中")
         if attitude_applied:
             parts.append(f"{tgt.name} 态度 {attitude_delta:+d}")
         note = "，".join(parts)
@@ -323,9 +360,9 @@ class Checker:
         mod = modifier(character.wisdom)
         roll = random.randint(1, 20)
         total, success, word, color, line = self.resolve_check(roll, mod, 10)
-        check_text = (
-            f"[yellow]{character.name} 医药自救检定[/yellow] DC [bold]10[/bold] | 调整值: {mod:+d}\n"
-            f"[grey50]{line}[/grey50]\n[bold {color}]{word}[/bold {color}]"
+        check_text = build_action_text(
+            character.name, "医药自救检定", "DC", 10, "调整值", mod,
+            line, word, color,
         )
         if success:
             if character.stable:
@@ -342,12 +379,13 @@ class Checker:
     def interactive_check(self, char: Character, ability_cn: str, ability_key: str, dc: int) -> tuple[int, int, int, bool]:
         from core.ui import console
         ability_mod = modifier(getattr(char, ability_key))
-        console.print()
-        console.print(f"[yellow]{ability_cn}检定[/yellow] DC [bold]{dc}[/bold] | 调整值: {ability_mod:+d}")
         roll = random.randint(1, 20)
         total, success, word, color, line = self.resolve_check(roll, ability_mod, dc)
-        console.print(f"[grey50]{line}[/grey50]")
-        console.print(f"[bold {color}]{word}[/bold {color}]")
+        console.print()
+        console.print(build_action_text(
+            char.name, f"{ability_cn}检定", "DC", dc, "调整值", ability_mod,
+            line, word, color,
+        ))
         console.print()
         return roll, ability_mod, total, success
 
@@ -457,12 +495,10 @@ class Checker:
         label = _KIND_CN[kind]
         kind_cn = _KIND_CN_SHORT[kind]
         ability_cn = _ABILITY_CN.get(ability, ability)
-        text = (
-            f"[yellow]{name} {ability_cn}检定[/yellow] DC [bold]{dc_value}[/bold] "
-            f"| 调整值: {mod:+d}\n[grey50]{line}[/grey50]\n[bold {color}]{word}[/bold {color}]"
+        text = build_action_text(
+            name, f"{ability_cn}检定", "DC", dc_value, "调整值", mod,
+            line, word, color, note=note,
         )
-        if note:
-            text += f"\n[grey50]{note}[/grey50]"
         data = {
             "ok": True, "actor": name, "kind": kind, "kind_cn": label,
             "ability": ability, "ability_cn": ability_cn,
@@ -489,11 +525,9 @@ class Checker:
             ac, roll, atk_bonus, total, hit = (
                 r["ac"], r["roll"], r["atk_bonus"], r["total"], r["hit"],
             )
-            word, color, line, dmg = r["word"], r["color"], r["line"], r["dmg"]
+            line, dmg = r["line"], r["dmg"]
             attitude_applied, attitude_delta = r["attitude_applied"], r["attitude_delta"]
             target_label = tgt.name
-            label = f"{name} 攻击检定"
-            settled_note = "伤害与目标态度基线已由系统落账"
         else:
             npc = self._get_npc(actor)
             if npc is None:
@@ -511,46 +545,28 @@ class Checker:
             bonus = self._npc_attack_bonus(npc)
             roll = random.randint(1, 20)
             total = roll + bonus
-            if roll == 20:
-                hit, word, color = True, "暴击", "yellow"
-            elif roll == 1:
-                hit, word, color = False, "大失败", "red"
-            elif total >= ac:
-                hit, word, color = True, "命中", "green"
-            else:
-                hit, word, color = False, "未命中", "red"
+            hit = roll == 20 or (roll != 1 and total >= ac)
             atk_bonus = bonus
-            line = f"d20({roll}) + ({bonus:+d}) = {total} {'≥' if hit else '<'} {ac}"
-            label = f"{name} 攻击检定"
+            op = "≥" if total == ac else (">" if hit else "<")
+            line = f"d20({roll}) + ({bonus:+d}) = {total} {op} {ac}"
             dmg = 0
             attitude_applied, attitude_delta = False, 0
-            settled_note = None
-            if hit and self.manager:
+            if hit:
                 dmg = self.roll_npc_damage(npc, crit=(roll == 20))
                 if target_label == "玩家":
                     self.manager.remove_hp(dmg, crit=(roll == 20))
-                    settled_note = "NPC 攻击玩家伤害已由系统落账"
                 else:
                     tgt = self._get_npc(target)
                     if tgt is not None:
                         self.manager.npc_change_status(tgt.name, hp=-dmg)
-                        settled_note = "NPC 间攻击伤害已由系统落账"
 
-        text = f"[yellow]{label}[/yellow] 目标 [bold]{target_label}[/bold] AC [bold]{ac}[/bold] | 加值: {atk_bonus:+d}\n[grey50]{line}[/grey50]"
-        if hit:
-            if dmg:
-                text += f"\n[bold {color}]命中，造成 {dmg} 点伤害[/bold {color}]"
-            elif word:
-                text += f"\n[bold {color}]{word}[/bold {color}]"
-        else:
-            if word:
-                text += f"\n[bold {color}]{word}[/bold {color}]"
-        if attitude_applied:
-            text += f"\n[grey50]{target_label} 态度 {attitude_delta:+d}[/grey50]"
-        if settled_note:
-            text += f"\n[grey50]{settled_note}[/grey50]"
-        if note:
-            text += f"\n[grey50]{note}[/grey50]"
+        word, color = _attack_display(roll, hit)
+        text = build_action_text(
+            name, "攻击检定", "AC", ac, "加值", atk_bonus,
+            line, word, color, target=target_label, dmg=dmg,
+            att_delta=attitude_delta if attitude_applied else None,
+            note=note,
+        )
         data = {
             "ok": True, "actor": name, "kind": "attack_roll", "kind_cn": "攻击检定",
             "ability": "", "ability_cn": "",

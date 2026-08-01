@@ -7,7 +7,7 @@ from world.entity import NPC
 from resource.item_db import item_db
 from resource.models import ItemType
 from resource.attitude import level_cn
-from resource.checker import Checker
+from resource.checker import Checker, build_action_text, _attack_display
 from core.prompt_lib import _ATTACK_INTENT_KEYWORDS as _ATTACK_HINTS
 
 
@@ -124,24 +124,14 @@ class NPCController:
         roll = random.randint(1, 20)
         bonus = self.checker._npc_attack_bonus(npc)
         total = roll + bonus
-        if roll == 20:
-            hit, word = True, "暴击"
-        elif roll == 1:
-            hit, word = False, "严重失误"
-        else:
-            hit, word = total >= target_ac, ("命中" if total >= target_ac else "未命中")
+        hit = roll == 20 or (roll != 1 and total >= target_ac)
         target_label = "玩家" if is_player else target
-        if total == target_ac:
-            op = "≥"
-        elif hit:
-            op = ">"
-        else:
-            op = "<"
-        color = "yellow" if roll == 20 else ("red" if not hit else "green")
-        check_text = (
-            f"[yellow]{npc.name} 攻击检定[/yellow] 目标 [bold]{target_label}[/bold] "
-            f"AC [bold]{target_ac}[/bold] | 加值: {bonus:+d}\n"
-            f"[grey50]d20({roll}) + ({bonus:+d}) = {total} {op} {target_ac}[/grey50]"
+        op = "≥" if total == target_ac else (">" if hit else "<")
+        word, color = _attack_display(roll, hit)
+        line = f"d20({roll}) + ({bonus:+d}) = {total} {op} {target_ac}"
+        check_text = build_action_text(
+            npc.name, "攻击检定", "AC", target_ac, "加值", bonus,
+            line, word, color, target=target_label,
         )
         self.check_results.append({
             "target": npc.name,
@@ -150,8 +140,6 @@ class NPCController:
         })
 
         if not hit:
-            check_text += f"\n[bold {color}]{word}[/bold {color}]"
-            self.check_results[-1]["text"] = check_text
             return (
                 f"{npc.name} 攻击{target_label}："
                 f"d20({roll})+({bonus:+d})={total} < {target_ac}，未命中",
@@ -162,7 +150,10 @@ class NPCController:
 
         weapon = self._npc_weapon(npc)
         dmg = self.checker.roll_npc_damage(npc, crit=(roll == 20))
-        check_text += f"\n[bold {color}]命中，造成 {dmg} 点伤害[/bold {color}]"
+        check_text = build_action_text(
+            npc.name, "攻击检定", "AC", target_ac, "加值", bonus,
+            line, word, color, target=target_label, dmg=dmg,
+        )
         self.check_results[-1]["text"] = check_text
         if is_player:
             res = self.manager.remove_hp(dmg, crit=(roll == 20))

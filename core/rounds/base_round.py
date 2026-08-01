@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from core.character import modifier
 from core.game_master import parse_check_from_text
 from core.game_loop import log_dm_response, format_elapsed
-from resource.checker import Checker
+from resource.checker import Checker, build_action_text, _attack_display
 from core.ui import console, render_decision_block
 
 
@@ -115,9 +115,9 @@ def resolve_player_input(gm, character, raw: str, from_command: bool = False,
             ability_mod = modifier(getattr(character, ability_key))
             roll = dice_random.randint(1, 20)
             total, success, word, color, line = checker.resolve_check(roll, ability_mod, dc)
-            check_text = (
-                f"[yellow]{character.name} {ability_cn}检定[/yellow] DC [bold]{dc}[/bold] | 调整值: {ability_mod:+d}\n"
-                f"[grey50]{line}[/grey50]\n[bold {color}]{word}[/bold {color}]"
+            check_text = build_action_text(
+                character.name, f"{ability_cn}检定", "DC", dc, "调整值", ability_mod,
+                line, word, color,
             )
             transformed = f"[选择选项{selected_num}] {option_text} | [检定] d20({roll})+({ability_mod:+d})={total} {word}"
         elif is_attack_opt:
@@ -134,12 +134,12 @@ def resolve_player_input(gm, character, raw: str, from_command: bool = False,
             target_ac = checker.find_target_ac() if checker else None
             total, atk_bonus, hit, word, color, line = checker.resolve_attack(roll, character, target_ac)
             ac_label = target_ac if target_ac is not None else "?"
-            check_text = (
-                f"[yellow]{character.name} 攻击检定[/yellow] AC [bold]{ac_label}[/bold] | 加值: {atk_bonus:+d}\n"
-                f"[grey50]{line}[/grey50]"
+            if target_ac is not None:
+                word, color = _attack_display(roll, hit)
+            check_text = build_action_text(
+                character.name, "攻击检定", "AC", ac_label, "加值", atk_bonus,
+                line, word, color,
             )
-            if word:
-                check_text += f"\n[bold {color}]{word}[/bold {color}]"
             transformed = (
                 f"[选择选项{selected_num}] {option_text} | [攻击] d20({roll})+({atk_bonus:+d})={total}"
                 + (f" {word}" if word else "")
