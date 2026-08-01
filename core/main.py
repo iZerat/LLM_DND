@@ -808,10 +808,6 @@ class _QuitSignal(Exception):
     """输入 /quit 时抛出：退出游戏。"""
 
 
-def _is_quickstart(text: str) -> bool:
-    return text.strip().lower() in ("/quickstart", "/q")
-
-
 def _print_commands():
     console.print(f"\n[steel_blue]命令[/steel_blue]")
     console.print(f"  [grey82]/help[/grey82]    显示此命令列表")
@@ -821,23 +817,55 @@ def _print_commands():
     console.print(f"  [grey82]/quickstart[/grey82]  快速开始（随机角色直接进入游戏）")
 
 
+def _menu_help(ctx, args):
+    _print_commands()
+    return None
+
+
+def _menu_back(ctx, args):
+    raise _BackSignal()
+
+
+def _menu_menu(ctx, args):
+    raise _MenuSignal()
+
+
+def _menu_quit(ctx, args):
+    raise _QuitSignal()
+
+
+def _menu_quickstart(ctx, args):
+    raise _QuickStartSignal()
+
+
+def _build_menu_registry():
+    from core.commands import build_registry
+    reg = build_registry()
+    reg.get("help").handler = _menu_help
+    reg.get("back").handler = _menu_back
+    reg.get("menu").handler = _menu_menu
+    reg.get("quit").handler = _menu_quit
+    reg.get("quickstart").handler = _menu_quickstart
+    return reg
+
+
+_MENU_REGISTRY = _build_menu_registry()
+
+
 def _pre_game_ask(prompt_text: str, **kw) -> str:
-    """游戏开始前的输入：识别 /help、/back、/menu、/quickstart 命令。"""
+    """游戏开始前的输入：识别 /help、/back、/menu、/quickstart 及中文等价命令。"""
     while True:
         val = Prompt.ask(prompt_text, **kw)
-        cmd = val.strip().lower()
-        if cmd in ("/help", "/"):
-            _print_commands()
-            continue
-        if cmd in ("/b", "/back"):
-            raise _BackSignal()
-        if cmd in ("/m", "/menu"):
-            raise _MenuSignal()
-        if cmd == "/quit":
-            raise _QuitSignal()
-        if _is_quickstart(val):
-            raise _QuickStartSignal()
-        if cmd.startswith("/"):
+        if not val.strip():
+            return val
+        from core.commands import parse_command
+        if parse_command(val) is not None:
+            result = _MENU_REGISTRY.resolve(val, "menu")
+            if result is not None:
+                cmd, args = result
+                if cmd.handler:
+                    cmd.handler(None, args)
+                continue
             console.print("[grey50]无效命令，输入 /help 查看可用命令[/grey50]")
             continue
         return val

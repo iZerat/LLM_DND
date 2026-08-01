@@ -12,6 +12,7 @@ from rich import box
 from core.config import Config
 from core.character import Character, modifier, proficiency_bonus
 from core.game_master import GameMaster, ABILITY_CN_TO_EN, parse_check_from_text
+from core.commands import parse_command
 from core.npc_controller import NPCController
 from core.supervisor import Supervisor
 from resource.regulator import Regulator
@@ -580,6 +581,155 @@ def _show_round_recap(gm):
 
 # ---------- 游戏循环 ----------
 
+class _GameCmdResult:
+    """命令处理结果。action: continue / quit / menu / load / narrative"""
+    def __init__(self, action="continue", gm=None, player_input=None):
+        self.action = action
+        self.gm = gm
+        self.player_input = player_input
+
+
+def _game_show_help(gm, args):
+    show_help()
+    return _GameCmdResult()
+
+
+def _game_status(gm, args):
+    show_status(gm.character)
+    return _GameCmdResult()
+
+
+def _game_info(gm, args):
+    show_info(gm.character)
+    return _GameCmdResult()
+
+
+def _game_scene(gm, args):
+    from core.ui import _filter_env_fields
+    if gm.last_scene:
+        scene_text = _filter_env_fields(gm.last_scene, basic_only=False)
+        console.print(Panel(
+            scene_text,
+            title="[grey58]完整环境信息[/grey58]",
+            border_style="grey58",
+            box=box.SQUARE,
+        ))
+    else:
+        console.print("[grey50]尚无环境信息[/grey50]")
+    return _GameCmdResult()
+
+
+def _game_equip(gm, args):
+    show_equip(gm.character)
+    return _GameCmdResult()
+
+
+def _game_bag(gm, args):
+    show_bag(gm.character)
+    return _GameCmdResult()
+
+
+def _game_skill(gm, args):
+    show_skills(gm.character)
+    return _GameCmdResult()
+
+
+def _game_time(gm, args):
+    show_time(gm)
+    return _GameCmdResult()
+
+
+def _game_save(gm, args):
+    save_game(gm, args or None)
+    return _GameCmdResult()
+
+
+def _game_load(gm, args):
+    saves = list_saves()
+    if not saves:
+        console.print("[grey50]没有找到存档[/grey50]")
+        return _GameCmdResult()
+    try:
+        idx = int(Prompt.ask("选择编号")) - 1
+        if 0 <= idx < len(saves):
+            new_gm = load_game(str(saves[idx]))
+            return _GameCmdResult(action="load", gm=new_gm)
+    except ValueError:
+        console.print("[grey50]请输入有效数字[/grey50]")
+    except Exception:
+        console.print("[grey50]无效选择[/grey50]")
+    return _GameCmdResult()
+
+
+def _game_menu(gm, args):
+    save = Prompt.ask("是否保存？y/n")
+    if save in ("y", "yes", ""):
+        save_game(gm)
+        return _GameCmdResult(action="menu")
+    confirm = Prompt.ask("是否返回主菜单？y/n")
+    if confirm in ("y", "yes", ""):
+        return _GameCmdResult(action="menu")
+    return _GameCmdResult()
+
+
+def _game_quit(gm, args):
+    save = Prompt.ask("是否保存？y/n")
+    if save in ("y", "yes", ""):
+        save_game(gm)
+        return _GameCmdResult(action="quit")
+    confirm = Prompt.ask("是否退出游戏？y/n")
+    if confirm in ("y", "yes", ""):
+        return _GameCmdResult(action="quit")
+    return _GameCmdResult()
+
+
+def _game_roll(gm, args):
+    rest = args or "d20"
+    dc_match = re.match(r"(\S+)\s+DC\s+(\d+)", rest) if not rest.startswith("d") else None
+    if dc_match and dc_match.group(1) in ABILITY_CN_TO_EN:
+        ability_cn = dc_match.group(1)
+        ability_key = ABILITY_CN_TO_EN[ability_cn]
+        dc = int(dc_match.group(2))
+        r, m, t, success = _interactive_check(gm.character, ability_cn, ability_key, dc)
+        _, _, rw, _, _ = _resolve_check(r, m, dc)
+        player_input = f"[检定] {ability_cn} DC {dc}: d20({r})+({m:+d})={t} {rw}"
+    elif rest in ABILITY_CN_TO_EN:
+        ability_key = ABILITY_CN_TO_EN[rest]
+        ability_mod = modifier(getattr(gm.character, ability_key))
+        roll = dice_random.randint(1, 20)
+        total = roll + ability_mod
+        tag = " [大成功]" if roll == 20 else (" [大失败]" if roll == 1 else "")
+        console.print(f"\n[grey50]d20({roll}) + ({ability_mod:+d}) = {total}{tag}[/grey50]")
+        player_input = f"[检定] {rest}: d20({roll})+({ability_mod:+d})={total}{tag}"
+    else:
+        total, display = _roll_expression(rest)
+        console.print(f"\n{display}")
+        player_input = f"[投骰] {rest} = {total}"
+    return _GameCmdResult(action="narrative", player_input=player_input)
+
+
+def _build_game_registry():
+    from core.commands import build_registry
+    reg = build_registry()
+    reg.get("help").handler = _game_show_help
+    reg.get("status").handler = _game_status
+    reg.get("info").handler = _game_info
+    reg.get("scene").handler = _game_scene
+    reg.get("equip").handler = _game_equip
+    reg.get("bag").handler = _game_bag
+    reg.get("skill").handler = _game_skill
+    reg.get("time").handler = _game_time
+    reg.get("save").handler = _game_save
+    reg.get("load").handler = _game_load
+    reg.get("menu").handler = _game_menu
+    reg.get("quit").handler = _game_quit
+    reg.get("roll").handler = _game_roll
+    return reg
+
+
+_GAME_REGISTRY = _build_game_registry()
+
+
 def game_loop(gm: GameMaster):
     console.print(f"\n[steel_blue]{gm.character.name}[/steel_blue] 的冒险开始了！输入 [grey62]/help[/grey62] 查看命令\n")
     world_state = getattr(gm, 'world_state', None) or WorldState()
@@ -600,121 +750,37 @@ def game_loop(gm: GameMaster):
         if not player_input.strip():
             continue
 
-        cmd = player_input.strip().lower()
-
-        if cmd == "/quit":
-            save = Prompt.ask("是否保存？y/n")
-            if save in ("y", "yes", ""):
-                save_game(gm)
+        from_command = False
+        if parse_command(player_input) is not None:
+            result = _GAME_REGISTRY.resolve(player_input, "game")
+            if result is None:
+                console.print("[grey50]无效命令，输入 /help 查看可用命令[/grey50]")
+                continue
+            cmd, args = result
+            action = cmd.handler(gm, args)
+            if action.action == "quit":
                 console.print("冒险结束！")
                 break
-            else:
-                confirm = Prompt.ask("是否退出游戏？y/n")
-                if confirm in ("y", "yes", ""):
-                    console.print("冒险结束！")
-                    break
-            continue
-        elif cmd in ("/help", "/"):
-            show_help()
-            continue
-        elif cmd == "/status":
-            show_status(gm.character)
-            continue
-        elif cmd == "/info":
-            show_info(gm.character)
-            continue
-        elif cmd in ("/scene", "/env"):
-            from core.ui import _filter_env_fields
-            if gm.last_scene:
-                scene_text = _filter_env_fields(gm.last_scene, basic_only=False)
-                console.print(Panel(
-                    scene_text,
-                    title="[grey58]完整环境信息[/grey58]",
-                    border_style="grey58",
-                    box=box.SQUARE,
-                ))
-            else:
-                console.print("[grey50]尚无环境信息[/grey50]")
-            continue
-        elif cmd.startswith("/save"):
-            parts = player_input.strip().split(maxsplit=1)
-            save_game(gm, parts[1] if len(parts) > 1 else None)
-            continue
-        elif cmd == "/load":
-            saves = list_saves()
-            if not saves:
-                console.print("[grey50]没有找到存档[/grey50]")
-                continue
-            try:
-                idx = int(Prompt.ask("选择编号")) - 1
-                if 0 <= idx < len(saves):
-                    gm = load_game(str(saves[idx]))
-                    show_status(gm.character)
-                    world_state = getattr(gm, 'world_state', None) or WorldState()
-                    gm.world_state = world_state
-                    regulator = Regulator(gm.character, world_state)
-                    regulator.manager.resource_mode = getattr(gm, "resource_mode", "pack")
-                    supervisor = Supervisor(gm, regulator)
-                    toolbox = ResourceToolbox(regulator)
-            except ValueError:
-                console.print("[grey50]请输入有效数字[/grey50]")
-            except:
-                console.print("[grey50]无效选择[/grey50]")
-            continue
-        elif cmd == "/menu":
-            save = Prompt.ask("是否保存？y/n")
-            if save in ("y", "yes", ""):
-                save_game(gm)
+            if action.action == "menu":
                 return "menu"
+            if action.action == "load":
+                gm = action.gm
+                show_status(gm.character)
+                world_state = getattr(gm, 'world_state', None) or WorldState()
+                gm.world_state = world_state
+                regulator = Regulator(gm.character, world_state)
+                regulator.manager.resource_mode = getattr(gm, "resource_mode", "pack")
+                supervisor = Supervisor(gm, regulator)
+                toolbox = ResourceToolbox(regulator)
+                continue
+            if action.action == "narrative":
+                player_input = action.player_input
+                from_command = True
             else:
-                confirm = Prompt.ask("是否返回主菜单？y/n")
-                if confirm in ("y", "yes", ""):
-                    return "menu"
-            continue
-        elif cmd == "/equip":
-            show_equip(gm.character)
-            continue
-        elif cmd == "/bag":
-            show_bag(gm.character)
-            continue
-
-        elif cmd == "/skill":
-            show_skills(gm.character)
-            continue
-        elif cmd == "/time":
-            show_time(gm)
-            continue
-        elif cmd.startswith("/roll"):
-            rest = player_input[5:].strip()
-            if not rest:
-                rest = "d20"
-
-            dc_match = re.match(r"(\S+)\s+DC\s+(\d+)", rest) if not rest.startswith("d") else None
-            if dc_match and dc_match.group(1) in ABILITY_CN_TO_EN:
-                ability_cn = dc_match.group(1)
-                ability_key = ABILITY_CN_TO_EN[ability_cn]
-                dc = int(dc_match.group(2))
-                r, m, t, success = _interactive_check(gm.character, ability_cn, ability_key, dc)
-                _, _, rw, _, _ = _resolve_check(r, m, dc)
-                player_input = f"[检定] {ability_cn} DC {dc}: d20({r})+({m:+d})={t} {rw}"
-            elif rest in ABILITY_CN_TO_EN:
-                ability_key = ABILITY_CN_TO_EN[rest]
-                ability_mod = modifier(getattr(gm.character, ability_key))
-                roll = dice_random.randint(1, 20)
-                total = roll + ability_mod
-                tag = " [大成功]" if roll == 20 else (" [大失败]" if roll == 1 else "")
-                console.print(f"\n[grey50]d20({roll}) + ({ability_mod:+d}) = {total}{tag}[/grey50]")
-                player_input = f"[检定] {rest}: d20({roll})+({ability_mod:+d})={total}{tag}"
-            else:
-                total, display = _roll_expression(rest)
-                console.print(f"\n{display}")
-                player_input = f"[投骰] {rest} = {total}"
-        elif cmd.startswith("/"):
-            console.print("[grey50]无效命令，输入 /help 查看可用命令[/grey50]")
-            continue
+                continue
 
         last_was_option = False
-        if not cmd.startswith("/"):
+        if not from_command:
             raw = player_input.strip()
             if raw in gm.last_choices_map:
                 last_choice_record = gm.last_choices_map[raw]
