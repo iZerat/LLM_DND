@@ -30,6 +30,7 @@ class NPCController:
         self.world = regulator.world
         self.log_lines: list[str] = []
         self.changed_names: set[str] = set()
+        self.check_results: list[dict] = []
 
     # ── 主入口 ──
 
@@ -37,6 +38,7 @@ class NPCController:
         """结算在场 NPC 本轮行动，返回注入给主 DM 的上下文片段（空串=无 NPC 行动）。"""
         self.log_lines = []
         self.changed_names = set()
+        self.check_results = []
         if not self.world:
             return ""
         order = self._initiative_order()
@@ -55,10 +57,11 @@ class NPCController:
         if not parts:
             return ""
         return (
-            "[系统·NPC行动]（本轮在场 NPC 已由系统按先攻顺序依次行动并机械结算，"
-            "伤害已直接落账，请勿再通过 [状态变更] 重复扣减这些目标的 HP）：\n"
+            "[系统·NPC行动·已结算]（本轮在场 NPC 已由系统按先攻顺序依次行动，"
+            "伤害已直接落账，请勿再通过 [状态变更] 重复扣减这些目标的 HP。"
+            "请把每个 NPC 的行动分别写入 [副事件]，每行以 敌对/友方/中立 标签开头）：\n"
             + "\n".join(parts)
-            + "\n请把上述行动自然编织进 [事件] 叙事；[状态] 区块请如实写出这些目标的当前 HP。"
+            + "\n[状态] 区块请如实写出这些目标的当前 HP。"
         )
 
     # ── 先攻顺序 ──
@@ -131,19 +134,20 @@ class NPCController:
         target = (target_m.group(1).strip() if target_m else "").strip()
 
         is_attack = bool(action) and any(h in action for h in _ATTACK_HINTS)
+        tag = _ATTITUDE_CN.get(npc.attitude, "中立")
         if not is_attack:
             if not action:
                 action = "观望"
             return (
                 f"{npc.name} 选择：{action}",
-                f"{npc.name} 本轮{action}。",
+                f"[{tag}] {npc.name}：本轮{action}。",
             )
 
         target_ac, is_player = self._target_ac(target)
         if target_ac is None:
             return (
                 f"{npc.name} 攻击目标「{target or '未知'}」：目标不存在，落空",
-                f"{npc.name} 试图攻击「{target or '未知'}」，但目标不在场。",
+                f"[{tag}] {npc.name}：试图攻击「{target or '未知'}」，但目标不在场。",
             )
 
         roll = random.randint(1, 20)
@@ -155,34 +159,49 @@ class NPCController:
             hit, word = False, "严重失误"
         else:
             hit, word = total >= target_ac, ("命中" if total >= target_ac else "未命中")
+        target_label = "玩家" if is_player else target
+        if total == target_ac:
+            op = "≥"
+        elif hit:
+            op = ">"
+        else:
+            op = "<"
+        color = "yellow" if roll == 20 else ("red" if not hit else "green")
+        self.check_results.append({
+            "target": npc.name,
+            "text": (f"{npc.name} 攻击: d20({roll}) + ({bonus:+d}) = {total} "
+                     f"{op} {target_ac} [{color}]{word}[/{color}]"),
+            "success": hit,
+        })
 
         if not hit:
             return (
-                f"{npc.name} 攻击{'玩家' if is_player else target}："
+                f"{npc.name} 攻击{target_label}："
                 f"d20({roll})+({bonus:+d})={total} < {target_ac}，未命中",
-                f"{npc.name} 对{'你' if is_player else target}发起攻击，但攻击落空了。",
+                f"[{tag}] {npc.name}：对{'你' if is_player else target}发起攻击，但攻击落空了。",
             )
 
         weapon = self._npc_weapon(npc)
         dmg = self._roll_damage(weapon.damage_dice, npc, crit=(roll == 20))
+        self.check_results[-1]["text"] += f" 造成 {dmg} 伤害"
         if is_player:
             res = self.manager.remove_hp(dmg)
             self.changed_names.add(self.character.name)
             line = (f"{npc.name} 攻击玩家：d20({roll})+({bonus:+d})={total} ≥ {target_ac}，"
                     f"命中，造成 {dmg} 点伤害")
-            injected = f"{npc.name} 对你发动攻击，命中，造成 {dmg} 点伤害。"
+            injected = f"[{tag}] {npc.name}：攻击你，命中，造成 {dmg} 点伤害。"
         else:
             tgt = self.world.get_by_name(target)
             if tgt is None:
                 return (
                     f"{npc.name} 攻击目标「{target}」：目标不在场，落空",
-                    f"{npc.name} 试图攻击「{target}」，但对方已不在场上。",
+                    f"[{tag}] {npc.name}：试图攻击「{target}」，但对方已不在场上。",
                 )
             tgt.hp = max(tgt.hp - dmg, 0)
             self.changed_names.add(tgt.name)
             line = (f"{npc.name} 攻击 {tgt.name}：d20({roll})+({bonus:+d})={total} ≥ {target_ac}，"
                     f"命中，造成 {dmg} 点伤害")
-            injected = f"{npc.name} 攻击 {tgt.name}，命中，造成 {dmg} 点伤害。"
+            injected = f"[{tag}] {npc.name}：攻击 {tgt.name}，命中，造成 {dmg} 点伤害。"
         return line, injected
 
     # ── 数值辅助 ──

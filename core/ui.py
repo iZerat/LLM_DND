@@ -78,7 +78,10 @@ def parse_sections(text: str) -> dict:
     pattern = rf"\[({_SEC})\]\s*(.*?)(?=\[(?:{_SEC})\]|\Z)"
     matches = re.findall(pattern, text, re.DOTALL)
     for name, content in matches:
-        sections[name] = content.strip()
+        if name == "副事件" and name in sections:
+            sections[name] += "\n" + content.strip()
+        else:
+            sections[name] = content.strip()
     if "场景细节" in sections:
         if "场景" in sections:
             sections["场景"] += "\n" + sections["场景细节"]

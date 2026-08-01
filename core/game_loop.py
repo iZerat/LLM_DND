@@ -742,21 +742,16 @@ def game_loop(gm: GameMaster):
         try:
             player_input = supervisor.prepare_player_input(player_input)
 
-            # NPC 行动：玩家行动机械结算后、主 DM 整合前，依先攻顺序串行结算在场 NPC
+            # NPC 行动：玩家行动机械结算后、主 DM 整合前，依先攻顺序串行结算在场 NPC。
+            # 结果以注入上下文交给 DM，由 DM 写进 [副事件] 各目标行动块（不另设独立面板）。
             npc_controller = NPCController(gm, regulator)
             npc_ctx = npc_controller.run(player_input) if regulator.world.active else ""
             if npc_ctx:
                 player_input = player_input + "\n\n" + npc_ctx
-            if npc_controller.log_lines:
-                console.print(Panel(
-                    "\n".join(f"[grey62]{l}[/grey62]" for l in npc_controller.log_lines),
-                    title="[grey58]NPC 行动[/grey58]",
-                    border_style="grey58",
-                    box=box.SQUARE,
-                ))
 
             toolbox.results = []
             toolbox.check_results = []
+            toolbox.check_results.extend(npc_controller.check_results)
             response_parts = []
             _t0 = _time.time()
             console.print()
