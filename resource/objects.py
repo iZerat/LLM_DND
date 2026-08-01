@@ -150,9 +150,6 @@ class ResourceObject:
         return [k for k in keys if k]
 
 
-ATTITUDE_CN_TO_EN = {"中立": "neutral", "友好": "friendly", "友方": "friendly", "敌对": "hostile", "敌意": "hostile"}
-
-
 @dataclass
 class NPCTemplate(ResourceObject):
     species: str = "human"
@@ -170,7 +167,7 @@ class NPCTemplate(ResourceObject):
     proficiency_bonus: int = 2
     skills: list[str] = field(default_factory=list)
     saving_throws: list[str] = field(default_factory=list)
-    attitude: str = "neutral"
+    attitude: int = 0
     items: list[str] = field(default_factory=list)
 
     @classmethod
@@ -229,8 +226,11 @@ class NPCTemplate(ResourceObject):
 
         hp = to_int(vals.get("hp"), 8)
         max_hp = to_int(vals.get("max_hp"), 0) or hp
+        from resource.attitude import label_to_int
         attitude_cn = vals.get("attitude") or "中立"
-        attitude = ATTITUDE_CN_TO_EN.get(str(attitude_cn).strip(), str(attitude_cn).strip() or "neutral")
+        attitude = label_to_int(str(attitude_cn).strip())
+        if attitude is None:
+            attitude = 0
 
         tmpl = cls(
             name=str(vals.get("name", "")).strip(),

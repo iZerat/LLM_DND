@@ -1,6 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass, field, asdict
 from typing import Optional
+from resource.attitude import coerce_legacy
 from resource.models import Currency
 
 
@@ -41,7 +42,8 @@ class NPC(Entity):
     skills: list[str] = field(default_factory=list)
     saving_throws: list[str] = field(default_factory=list)
 
-    attitude: str = "neutral"
+    attitude: int = 0
+    attitude_reasons: list[dict] = field(default_factory=list)
     currency: Currency = field(default_factory=Currency)
     inventory: list[str] = field(default_factory=list)
     dialogue_state: str = ""
@@ -55,6 +57,9 @@ class NPC(Entity):
     def from_dict(cls, d: dict) -> NPC:
         d = dict(d)
         copper = d.pop("currency", {}).get("copper", 0)
+        if "attitude" in d:
+            d["attitude"] = coerce_legacy(d["attitude"])
+        d.setdefault("attitude_reasons", [])
         npc = cls(**d)
         npc.currency = Currency(copper=copper)
         return npc

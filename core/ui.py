@@ -15,6 +15,7 @@ from rich import box
 from core.config import Config
 from core.character import Character, mod_str, strip_en_parens
 from core.game_master import GameMaster, ABILITY_CN_TO_EN, parse_check_from_text
+from resource.attitude import level
 
 theme = Theme({
     "prompt": "grey82",
@@ -116,13 +117,157 @@ def _filter_env_fields(text: str, basic_only: bool = True) -> str:
     return "\n".join(lines)
 
 
-def render_dm_output(full_text: str, gm=None, elapsed: float = 0, change_messages: list[str] | None = None, check_blocks: list[dict] | None = None):
+def render_round_header(round_num: int, kind: str = ""):
+    """回合头：=== 第 n 轮 · 战斗/非战斗 ===。由 GameRound 每轮调用一次，段内共享同一轮号。"""
+    console.print()
+    label = f"第{round_num}轮"
+    if kind:
+        color = "indian_red" if kind == "战斗" else "steel_blue"
+        label += f" · [{color}]{kind}[/{color}]"
+    console.rule(f"─── [grey50]{label}[/grey50]", style="grey50", align="left")
+
+
+def render_env_block(env_text: str, gm=None):
+    scene_text = _filter_env_fields(env_text, basic_only=True)
+    console.print(Panel(
+        scene_text,
+        title="[steel_blue]环境[/steel_blue]",
+        border_style="steel_blue",
+        box=box.SQUARE,
+    ))
+    if gm:
+        gm.last_scene = env_text
+
+
+def render_event_block(event_text: str):
+    console.print(Panel(
+        Markdown(event_text),
+        title="[#cc6b3e]事件[/#cc6b3e]",
+        border_style="#cc6b3e",
+        box=box.SQUARE,
+    ))
+
+
+def render_action_block(check_blocks: list[dict] | None):
+    """行动块：每个全宽，不再一行多个。"""
+    for cb in check_blocks or []:
+        if cb.get("text"):
+            console.print(Panel(
+                cb["text"],
+                title="[#E06C75]行动[/#E06C75]",
+                border_style="#E06C75",
+                box=box.SQUARE,
+            ))
+
+
+def render_narration_block(narration_text: str):
+    """副事件块：内部与主事件区分，打印统一显示「事件」。"""
+    console.print(Panel(
+        Markdown(narration_text),
+        title="[#d4946b]事件[/#d4946b]",
+        border_style="#d4946b",
+        box=box.SQUARE,
+    ))
+
+
+def render_change_block(change_messages: list[str] | None):
+    if change_messages:
+        console.print(Panel(
+            "\n".join(change_messages),
+            title="[#d4a0a0]变更[/#d4a0a0]",
+            border_style="#d4a0a0",
+            box=box.SQUARE,
+        ))
+
+
+def _hostility_color(attitude) -> str:
+    from resource.attitude import level
+    return {
+        "hostile": "indian_red",
+        "neutral": "#c4b08a",
+        "friendly": "light_sea_green",
+    }.get(level(attitude), "grey58")
+
+
+def render_status_row(character, world_state=None, targets=None):
+    """目标块：一排等宽块，玩家永远在最前，其后每个在场 NPC 一块（无目标则只有玩家块）。
+
+    数据源为 WorldState（等级/生命值/AC/态度），不再依赖 DM 每段重写 [状态]。
+    targets 可选覆盖：用于按先攻过滤当前在场目标。
+    """
+    from world.entity import NPC
+    panels = [
+        Panel(
+            f"[grey50]等级[/grey50] {character.level}  "
+            f"[grey50]生命[/grey50] {_hp_full_markup(character.hp, character.max_hp)}  "
+            f"[grey50]AC[/grey50] {character.ac}",
+            title=f"[grey58]{character.name}[/grey58]",
+            border_style="grey58",
+            box=box.SQUARE,
+        )
+    ]
+    entities = targets if targets is not None else list(getattr(world_state, "active", {}).values() or [])
+    for e in entities:
+        if not isinstance(e, NPC):
+            continue
+        attitude = getattr(e, "attitude", 0)
+        color = _hostility_color(attitude)
+        tag = {"hostile": "敌对", "neutral": "中立", "friendly": "友方"}.get(
+            level(attitude), "中立"
+        )
+        hp_text = _hp_full_markup(e.hp, e.max_hp)
+        panels.append(Panel(
+            f"[{color}]{tag}[/{color}]  [grey50]生命[/grey50] {hp_text}  [grey50]AC[/grey50] {e.ac}",
+            title=f"[{color}]{e.name}[/{color}]",
+            border_style=color,
+            box=box.SQUARE,
+        ))
+    console.print(Columns(panels, equal=False, expand=False))
+
+
+def render_choice_block(choice_text: str):
+    lines = choice_text.strip().split("\n")
+    out = ""
+    for line in lines:
+        line = line.strip()
+        if re.match(r"^\d+[.)]", line):
+            line = re.sub(r'[（(]\s*无需[^）)]*[）)]', '', line).strip()
+            line_colored = re.sub(
+                r'([（(][^）)]*(?:(?:力量|敏捷|体质|智力|感知|魅力)|检定|击骰)[^）)]*[）)])',
+                r'[#5DCCCC]\1[/#5DCCCC]',
+                line,
+            )
+            m = re.match(r"^(\d+[.)])\s*(.*)", line_colored)
+            if m:
+                out += f"[white]{m.group(1)}[/white] [#F9F1A5]{m.group(2)}[/#F9F1A5]\n"
+            else:
+                out += f"[white]{line_colored}[/white]\n"
+        elif line:
+            out += f"{line}\n"
+    if out:
+        console.print(Panel(out.strip(), title="[dark_sea_green]选择[/dark_sea_green]", border_style="dark_sea_green", box=box.SQUARE))
+
+
+def render_decision_block(record_text: str):
+    """决定块：仅记录玩家本轮选择，不给判定和结果（判定与结果在下轮事件块/行动块说明）。"""
+    console.print(Panel(
+        record_text,
+        title="[#9b87c4]决定[/#9b87c4]",
+        border_style="#9b87c4",
+        box=box.SQUARE,
+    ))
+
+
+def render_dm_output(full_text: str, gm=None, elapsed: float = 0, change_messages: list[str] | None = None, check_blocks: list[dict] | None = None, round_num: int | None = None):
+    """兼容入口：仍按旧顺序渲染整轮（非战斗回合用）。round_num 传入则不再自增。"""
     full_text = full_text.replace("（无需检定）", "")
     global _round_counter
-    _round_counter += 1
+    if round_num is None:
+        _round_counter += 1
+    else:
+        _round_counter = round_num
 
-    console.print()
-    console.rule(f"─── [grey50]第{_round_counter}轮[/grey50]", style="grey50", align="left")
+    render_round_header(_round_counter)
 
     sections = parse_sections(full_text)
 
@@ -136,55 +281,20 @@ def render_dm_output(full_text: str, gm=None, elapsed: float = 0, change_message
         gm.last_choices_map = mapping
 
     if "环境" in sections:
-        scene_text = _filter_env_fields(sections["环境"], basic_only=True)
-        console.print(Panel(
-            scene_text,
-            title="[steel_blue]环境[/steel_blue]",
-            border_style="steel_blue",
-            box=box.SQUARE,
-        ))
-        if gm:
-            gm.last_scene = sections["环境"]
+        render_env_block(sections["环境"], gm)
 
     if gm and "时间" in sections:
         gm.last_time = sections["时间"]
 
     if "事件" in sections:
-        console.print(Panel(
-            Markdown(sections["事件"]),
-            title="[#cc6b3e]事件[/#cc6b3e]",
-            border_style="#cc6b3e",
-            box=box.SQUARE,
-        ))
+        render_event_block(sections["事件"])
 
-    if check_blocks:
-        panels = [
-            Panel(
-                cb["text"],
-                title="[#9b87c4]行动[/#9b87c4]",
-                border_style="#9b87c4",
-                box=box.SQUARE,
-            )
-            for cb in check_blocks if cb.get("text")
-        ]
-        if panels:
-            console.print(Columns(panels, equal=False, expand=False))
+    render_action_block(check_blocks)
 
     if "副事件" in sections:
-        console.print(Panel(
-            Markdown(sections["副事件"]),
-            title="[#d4946b]事件[/#d4946b]",
-            border_style="#d4946b",
-            box=box.SQUARE,
-        ))
+        render_narration_block(sections["副事件"])
 
-    if change_messages:
-        console.print(Panel(
-            "\n".join(change_messages),
-            title="[#d4a0a0]变更[/#d4a0a0]",
-            border_style="#d4a0a0",
-            box=box.SQUARE,
-        ))
+    render_change_block(change_messages)
 
     if "状态" in sections:
         status_text = sections["状态"]
@@ -236,26 +346,7 @@ def render_dm_output(full_text: str, gm=None, elapsed: float = 0, change_message
             console.print(Columns([Panel(left, title="[grey58]玩家[/grey58]", border_style="grey58", box=box.SQUARE)], equal=False, expand=False))
 
     if "选择" in sections:
-        lines = sections["选择"].strip().split("\n")
-        choice_text = ""
-        for line in lines:
-            line = line.strip()
-            if re.match(r"^\d+[.)]", line):
-                line = re.sub(r'[（(]\s*无需[^）)]*[）)]', '', line).strip()
-                line_colored = re.sub(
-                    r'([（(][^）)]*(?:(?:力量|敏捷|体质|智力|感知|魅力)|检定|击骰)[^）)]*[）)])',
-                    r'[#5DCCCC]\1[/#5DCCCC]',
-                    line,
-                )
-                m = re.match(r"^(\d+[.)])\s*(.*)", line_colored)
-                if m:
-                    choice_text += f"[white]{m.group(1)}[/white] [#F9F1A5]{m.group(2)}[/#F9F1A5]\n"
-                else:
-                    choice_text += f"[white]{line_colored}[/white]\n"
-            elif line:
-                choice_text += f"{line}\n"
-        if choice_text:
-            console.print(Panel(choice_text.strip(), title="[dark_sea_green]选择[/dark_sea_green]", border_style="dark_sea_green", box=box.SQUARE))
+        render_choice_block(sections["选择"])
 
 
 def show_help():

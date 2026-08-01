@@ -2,6 +2,7 @@ from __future__ import annotations
 import re
 from typing import Optional
 from resource.manager import ResourceManager
+from resource.packs import RESOURCE_MODE_FREE
 from resource.item_db import item_db
 from resource.llm_parser import parse_item_changes, parse_status_changes
 from world.entity import NPC
@@ -17,7 +18,6 @@ _NPC_LINE_RE = re.compile(
 )
 # 名称内禁止出现括号：叙事性描述（如「(已逃窜)」）不得混入目标名称
 _STATUS_NAME_BAD_RE = re.compile(r"[（）()]")
-_ATTITUDE_MAP = {"敌对": "hostile", "中立": "neutral", "友方": "friendly"}
 
 
 class ChangeReport:
@@ -234,6 +234,8 @@ class Regulator:
                 return line
             name = m.group(2).strip()
             npc = self.world.get_by_name(name)
+            if npc is None:
+                npc = self._fuzzy_match_npc(name, set())
             if not npc:
                 return line
             prefix = line[:m.start(2)]
@@ -269,9 +271,10 @@ class Regulator:
         return issues
 
     def sync_status_block(self, text: str, changed_npcs: set[str] | None = None) -> ChangeReport:
-        """捕获 LLM 在 [状态] 中对 HP/AC/NPC 的叙事性变更并同步 WorldState。
+        """同步 [状态] 块：登记新出现的 NPC（按库创建）、清理垃圾实体、刷新权重。
 
-        仅做数据同步，不修改文本（[状态] 区块仍会显示给玩家）。
+        [状态] 是叙事快照：其 HP/AC 数值常由模型随意填写，因此不做数值落账
+        （不改写已有实体，也不扣玩家血），HP 变更统一经 [状态变更] 或战斗结算。
         """
         report = ChangeReport(text=text)
         if not self.world:
@@ -292,15 +295,9 @@ class Regulator:
             for eid in garbage_ids:
                 self.world.remove(eid)
 
-        # 玩家 HP（NPC 控制器已结算本轮玩家伤害时跳过，避免 [状态] 陈旧数值覆盖落账）
-        player_hp_m = re.search(r"HP:\s*(\d+)/(\d+)", status_text)
-        if player_hp_m:
-            reported_hp = int(player_hp_m.group(1))
-            if self.character.name not in changed_npcs and reported_hp != self.character.hp:
-                diff = reported_hp - self.character.hp
-                self.character.hp = reported_hp
-                owner = self.character.name if self.character else "玩家"
-                report.messages.append(f"{owner} HP {'+' if diff > 0 else ''}{diff}点")
+        # 玩家 HP：不改写。 [状态] 是叙事快照，数值常为模型随意填的
+        # （如把满血写成 6/6），当作伤害同步会造成幻影扣血。
+        # 玩家 HP 只允许经 [状态变更]（hp: +/-N）或战斗结算落账。
 
         # NPC 行：目标/其他: [tag]名字, AC:N, HP:N/N
         for line in status_text.split("\n"):
@@ -326,14 +323,6 @@ class Regulator:
                     ind_name = f"{base}{i + 1}"
                     existing = self.world.get_by_name(ind_name)
                     if existing:
-                        if ind_name not in changed_npcs:
-                            reported = min(hp, existing.max_hp)
-                            if existing.hp != reported:
-                                diff = reported - existing.hp
-                                report.messages.append(
-                                    f"目标 {ind_name} HP {'+' if diff > 0 else ''}{diff}点"
-                                )
-                            existing.hp = reported
                         self.world.touch(existing.id)
                     else:
                         new_npc = self._sync_create_npc(ind_name, base, ac, hp, max_hp, tag)
@@ -341,15 +330,14 @@ class Regulator:
                 continue
 
             existing = self.world.get_by_name(name)
+            if existing is None:
+                existing = self._fuzzy_match_npc(name, changed_npcs)
             if existing:
-                if name not in changed_npcs:
-                    reported = min(hp, existing.max_hp)
-                    if existing.hp != reported:
-                        diff = reported - existing.hp
-                        report.messages.append(
-                            f"目标 {name} HP {'+' if diff > 0 else ''}{diff}点"
-                        )
-                    existing.hp = reported
+                # 不改写 HP/AC/max_hp：[状态] 是叙事快照，数值常为模型随意填的，
+                # 对已有实体做差值同步会产生幻影伤害（如把 10/10 写成 6/6 即 -4）。
+                # HP 变更只允许经 [状态变更]（target_hp: +/-N）或战斗结算落账。
+                if existing.name != name:
+                    self.world.rename(existing.id, name)
                 self.world.touch(existing.id)
             else:
                 new_npc = self._sync_create_npc(name, name, ac, hp, max_hp, tag)
@@ -361,23 +349,50 @@ class Regulator:
             report.messages.append(f"已遗忘: {', '.join(pruned)}")
         return report
 
+    def _fuzzy_match_npc(self, name: str, changed_npcs: set[str]) -> NPC | None:
+        """DM 改名/省略称呼时识别同一实体：在场存活 NPC 中唯一名称含新名的候选即视为本人。
+
+        仅当候选唯一时才合并，避免把不同 NPC 误并。
+        """
+        if not name:
+            return None
+        candidates = [
+            e for e in self.world.active.values()
+            if isinstance(e, NPC)
+            and getattr(e, "hp", 0) > 0
+            and (name in e.name or e.name in name)
+            and e.name not in changed_npcs
+        ]
+        return candidates[0] if len(candidates) == 1 else None
+
     def _sync_create_npc(self, name: str, lookup_name: str, ac: int, hp: int,
                          max_hp: int, tag: str) -> NPC:
         """按资源策略创建 [状态] 同步用的 NPC。
 
         pack（查表创建）: 命中 statblocks/templates 则按库生成真实属性。
-        free（填表创建）: 目录为空，退化为默认 NPC 兜底。
+                          目录未命中时禁止采用 LLM 填写的数值，一律用库默认，
+                          避免「LLM 直写数据」成为世界事实。
+        free（填表创建）: 目录为空，允许以 LLM 填写的数值兜底。
         """
         from world.npc_templates import npc_catalog
+        from resource.attitude import label_to_int
         hp = min(hp, max_hp)
-        attitude = _ATTITUDE_MAP.get(tag, "neutral")
+        attitude = label_to_int(tag)
+        if attitude is None:
+            attitude = 0
         tmpl = npc_catalog.find_by_name(lookup_name)
         if tmpl:
             npc = npc_catalog.spawn(tmpl["id"], name=name, attitude=attitude)
             if npc:
                 return npc
+        if self.manager.resource_mode == RESOURCE_MODE_FREE:
+            return NPC(
+                id=f"npc_{abs(hash(name)) % 1000000:x}",
+                name=name, ac=ac, hp=hp, max_hp=max_hp,
+                attitude=attitude,
+            )
         return NPC(
             id=f"npc_{abs(hash(name)) % 1000000:x}",
-            name=name, ac=ac, hp=hp, max_hp=max_hp,
+            name=name, ac=10, hp=8, max_hp=8,
             attitude=attitude,
         )

@@ -115,6 +115,10 @@ def save_game(gm: GameMaster, name: str = None) -> bool:
     )
 
     # history.json — game history
+    initiative_data = []
+    init = getattr(gm, "initiative", None)
+    if init:
+        initiative_data = init.to_dict()
     history_meta = {
         "last_scene": gm.last_scene,
         "last_scene_detail": gm.last_scene_detail,
@@ -125,6 +129,7 @@ def save_game(gm: GameMaster, name: str = None) -> bool:
         "story_pack_id": getattr(gm, "story_pack_id", ""),
         "story_pack_content": getattr(gm, "story_pack_content", ""),
         "world_source": getattr(gm, "world_source", "llm"),
+        "initiative": initiative_data,
     }
     (char_dir / "history.json").write_text(
         json.dumps({
@@ -403,6 +408,9 @@ def load_game(save_path: str) -> GameMaster:
         gm.world_state = WorldState.from_dict(
             json.loads(world_path.read_text(encoding="utf-8"))
         ) if world_path.exists() else WorldState()
+        from core.rounds.initiative import Initiative
+        init_meta = (history_data.get("meta", {}) if history_data else {}).get("initiative")
+        gm.initiative = Initiative.from_dict(init_meta, gm.character)
     else:
         data = json.loads(path.read_text(encoding="utf-8"))
         char_data = _migrate_char_data(data.get("character", data))
@@ -441,10 +449,11 @@ def format_elapsed(seconds: float) -> str:
     return f"{hours}小时{mins}分{secs}秒"
 
 def log_dm_response(round_num: int, player_input: str, response_text: str,
-                    raw_text: str = "", change_messages: str = ""):
+                    raw_text: str = "", change_messages: str = "", tag: str = ""):
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     ts = _time.strftime("%Y%m%d_%H%M%S")
-    path = LOG_DIR / f"round_{round_num:03d}_{ts}.txt"
+    tag_part = f"_{tag}" if tag else ""
+    path = LOG_DIR / f"round_{round_num:03d}{tag_part}_{ts}.txt"
     parts = [f">>> 玩家: {player_input}"]
     if raw_text:
         parts.append("\n\n--- 原始回复（LLM 未处理）---\n" + raw_text)
@@ -527,11 +536,12 @@ def _resolve_attack(roll: int, char: Character, target_ac: int | None) -> tuple[
 
 def _find_target_ac(gm) -> int | None:
     """取当前战斗目标 AC：优先世界状态中的敌对活动 NPC，其次任意活动 NPC。"""
+    from resource.attitude import level
     ws = getattr(gm, "world_state", None)
     if not ws:
         return None
     for e in ws.active.values():
-        if isinstance(e, NPC) and getattr(e, "attitude", "") == "hostile":
+        if isinstance(e, NPC) and level(getattr(e, "attitude", 0)) == "hostile":
             return getattr(e, "ac", None)
     for e in ws.active.values():
         if isinstance(e, NPC):
@@ -731,163 +741,6 @@ _GAME_REGISTRY = _build_game_registry()
 
 
 def game_loop(gm: GameMaster):
-    console.print(f"\n[steel_blue]{gm.character.name}[/steel_blue] 的冒险开始了！输入 [grey62]/help[/grey62] 查看命令\n")
-    world_state = getattr(gm, 'world_state', None) or WorldState()
-    gm.world_state = world_state
-    regulator = Regulator(gm.character, world_state)
-    regulator.manager.resource_mode = getattr(gm, "resource_mode", "pack")
-    supervisor = Supervisor(gm, regulator)
-    toolbox = ResourceToolbox(regulator)
-    last_choice_record = ""
-
-    while True:
-        try:
-            player_input = Prompt.ask(f"[grey82]{gm.character.name}[/grey82]")
-        except (EOFError, KeyboardInterrupt):
-            console.print("\n冒险结束！")
-            break
-
-        if not player_input.strip():
-            continue
-
-        from_command = False
-        if parse_command(player_input) is not None:
-            result = _GAME_REGISTRY.resolve(player_input, "game")
-            if result is None:
-                console.print("[grey50]无效命令，输入 /help 查看可用命令[/grey50]")
-                continue
-            cmd, args = result
-            action = cmd.handler(gm, args)
-            if action.action == "quit":
-                console.print("冒险结束！")
-                break
-            if action.action == "menu":
-                return "menu"
-            if action.action == "load":
-                gm = action.gm
-                show_status(gm.character)
-                world_state = getattr(gm, 'world_state', None) or WorldState()
-                gm.world_state = world_state
-                regulator = Regulator(gm.character, world_state)
-                regulator.manager.resource_mode = getattr(gm, "resource_mode", "pack")
-                supervisor = Supervisor(gm, regulator)
-                toolbox = ResourceToolbox(regulator)
-                continue
-            if action.action == "narrative":
-                player_input = action.player_input
-                from_command = True
-            else:
-                continue
-
-        last_was_option = False
-        if not from_command:
-            raw = player_input.strip()
-            if raw in gm.last_choices_map:
-                last_choice_record = gm.last_choices_map[raw]
-                last_was_option = True
-            else:
-                last_choice_record = raw
-
-        check_text = ""
-        if player_input.strip().isdigit():
-            selected_num = player_input.strip()
-            option_text = gm.last_choices_map.get(selected_num, "")
-            check_info = parse_check_from_text(option_text) if option_text else None
-            if check_info:
-                ability_cn, ability_key, dc = check_info
-                ability_mod = modifier(getattr(gm.character, ability_key))
-                roll = dice_random.randint(1, 20)
-                total, success, word, color, line = _resolve_check(roll, ability_mod, dc)
-                check_text = f"[yellow]{ability_cn}\u68c0\u5b9a[/yellow] DC [bold]{dc}[/bold] | \u8c03\u6574\u503c: {ability_mod:+d}\n[grey50]{line}[/grey50]\n[bold {color}]{word}[/bold {color}]"
-                player_input = f"[\u9009\u62e9\u9009\u9879{selected_num}] {option_text} | [\u68c0\u5b9a] d20({roll})+({ability_mod:+d})={total} {word}"
-            elif re.search(r'[（(]\s*攻击\s*检定', option_text):
-                roll = dice_random.randint(1, 20)
-                target_ac = _find_target_ac(gm)
-                total, atk_bonus, hit, word, color, line = _resolve_attack(roll, gm.character, target_ac)
-                ac_label = target_ac if target_ac is not None else "?"
-                check_text = f"[yellow]攻击检定[/yellow] AC [bold]{ac_label}[/bold] | 加值: {atk_bonus:+d}\n[grey50]{line}[/grey50]"
-                if word:
-                    check_text += f"\n[bold {color}]{word}[/bold {color}]"
-                player_input = f"[选择选项{selected_num}] {option_text} | [攻击] d20({roll})+({atk_bonus:+d})={total}" + (f" {word}" if word else "")
-            else:
-                player_input = f"[\u9009\u62e9\u9009\u9879{selected_num}] {option_text or selected_num}"
-
-        if last_choice_record:
-            record_display = last_choice_record
-            if last_was_option:
-                record_display = re.sub(
-                    r'([（(][^）)]*(?:(?:力量|敏捷|体质|智力|感知|魅力)|检定|击骰)[^）)]*[）)])',
-                    r'[#5DCCCC]\1[/#5DCCCC]',
-                    record_display,
-                )
-                m = re.match(r"^(\d+[.)])\s*(.*)", record_display)
-                if m:
-                    record_text = f"[white]{m.group(1)}[/white] [#F9F1A5]{m.group(2)}[/#F9F1A5]"
-                else:
-                    record_text = f"[#F9F1A5]{record_display}[/#F9F1A5]"
-            else:
-                record_text = record_display
-            if check_text:
-                record_text += "\n\n" + check_text
-            console.print(Panel(
-                record_text,
-                title="[#9b87c4]行动[/#9b87c4]",
-                border_style="#9b87c4",
-                box=box.SQUARE,
-            ))
-
-        try:
-            player_input = supervisor.prepare_player_input(player_input)
-
-            # NPC 行动：玩家行动机械结算后、主 DM 整合前，依先攻顺序串行结算在场 NPC。
-            # 结果以注入上下文交给 DM，由 DM 写进 [副事件] 各目标行动块（不另设独立面板）。
-            npc_controller = NPCController(gm, regulator)
-            npc_ctx = npc_controller.run(player_input) if regulator.world.active else ""
-            if npc_ctx:
-                player_input = player_input + "\n\n" + npc_ctx
-
-            toolbox.results = []
-            toolbox.check_results = []
-            toolbox.check_results.extend(npc_controller.check_results)
-            response_parts = []
-            _t0 = _time.time()
-            console.print()
-            console.print("[grey50]DM 思考中...[/grey50]")
-            for chunk in gm.send_message_stream(
-                player_input,
-                tools=toolbox.schemas(),
-                tool_executor=toolbox.execute,
-                status_cb=lambda msg: console.print(f"[grey50]{msg}[/grey50]"),
-            ):
-                response_parts.append(chunk)
-            _elapsed = _time.time() - _t0
-
-            full = "".join(response_parts)
-            raw_full = full
-            gm.last_tool_results = list(toolbox.results)
-
-            # ── 监督者方向B：结构校验 → 调节器落账 → 剥离变更区块 / 修复对话 ──
-            audit = supervisor.audit(full, protected_npcs=npc_controller.changed_names)
-            full = audit.text
-
-            log_dm_response(
-                get_round_counter() + 1, player_input, full,
-                raw_text=raw_full,
-                change_messages="\n".join(audit.messages) if audit.messages else "",
-            )
-
-            if not gm.history:
-                gm.set_history([])
-
-            console.print(f"[grey50]\u601d\u8003\u8017\u65f6: {format_elapsed(_elapsed)}{gm.usage_summary()}[/grey50]")
-            console.print()
-            render_dm_output(full, gm, _elapsed, audit.messages, check_blocks=toolbox.check_results)
-
-            if getattr(gm, '_truncated', False):
-                console.print("[grey50]（注意：回答被截断，可尝试 /continue 让 DM 继续输出，或简化指令）[/grey50]")
-
-        except KeyboardInterrupt:
-            console.print("\n[grey50]中断[/grey50]")
-        except Exception as e:
-            from rich.markup import escape
-            console.print(f"\n[indian_red]错误: {escape(str(e))}[/indian_red]")
+    """入口壳：委托给 core/rounds 的 GameRound（回合大循环）。"""
+    from core.rounds.game_round import GameRound
+    return GameRound(gm).run()

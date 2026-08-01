@@ -51,6 +51,12 @@ class WorldState:
                     return e
         return None
 
+    def rename(self, entity_id: str, name: str) -> None:
+        """Rename an entity (e.g. DM shortens/corrects a name in [状态])."""
+        e = self.get(entity_id)
+        if e is not None:
+            e.name = name
+
     def remove(self, entity_id: str) -> None:
         self._remove_anywhere(entity_id)
 
@@ -152,8 +158,8 @@ class WorldState:
 
     def _tag(self, e: Entity) -> str:
         if hasattr(e, 'attitude'):
-            tag_map = {"hostile": "敌对", "neutral": "中立", "friendly": "友方"}
-            return tag_map.get(e.attitude, "中立")
+            from resource.attitude import level_cn
+            return level_cn(getattr(e, 'attitude', 0))
         return "中立"
 
     def render_context_for_llm(self, pc_name: str, pc_ac: int, pc_hp: int, pc_max_hp: int) -> str:

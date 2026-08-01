@@ -873,35 +873,8 @@ def _pre_game_ask(prompt_text: str, **kw) -> str:
 
 def _start_adventure(gm: GameMaster):
     console.print("\n[grey62]冒险即将开始...[/grey62]")
-    from core.supervisor import Supervisor
-    from resource.regulator import Regulator
-    from world.state import WorldState
-    world_state = getattr(gm, 'world_state', None) or WorldState()
-    gm.world_state = world_state
-    regulator = Regulator(gm.character, world_state)
-    regulator.manager.resource_mode = getattr(gm, "resource_mode", "pack")
-    supervisor = Supervisor(gm, regulator)
-    try:
-        _t0 = _time.time()
-        parts = []
-        for chunk in gm.send_message_stream("DM，请开始我的冒险吧！"):
-            parts.append(chunk)
-        _elapsed = _time.time() - _t0
-        console.print(f"[grey62]生成耗时: {format_elapsed(_elapsed)}{gm.usage_summary()}[/grey62]")
-        console.print()
-        raw_full = "".join(parts)
-        audit = supervisor.audit(raw_full)
-        initial_text = audit.text
-        log_dm_response(
-            0, "（游戏开始）", initial_text,
-            raw_text=raw_full,
-            change_messages="\n".join(audit.messages) if audit.messages else "",
-        )
-        render_dm_output(initial_text, gm, _elapsed, audit.messages)
-    except Exception as e:
-        console.print(f"[indian_red]错误: {e}[/indian_red]")
-
-    result = game_loop(gm)
+    from core.rounds.game_round import GameRound
+    result = GameRound(gm).run()
     if result == "menu":
         main(skip_api_test=True)
 
@@ -998,7 +971,6 @@ def main(skip_api_test=False):
                 idx = int(_pre_game_ask("选择编号")) - 1
                 if 0 <= idx < len(saves_list):
                     gm = load_game(str(saves_list[idx]))
-                    _show_round_recap(gm)
                     game_loop(gm)
                     return
             except _QuickStartSignal:

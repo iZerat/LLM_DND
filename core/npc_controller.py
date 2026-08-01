@@ -7,18 +7,17 @@ from core.character import modifier
 from world.entity import NPC
 from resource.item_db import item_db
 from resource.models import ItemType
+from resource.attitude import level_cn
 
-_ATTITUDE_CN = {"hostile": "敌对", "friendly": "友方", "neutral": "中立"}
 _ATTACK_HINTS = ("攻击", "冲锋", "斩", "劈", "刺", "射", "轰", "扑", "锤", "咬", "挥")
 
 
 class NPCController:
-    """NPC 行动控制器：每轮让在场 NPC 按先攻顺序独立行动。
+    """NPC 行动子工具：以每个在场 NPC 的独立子请求决定其本轮行动，并机械结算。
 
     设计（用户确认）：
     - 每个在场 NPC 一个独立 LLM 子请求，以该 NPC 身份决定本轮唯一行动；
-    - 严格按 D&D 先攻（敏捷检定 d20+敏捷调整值，从高到低）依次串行处理，绝不并发；
-    - 时序：玩家行动机械结算之后、主 DM 叙事整合之前；
+    - 先攻排序由 Initiative（core/rounds/initiative.py）统一维护，本控制器不再重复掷；
     - 攻击类行动由系统机械结算（骰子+落账），主 DM 只把已结算结果编织进叙事，
       不再重复扣血；非攻击行动仅产生叙事意图。
     """
@@ -32,58 +31,23 @@ class NPCController:
         self.changed_names: set[str] = set()
         self.check_results: list[dict] = []
 
-    # ── 主入口 ──
+    # ── 子工具入口：单个 NPC 本轮行动 ──
 
-    def run(self, player_input: str) -> str:
-        """结算在场 NPC 本轮行动，返回注入给主 DM 的上下文片段（空串=无 NPC 行动）。"""
-        self.log_lines = []
-        self.changed_names = set()
-        self.check_results = []
-        if not self.world:
-            return ""
-        order = self._initiative_order()
-        if not order:
-            return ""
-        parts: list[str] = []
-        for npc in order:
-            if getattr(npc, "hp", 1) <= 0:
-                self.log_lines.append(f"{npc.name} 已倒下，跳过行动")
-                continue
-            decision = self._ask_npc(npc, player_input)
-            line, injected = self._resolve(npc, decision)
-            self.log_lines.append(line)
-            if injected:
-                parts.append(injected)
-        if not parts:
-            return ""
-        return (
-            "[系统·NPC行动·已结算]（本轮在场 NPC 已由系统按先攻顺序依次行动，"
-            "伤害已直接落账，请勿再通过 [状态变更] 重复扣减这些目标的 HP。"
-            "请把每个 NPC 的行动分别写入 [副事件]，每行以 敌对/友方/中立 标签开头）：\n"
-            + "\n".join(parts)
-            + "\n[状态] 区块请如实写出这些目标的当前 HP。"
-        )
+    def act(self, npc: NPC, player_input: str) -> tuple[str, str, str]:
+        """结算单个 NPC 本轮行动。
 
-    # ── 先攻顺序 ──
-
-    def _initiative_order(self) -> list[NPC]:
-        """按 D&D 先攻排序：d20 + 敏捷调整值，从高到低；同名同类共享一次掷骰。"""
-        active = [e for e in self.world.active.values() if isinstance(e, NPC)]
-        if not active:
-            return []
-        roll_cache: dict[str, int] = {}
-
-        def init_key(npc: NPC):
-            if npc.name not in roll_cache:
-                roll_cache[npc.name] = random.randint(1, 20)
-            return roll_cache[npc.name] + modifier(npc.dexterity)
-
-        ordered = sorted(
-            active,
-            key=lambda n: (init_key(n), modifier(n.dexterity)),
-            reverse=True,
-        )
-        return ordered
+        返回 (check_text, injected, change_msg)：
+        - check_text：行动块的骰面/结果文本（非攻击行动为空串）
+        - injected：注入主 DM 短调用的叙事行（空串=该 NPC 本轮无需行动/已倒下）
+        - change_msg：变更块的落账消息（空串=无 HP 变更）
+        """
+        if not npc or getattr(npc, "hp", 1) <= 0:
+            self.log_lines.append(f"{npc.name} 已倒下，跳过行动")
+            return "", "", ""
+        decision = self._ask_npc(npc, player_input)
+        line, injected, check_text, change_msg = self._resolve(npc, decision)
+        self.log_lines.append(line)
+        return check_text, injected, change_msg
 
     # ── 子请求：以 NPC 身份决策 ──
 
@@ -102,7 +66,7 @@ class NPCController:
         ) or ""
         weapon = self._npc_weapon(npc)
         weapon_desc = f"{weapon.name}（{weapon.damage_dice}）" if weapon.damage_dice else weapon.name
-        attitude = _ATTITUDE_CN.get(npc.attitude, "中立")
+        attitude = level_cn(npc.attitude)
         return (
             f"你是「{npc.name}」，一个{attitude}角色。你正在一场 D&D 战斗中，"
             f"必须独立思考并行动。\n\n"
@@ -122,10 +86,11 @@ class NPCController:
 
     # ── 机械结算 ──
 
-    def _resolve(self, npc: NPC, decision: str) -> tuple[str, str]:
+    def _resolve(self, npc: NPC, decision: str) -> tuple[str, str, str, str]:
         """机械结算 NPC 决策。
 
-        返回 (log 行, 注入主 DM 的叙事行)。攻击命中并造成伤害时直接落账。
+        返回 (log 行, 注入主 DM 的叙事行, 行动块骰面文本, 变更块落账消息)。
+        攻击命中并造成伤害时直接落账。
         """
         text = (decision or "").strip()
         action_m = re.search(r"行动\s*[:：]\s*([^\n]+)", text)
@@ -134,13 +99,15 @@ class NPCController:
         target = (target_m.group(1).strip() if target_m else "").strip()
 
         is_attack = bool(action) and any(h in action for h in _ATTACK_HINTS)
-        tag = _ATTITUDE_CN.get(npc.attitude, "中立")
+        tag = level_cn(npc.attitude)
         if not is_attack:
             if not action:
                 action = "观望"
             return (
                 f"{npc.name} 选择：{action}",
                 f"[{tag}] {npc.name}：本轮{action}。",
+                "",
+                "",
             )
 
         target_ac, is_player = self._target_ac(target)
@@ -148,6 +115,8 @@ class NPCController:
             return (
                 f"{npc.name} 攻击目标「{target or '未知'}」：目标不存在，落空",
                 f"[{tag}] {npc.name}：试图攻击「{target or '未知'}」，但目标不在场。",
+                "",
+                "",
             )
 
         roll = random.randint(1, 20)
@@ -167,10 +136,13 @@ class NPCController:
         else:
             op = "<"
         color = "yellow" if roll == 20 else ("red" if not hit else "green")
+        check_text = (
+            f"{npc.name} 攻击: d20({roll}) + ({bonus:+d}) = {total} "
+            f"{op} {target_ac} [{color}]{word}[/{color}]"
+        )
         self.check_results.append({
             "target": npc.name,
-            "text": (f"{npc.name} 攻击: d20({roll}) + ({bonus:+d}) = {total} "
-                     f"{op} {target_ac} [{color}]{word}[/{color}]"),
+            "text": check_text,
             "success": hit,
         })
 
@@ -179,30 +151,36 @@ class NPCController:
                 f"{npc.name} 攻击{target_label}："
                 f"d20({roll})+({bonus:+d})={total} < {target_ac}，未命中",
                 f"[{tag}] {npc.name}：对{'你' if is_player else target}发起攻击，但攻击落空了。",
+                check_text,
+                "",
             )
 
         weapon = self._npc_weapon(npc)
         dmg = self._roll_damage(weapon.damage_dice, npc, crit=(roll == 20))
-        self.check_results[-1]["text"] += f" 造成 {dmg} 伤害"
+        self.check_results[-1]["text"] = check_text + f" 造成 {dmg} 伤害"
         if is_player:
             res = self.manager.remove_hp(dmg)
             self.changed_names.add(self.character.name)
             line = (f"{npc.name} 攻击玩家：d20({roll})+({bonus:+d})={total} ≥ {target_ac}，"
                     f"命中，造成 {dmg} 点伤害")
             injected = f"[{tag}] {npc.name}：攻击你，命中，造成 {dmg} 点伤害。"
+            change_msg = f"{self.character.name} HP {dmg:-d}"
         else:
             tgt = self.world.get_by_name(target)
             if tgt is None:
                 return (
                     f"{npc.name} 攻击目标「{target}」：目标不在场，落空",
                     f"[{tag}] {npc.name}：试图攻击「{target}」，但对方已不在场上。",
+                    "",
+                    "",
                 )
             tgt.hp = max(tgt.hp - dmg, 0)
             self.changed_names.add(tgt.name)
             line = (f"{npc.name} 攻击 {tgt.name}：d20({roll})+({bonus:+d})={total} ≥ {target_ac}，"
                     f"命中，造成 {dmg} 点伤害")
             injected = f"[{tag}] {npc.name}：攻击 {tgt.name}，命中，造成 {dmg} 点伤害。"
-        return line, injected
+            change_msg = f"{tgt.name} HP {dmg:-d}"
+        return line, injected, self.check_results[-1]["text"], change_msg
 
     # ── 数值辅助 ──
 

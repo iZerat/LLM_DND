@@ -251,7 +251,7 @@ class ResourceManager:
         free（填表创建）: 按 NPCTemplate 表单校验，创建运行时模板并生成实例。
         """
         from world.npc_templates import npc_catalog
-        from resource.objects import ATTITUDE_CN_TO_EN
+        from resource.attitude import label_to_int
         name = str(fields.get("name", "")).strip()
         if not name:
             return ResourceResult.fail("npc_add 缺少名称")
@@ -270,7 +270,9 @@ class ResourceManager:
             npc = npc_catalog.spawn(found["id"], name=name)
             attitude_cn = str(fields.get("attitude", "")).strip()
             if attitude_cn:
-                npc.attitude = ATTITUDE_CN_TO_EN.get(attitude_cn, attitude_cn)
+                v = label_to_int(attitude_cn)
+                if v is not None:
+                    npc.attitude = v
         if not npc:
             return ResourceResult.fail(f"NPC「{name}」创建失败")
         if self.world:

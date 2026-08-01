@@ -34,7 +34,7 @@ SYSTEM_PROMPT_TEMPLATE = """你是基于 D&D 5e 规则的地城主（GM），你
 （每轮都必须填写，与[环境]中的时间保持一致）
 
 [事件]
-描述当前发生了什么。承接上一轮玩家的选择结果。描述要有画面感，但保持精炼。3-5句话。
+描述当前发生了什么。承接上一轮玩家的选择结果，说明其行动造成的影响；若玩家上一轮行动是系统结算的检定（输入中带 [检定]/[攻击]），其结果已给出，直接作为事实承接。描述要有画面感，但保持精炼。3-5句话。
 
 [状态] 严格按以下格式填表——每行一个字段，不要用 |
 玩家: 荷鲁斯 Lv.1 龙裔 邪术师, AC:13, HP:8/8
@@ -72,7 +72,9 @@ SYSTEM_PROMPT_TEMPLATE = """你是基于 D&D 5e 规则的地城主（GM），你
 3. 收到判定结果后，在[副事件]区块中用2-3句话描述目标行动的结果（命中/落空、成功/失败的效果，是否暴击/大失败）。
 另外，若本轮系统已结算在场 NPC 的行动（以 [系统·NPC行动·已结算] 注入，伤害已直接落账），
 也应把每个 NPC 的行动分别写入[副事件]，每行以 敌对/友方/中立 标签开头。
-[副事件]只在上述目标行动或目标检定发生时输出，且必须放在回答的最后；没有目标行动就不要输出[副事件]。
+若玩家上一轮的行动是系统结算的检定（玩家输入中带 [检定] 或 [攻击] 标注，骰面与成败已给出），
+在[副事件]中用2-3句话补充描述该行动的结果（承接[事件]的叙述，不要重复判定或改数值）。
+[副事件]只在上述目标检定或玩家检定发生时输出，且必须放在回答的最后；没有检定就不要输出[副事件]。
 
 ## 对话与行动标记
 - 「NPC对话」
@@ -108,6 +110,19 @@ CORE_RULES = """- 属性调整值 = (属性值-10)//2
 - 豁免: d20 + 属性调整值 (+熟练加值 if 有该豁免熟练)
 - 大成功/大失败: 骰面天然20=大成功（自动成功/暴击），天然1=大失败（自动失败/失手）
 - 种族特性、专长和技能在角色信息中列出"""
+
+NARRATION_SYSTEM_PROMPT = """你是基于 D&D 5e 规则的地城主（GM），正在战斗回合的逐段进行中，只负责把一个目标/玩家已由系统机械结算好的行动编织进叙事。
+
+## 输出格式
+只输出一个区块，2-3 句话：
+
+[副事件]
+（描述该行动的过程与结果，要有画面感。行动结果已被系统结算/落账，不要重复判定或扣血，也不要改写给定的数值。）
+
+## 要求
+1. 只输出 [副事件]，不要输出 [环境]、[事件]、[状态]、[选择]、[历史] 等区块
+2. 用中文，精炼、有画面感
+3. 不要添加任何标记语法之外的说明"""
 
 
 
@@ -256,10 +271,15 @@ class GameMaster:
 
         return prompt
 
-    def _build_messages(self, player_input: str) -> list:
-        system_content = self._build_system_prompt()
+    def _build_messages(self, player_input: str, system_override: str | None = None) -> list:
+        if system_override:
+            system_content = system_override
+            user_content = player_input
+        else:
+            system_content = self._build_system_prompt()
+            user_content = player_input + "\n\n[记住] [状态]必包含'玩家:'和'目标:'两行。有敌人/NPC就写目标行并加[敌对][中立][友方]标签。多个目标每个单独一行用'其他:'（不要用xN合并）。无目标写'目标: 无'。目标名称禁止加括号或事件描述（如「(已逃窜)」），状态写进[事件]，名称一律用中文（如「哥布林」「地精喽啰」），禁止英文原名（如 Goblin、Orc）。角色对话用「」包裹，特殊名词用【】包裹。数据变更（物品/金钱/HP/NPC）优先调用工具；工具不可用时才在末尾附加[物品变更]/[状态变更]区块。金钱统一用cp，HP用hp。"
         messages = [{"role": "system", "content": system_content}]
-        messages.append({"role": "user", "content": player_input + "\n\n[记住] [状态]必包含'玩家:'和'目标:'两行。有敌人/NPC就写目标行并加[敌对][中立][友方]标签。多个目标每个单独一行用'其他:'（不要用xN合并）。无目标写'目标: 无'。目标名称禁止加括号或事件描述（如「(已逃窜)」），状态写进[事件]，名称一律用中文（如「哥布林」「地精喽啰」），禁止英文原名（如 Goblin、Orc）。角色对话用「」包裹，特殊名词用【】包裹。数据变更（物品/金钱/HP/NPC）优先调用工具；工具不可用时才在末尾附加[物品变更]/[状态变更]区块。金钱统一用cp，HP用hp。"})
+        messages.append({"role": "user", "content": user_content})
         return messages
 
     def _handle_dice_roll(self, player_input: str) -> Optional[str]:
@@ -286,8 +306,9 @@ class GameMaster:
 
         return f"[投骰] {expr} = **{result}**"
 
-    def send_message_stream(self, player_input: str, tools=None, tool_executor=None, status_cb=None):
-        messages = self._build_messages(player_input)
+    def send_message_stream(self, player_input: str, tools=None, tool_executor=None, status_cb=None, system_override: str | None = None, round_num: int | None = None):
+        """流式对话。round_num 传入时覆盖内部自增计数，使同一回合内多个段共享同一轮号。"""
+        messages = self._build_messages(player_input, system_override=system_override)
         self.last_tool_results = []
         self._used_tools = False
 
@@ -385,6 +406,8 @@ class GameMaster:
                     status_cb("DM 叙述检定结果...")
 
             self._round_num += 1
+            if round_num is not None:
+                self._round_num = round_num
             self.last_assistant = collected
             self._compress_history(player_input, collected)
 

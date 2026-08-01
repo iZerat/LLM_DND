@@ -73,7 +73,8 @@ class NPCCatalog:
             return item_def.guid
         return entry
 
-    def spawn(self, template_id: str, name: str = "", attitude: str = "") -> Optional[NPC]:
+    def spawn(self, template_id: str, name: str = "", attitude="") -> Optional[NPC]:
+        from resource.attitude import coerce_legacy
         tmpl = self.get_template(template_id)
         if not tmpl:
             return None
@@ -95,7 +96,9 @@ class NPCCatalog:
             proficiency_bonus=tmpl.get("proficiency_bonus", 2),
             skills=list(tmpl.get("skills", [])),
             saving_throws=list(tmpl.get("saving_throws", [])),
-            attitude=attitude or tmpl.get("attitude", "neutral"),
+            attitude=coerce_legacy(
+                tmpl.get("attitude", "neutral") if attitude in (None, "") else attitude
+            ),
             tags=list(tmpl.get("tags", [])),
         )
         from resource.models import Currency
@@ -125,7 +128,7 @@ def get_template(template_id: str) -> Optional[dict]:
     return npc_catalog.get_template(template_id)
 
 
-def spawn(template_id: str, name: str = "", attitude: str = "") -> Optional[NPC]:
+def spawn(template_id: str, name: str = "", attitude="") -> Optional[NPC]:
     return npc_catalog.spawn(template_id, name, attitude)
 
 

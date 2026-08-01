@@ -13,6 +13,7 @@ class AuditResult:
         self.text: str = ""
         self.messages: list[str] = []
         self.repaired: bool = False
+        self.changed_npcs: set[str] = set()
 
 
 class Supervisor:
@@ -55,9 +56,18 @@ class Supervisor:
 
     # ── 方向B：LLM 输出 → 审核 ──
 
-    def audit(self, raw_text: str, protected_npcs: set | None = None) -> AuditResult:
+    def audit(self, raw_text: str, protected_npcs: set | None = None,
+              mode: str = "full") -> AuditResult:
         result = AuditResult()
         text = raw_text.replace("（无需检定）", "")
+
+        # 轻量模式：段内叙事（战斗已由系统机械结算）——只剥离变更区块，不落账，
+        # 防止 DM 重复结算；不校验/修复结构，避免短调用被反复打回。
+        if mode == "light":
+            text = _ITEM_BLOCK_RE.sub("", text, count=1)
+            text = _STATUS_CHANGE_BLOCK_RE.sub("", text, count=1)
+            result.text = text
+            return result
 
         # 0. 工具通道：已通过工具落账的变更直接展示；
         #    若本轮用了工具，叙事中残余的文本区块仅作兜底，剥离以防双重落账
@@ -91,6 +101,7 @@ class Supervisor:
         while True:
             report = self.regulator.submit_status_changes(text)
             result.messages.extend(report.messages)
+            result.changed_npcs |= report.changed_npcs
             if report.applied or not report.issues:
                 text = report.text
                 break
@@ -128,6 +139,7 @@ class Supervisor:
             text, report.changed_npcs | (protected_npcs or set())
         )
         result.messages.extend(report.messages)
+        result.changed_npcs |= report.changed_npcs
 
         # 数值复核：以调节器落账为准覆盖 [状态] 块中的 HP/AC，
         # 让玩家看到的“目标”面板永远与“变更”面板一致（允许大模型圆故事，不允许数值裸冲突）
@@ -139,6 +151,7 @@ class Supervisor:
             result.repaired = True
 
         result.text = text
+        self.gm.last_changed_npcs = result.changed_npcs
         return result
 
     def needs_repair(self, response_text: str) -> bool:
