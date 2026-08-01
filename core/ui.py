@@ -193,14 +193,22 @@ def render_status_row(character, world_state=None, targets=None):
     """目标块：一排等宽块，玩家永远在最前，其后每个在场 NPC 一块（无目标则只有玩家块）。
 
     数据源为 WorldState（等级/生命值/AC/态度），不再依赖 DM 每段重写 [状态]。
+    玩家昏迷/稳定/死亡有独立标记；NPC 倒地（HP 0）标灰[倒地]、即死标灰[死亡]。
     targets 可选覆盖：用于按先攻过滤当前在场目标。
     """
     from world.entity import NPC
+    cond = character.condition_cn
+    cond_color = "grey50" if character.dead else ("grey62" if character.unconscious else "grey50")
+    player_panel_body = (
+        f"[grey50]等级[/grey50] {character.level}  "
+        f"[grey50]生命[/grey50] {_hp_full_markup(character.hp, character.max_hp)}  "
+        f"[grey50]AC[/grey50] {character.ac}"
+    )
+    if character.unconscious or character.dead:
+        player_panel_body += f"\n[grey50]状态[/grey50] [{cond_color}]{cond}[/{cond_color}]"
     panels = [
         Panel(
-            f"[grey50]等级[/grey50] {character.level}  "
-            f"[grey50]生命[/grey50] {_hp_full_markup(character.hp, character.max_hp)}  "
-            f"[grey50]AC[/grey50] {character.ac}",
+            player_panel_body,
             title=f"[grey58]{character.name}[/grey58]",
             border_style="grey58",
             box=box.SQUARE,
@@ -211,10 +219,17 @@ def render_status_row(character, world_state=None, targets=None):
         if not isinstance(e, NPC):
             continue
         attitude = getattr(e, "attitude", 0)
-        color = _hostility_color(attitude)
-        tag = {"hostile": "敌对", "neutral": "中立", "friendly": "友方"}.get(
-            level(attitude), "中立"
-        )
+        dead = bool(getattr(e, "dead", False))
+        downed = not dead and getattr(e, "hp", 0) <= 0
+        if dead:
+            tag, color = "死亡", "grey50"
+        elif downed:
+            tag, color = "倒地", "grey50"
+        else:
+            color = _hostility_color(attitude)
+            tag = {"hostile": "敌对", "neutral": "中立", "friendly": "友方"}.get(
+                level(attitude), "中立"
+            )
         hp_text = _hp_full_markup(e.hp, e.max_hp)
         panels.append(Panel(
             f"[{color}]{tag}[/{color}]  [grey50]生命[/grey50] {hp_text}  [grey50]AC[/grey50] {e.ac}",
@@ -223,6 +238,27 @@ def render_status_row(character, world_state=None, targets=None):
             box=box.SQUARE,
         ))
     console.print(Columns(panels, equal=False, expand=False))
+
+
+def render_death_save_block(text: str):
+    """死亡豁免块：玩家回合起手的系统自动豁免结果。"""
+    console.print(Panel(
+        text,
+        title="[indian_red]死亡豁免[/indian_red]",
+        border_style="indian_red",
+        box=box.SQUARE,
+    ))
+
+
+def render_death_block(name: str):
+    """死亡结算块：死亡豁免 3 败或即死后的游戏结束提示。"""
+    console.print(Panel(
+        f"[bold indian_red]{name} 死亡了……[/bold indian_red]\n\n"
+        "[grey62]冒险就此结束。你可以读档重来，或返回主菜单创建新角色。[/grey62]",
+        title="[indian_red]死亡[/indian_red]",
+        border_style="indian_red",
+        box=box.SQUARE,
+    ))
 
 
 def render_choice_block(choice_text: str):
@@ -371,6 +407,8 @@ def show_help():
 
 def show_status(char: Character):
     from loc import tr
+    cond = char.condition_cn
+    cond_color = "indian_red" if char.dead else ("grey82" if char.unconscious else "green")
     console.print(f"\n[steel_blue]{char.name}[/steel_blue]  Lv.{char.level} {char.race_cn} {char.class_cn}")
     console.print(f"[grey50]{tr('general:hp')}:[/grey50] {_hp_full_markup(char.hp, char.max_hp)}  "
                   f"[grey50]{tr('general:ac')}:[/grey50] {char.ac}  "
@@ -378,8 +416,9 @@ def show_status(char: Character):
     console.print(Panel(
         "[grey50]增益:[/grey50] 无\n"
         "[grey50]减益:[/grey50] 无\n"
-        "[grey50]状态:[/grey50] 正常\n"
-        "[grey50]临时HP:[/grey50] 0",
+        f"[grey50]状态:[/grey50] [{cond_color}]{cond}[/{cond_color}]"
+        + (f"  [grey50]死亡豁免[/grey50] 失败 {char.death_fails}/3 · 成功 {char.death_successes}/3" if char.unconscious else "")
+        + "\n[grey50]临时HP:[/grey50] 0",
         title="[steel_blue]" + tr("general:status_title") + "[/steel_blue]",
         border_style="steel_blue",
         box=box.SQUARE,

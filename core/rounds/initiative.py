@@ -33,7 +33,7 @@ class Initiative:
         ]
         roll_cache: dict[str, int] = {}
         for e in world.active.values():
-            if not isinstance(e, NPC) or getattr(e, "hp", 0) <= 0:
+            if not isinstance(e, NPC) or getattr(e, "dead", False) or getattr(e, "hp", 0) <= 0:
                 continue
             if e.name not in roll_cache:
                 roll_cache[e.name] = random.randint(1, 20)
@@ -50,7 +50,7 @@ class Initiative:
                 resolved.append((e.name, self.character))
                 continue
             ent = world.get_by_name(e.name)
-            if ent is None:
+            if ent is None or (isinstance(ent, NPC) and getattr(ent, "dead", False)):
                 continue
             resolved.append((e.name, ent))
         return resolved

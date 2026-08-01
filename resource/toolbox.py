@@ -1,7 +1,7 @@
 """资源调节工具箱：把调节器（Regulator）暴露为 OpenAI function-calling 工具。
 
 所有数据变更仍由调节器唯一执行；工具只是让大模型以结构化参数主动调用
-调节器（银行柜台），替代手写 [物品变更]/[状态变更] 文本区块。
+调节器（银行柜台），[物品变更]/[状态变更] 文本区块已彻底废除（D6）。
 参数 schema 由 ResourceSchema 自动生成（create_npc / create_item）。
 """
 
@@ -42,6 +42,28 @@ def _tool_reply(success: bool, message: str, data: dict | None = None) -> str:
     return json.dumps(payload, ensure_ascii=False)
 
 
+# 数据变更工具：必须携带 reason（叙事理由），缺失 → 拒绝执行（D5/T5/T7）
+_REASON_REQUIRED_TOOLS = {
+    "change_status", "grant_item", "remove_item", "change_currency",
+    "change_attitude", "create_npc", "create_item",
+}
+_REASON_DESC = "本次数据变更的叙事理由（必填，用于审计与结算日志）"
+
+
+def _with_reason(schema: dict) -> dict:
+    """给工具 schema 追加必填 reason 参数（就地修改并返回）。"""
+    props = schema.setdefault("properties", {})
+    props["reason"] = {"type": "string", "description": _REASON_DESC}
+    req = schema.setdefault("required", [])
+    if "reason" not in req:
+        req.append("reason")
+    return schema
+
+
+def _reason_error(name: str) -> str:
+    return _tool_reply(False, f"{name} 缺少必填的 reason（数据变更理由），已拒绝执行")
+
+
 _SLOTS = ["weapon", "body", "off_hand", "head", "back", "neck", "ring1", "ring2"]
 
 
@@ -51,13 +73,14 @@ class ResourceToolbox:
         self.manager = regulator.manager
         self.results: list[str] = []
         self.check_results: list[dict] = []
+        self.tool_call_log: list[str] = []
 
     # ── 工具定义（由 ResourceSchema 自动生成）──
 
     def schemas(self) -> list[dict]:
         mode = self.manager.resource_mode
-        npc_params = NPCTemplate.schema().to_json_schema()
-        item_params = ItemDef.schema().to_json_schema()
+        npc_params = _with_reason(NPCTemplate.schema().to_json_schema())
+        item_params = _with_reason(ItemDef.schema().to_json_schema())
         npc_desc = (
             "创建 NPC。查表创建模式：按 name 在资源库查询生成，name 必须真实存在；"
             "填表创建模式：按表单字段创建，属性需贴合世界背景设定。创建后会自动设为目标。"
@@ -69,24 +92,27 @@ class ResourceToolbox:
                   item_params),
             _tool("grant_item",
                   "给玩家添加物品（物品名需存在于资源库，或用 create_item 创建过的名称）。",
-                  {"type": "object", "properties": {
-                      "item": {"type": "string", "description": "物品名称"},
-                      "quantity": {"type": "integer", "minimum": 1, "default": 1},
-                      "slot": {"type": "string", "description": "可选装备槽位",
-                               "enum": _SLOTS},
-                  }, "required": ["item"]}),
+                  _with_reason({
+                      "type": "object", "properties": {
+                          "item": {"type": "string", "description": "物品名称"},
+                          "quantity": {"type": "integer", "minimum": 1, "default": 1},
+                          "slot": {"type": "string", "description": "可选装备槽位",
+                                   "enum": _SLOTS},
+                      }, "required": ["item"]})),
             _tool("remove_item",
                   "从玩家背包移除物品。",
-                  {"type": "object", "properties": {
-                      "item": {"type": "string", "description": "物品名称"},
-                      "quantity": {"type": "integer", "minimum": 1, "default": 1},
-                  }, "required": ["item"]}),
+                  _with_reason({
+                      "type": "object", "properties": {
+                          "item": {"type": "string", "description": "物品名称"},
+                          "quantity": {"type": "integer", "minimum": 1, "default": 1},
+                      }, "required": ["item"]})),
             _tool("change_currency",
                   "增减玩家金钱，单位统一为铜币（cp）。正数加钱，负数扣钱。",
-                  {"type": "object", "properties": {
-                      "amount_cp": {"type": "integer",
-                                    "description": "增减量（铜币），正数加钱，负数扣钱"},
-                  }, "required": ["amount_cp"]}),
+                  _with_reason({
+                      "type": "object", "properties": {
+                          "amount_cp": {"type": "integer",
+                                        "description": "增减量（铜币），正数加钱，负数扣钱"},
+                      }, "required": ["amount_cp"]})),
             _tool("set_target",
                   "指定当前战斗/交互目标 NPC。对目标改动前请先调用。",
                   {"type": "object", "properties": {
@@ -94,11 +120,21 @@ class ResourceToolbox:
                   }, "required": ["name"]}),
             _tool("change_status",
                   "修改玩家或 NPC 的生命值。target 传「玩家」或 NPC 名称。",
-                  {"type": "object", "properties": {
-                      "target": {"type": "string", "description": "玩家 或 NPC 名称"},
-                      "hp": {"type": "integer", "description": "HP 增减量：正数治疗、负数伤害"},
-                      "max_hp": {"type": "integer", "description": "最大HP 增减量"},
-                  }, "required": ["target"]}),
+                  _with_reason({
+                      "type": "object", "properties": {
+                          "target": {"type": "string", "description": "玩家 或 NPC 名称"},
+                          "hp": {"type": "integer", "description": "HP 增减量：正数治疗、负数伤害"},
+                          "max_hp": {"type": "integer", "description": "最大HP 增减量"},
+                      }, "required": ["target"]})),
+            _tool("change_attitude",
+                  "调整某 NPC 对玩家的敌对/友好态度（-100..+100：负数=变敌对，正数=变友好）。"
+                  "攻击、威胁、偷窃、侮辱等敌对行为应传负数；帮助、赠送、治疗应传正数。",
+                  _with_reason({
+                      "type": "object", "properties": {
+                          "target": {"type": "string", "description": "NPC 名称"},
+                          "delta": {"type": "integer",
+                                    "description": "态度变化量，负=更敌对，正=更友好"},
+                      }, "required": ["target", "delta"]})),
             _tool("target_check",
                   "为目标NPC执行本地检定（攻击/豁免/属性检定），骰子由系统在本机掷出并直接判定。"
                   "攻击检定对玩家AC；豁免/属性检定对给定DC。收到返回的判定结果后，"
@@ -127,6 +163,10 @@ class ResourceToolbox:
     def execute(self, name: str, arguments: dict) -> str:
         m = self.manager
         try:
+            if name in _REASON_REQUIRED_TOOLS and not str(arguments.get("reason", "") or "").strip():
+                reply = _reason_error(name)
+                self._log_call(name, arguments, False, reply)
+                return reply
             if name == "create_npc":
                 result = m.npc_add(arguments)
             elif name == "create_item":
@@ -141,15 +181,34 @@ class ResourceToolbox:
                 result = m.set_target(str(arguments.get("name", "")).strip())
             elif name == "change_status":
                 result = self._change_status(arguments)
+            elif name == "change_attitude":
+                result = m.change_attitude(
+                    str(arguments.get("target", "")).strip(),
+                    int(arguments.get("delta") or 0),
+                    reason=str(arguments.get("reason", "") or ""),
+                )
             elif name == "target_check":
                 result = self._target_check(arguments)
             else:
                 return _tool_reply(False, f"未知工具: {name}")
         except Exception as e:
-            return _tool_reply(False, f"工具执行异常: {e}")
+            reply = _tool_reply(False, f"工具执行异常: {e}")
+            self._log_call(name, arguments, False, reply)
+            return reply
         if result.success and result.visible and result.message:
             self.results.append(result.message)
-        return _tool_reply(result.success, result.message, result.data)
+        reply = _tool_reply(result.success, result.message, result.data)
+        self._log_call(name, arguments, result.success, reply)
+        return reply
+
+    def _log_call(self, name: str, arguments: dict, ok: bool, reply: str) -> None:
+        """记录一次工具调用（含参数与 reason），供审计日志（T7）。"""
+        self.tool_call_log.append(
+            json.dumps(
+                {"tool": name, "args": arguments, "ok": ok, "reply": reply},
+                ensure_ascii=False,
+            )
+        )
 
     # ── 具体工具实现 ──
 
@@ -206,15 +265,7 @@ class ResourceToolbox:
         npc = m.world.get_by_name(target) if m.world else None
         if not npc:
             return ResourceResult.fail(f"未找到目标 NPC「{target}」，请先用 create_npc / set_target")
-        parts = []
-        if hp:
-            npc.hp = max(min(npc.hp + hp, npc.max_hp), 0)
-            parts.append(f"目标 {npc.name} HP {hp:+d}点")
-        if max_hp:
-            npc.max_hp = max(npc.max_hp + max_hp, 1)
-            npc.hp = min(npc.hp, npc.max_hp)
-            parts.append(f"目标 {npc.name} 最大HP {max_hp:+d}点")
-        return ResourceResult.ok("，".join(parts) if parts else "无变化")
+        return m.npc_change_status(target, hp=hp, max_hp=max_hp)
 
     # ── 目标检定：本地掷骰，结果回填 LLM（副事件块）──
 

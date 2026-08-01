@@ -42,7 +42,7 @@ class ResourceManager:
         self.world = None  # set by game_loop
         self.resource_mode = RESOURCE_MODE_PACK
         self._target_npc: Optional[NPC] = None
-        # 本轮已被工具 / [状态变更] 主动改过 HP 的对象（"玩家" 或 NPC 名称），
+        # 本轮已被工具主动改过 HP 的对象（"玩家" 或 NPC 名称），
         # 供 sync_status_block 判定「世界值 vs [状态] 声明值」谁生效。
         self.changed_npcs: set[str] = set()
 
@@ -156,16 +156,135 @@ class ResourceManager:
         return self.character.name if self.character else "玩家"
 
     def add_hp(self, amount: int) -> ResourceResult:
+        """玩家治疗（D&D：0 HP 恢复生命 → 苏醒；死亡者普通治疗无效，需复活魔法）。"""
         if not self.character:
             return ResourceResult.fail("无法修改HP：未传入角色对象")
-        self.character.hp = min(self.character.hp + amount, self.character.max_hp)
-        return ResourceResult.ok(f"{self._owner_name()} HP +{self._hp_change_display(amount)}")
+        c = self.character
+        if c.dead:
+            return ResourceResult.fail(f"{c.name} 已死亡，普通治疗无法生效（需复活魔法）")
+        hp_before = c.hp
+        c.hp = min(c.hp + amount, c.max_hp)
+        notes = []
+        if hp_before <= 0 < c.hp:
+            c.stable = False
+            c.death_fails = 0
+            c.death_successes = 0
+            notes.append("苏醒")
+        return ResourceResult.ok(
+            f"{self._owner_name()} HP +{self._hp_change_display(amount)}"
+            + ("，" + "，".join(notes) if notes else "")
+        )
 
-    def remove_hp(self, amount: int) -> ResourceResult:
+    def remove_hp(self, amount: int, crit: bool = False) -> ResourceResult:
+        """玩家伤害（D&D 归零/濒死规则，T17）。
+
+        - HP 归零 → 昏迷；巨量伤害（余量 ≥ 生命上限）→ 即死。
+        - 0 HP 再受伤 → 死亡豁免失败（暴击 2 次）；伤害 ≥ 生命上限 → 即死；
+          稳定者受伤 → 稳定被打破。
+        - crit：本次伤害是否来自暴击（影响 0 HP 下的失败计数）。
+        """
         if not self.character:
             return ResourceResult.fail("无法修改HP：未传入角色对象")
-        self.character.hp = max(self.character.hp - amount, 0)
-        return ResourceResult.ok(f"{self._owner_name()} HP -{self._hp_change_display(amount)}")
+        c = self.character
+        if c.dead:
+            return ResourceResult.fail(f"{c.name} 已死亡，无法再承受伤害")
+        amount = int(amount or 0)
+        hp_before = c.hp
+        c.hp = max(c.hp - amount, 0)
+        notes: list[str] = []
+        if c.hp == 0 and amount > 0:
+            if hp_before == 0:
+                if c.stable:
+                    c.stable = False
+                    notes.append("稳定被打破")
+                if amount >= c.max_hp:
+                    c.dead = True
+                    notes.append("即死（伤害 ≥ 生命上限）")
+                else:
+                    fails = 2 if crit else 1
+                    c.death_fails += fails
+                    notes.append(f"死亡豁免失败 {fails} 次（{c.death_fails}/3）")
+                    if c.death_fails >= 3:
+                        c.dead = True
+                        notes.append("死亡")
+            else:
+                overkill = amount - hp_before
+                if overkill >= c.max_hp:
+                    c.dead = True
+                    notes.append("即死（巨量伤害 ≥ 生命上限）")
+                else:
+                    notes.append("昏迷")
+        return ResourceResult.ok(
+            f"{self._owner_name()} HP -{self._hp_change_display(amount)}"
+            + ("，" + "，".join(notes) if notes else "")
+        )
+
+    def set_stable(self) -> ResourceResult:
+        """稳定：停止死亡豁免（仍昏迷），计数清零。医药检定/治疗行为的结果。"""
+        if not self.character:
+            return ResourceResult.fail("无法修改状态：未传入角色对象")
+        c = self.character
+        if c.dead:
+            return ResourceResult.fail(f"{c.name} 已死亡")
+        if c.hp > 0:
+            return ResourceResult.fail(f"{c.name} 生命值大于 0，无需稳定")
+        c.stable = True
+        c.death_fails = 0
+        c.death_successes = 0
+        return ResourceResult.ok(f"{c.name} 已稳定（停止死亡豁免，仍昏迷）")
+
+    def roll_death_save(self) -> ResourceResult:
+        """系统自动死亡豁免（T17，玩家回合起手 0 HP 时调用）。
+
+        d20：≥10 成功 / <10 失败；天然1=2 失败；天然20=恢复 1 HP 苏醒；
+        3 次成功→稳定，3 次失败→死亡。
+        """
+        import random
+        if not self.character:
+            return ResourceResult.fail("无法进行死亡豁免：未传入角色对象")
+        c = self.character
+        if c.dead:
+            return ResourceResult.fail(f"{c.name} 已死亡")
+        if c.hp > 0:
+            return ResourceResult.fail(f"{c.name} 生命值大于 0，无需死亡豁免")
+        if c.stable:
+            return ResourceResult.fail(f"{c.name} 已稳定，无需死亡豁免")
+        roll = random.randint(1, 20)
+        line = f"d20({roll})"
+        if roll == 20:
+            c.hp = min(c.max_hp, c.hp + 1)
+            c.stable = False
+            c.death_fails = 0
+            c.death_successes = 0
+            return ResourceResult.ok(
+                f"{line} 天然20：恢复 1 点生命，{c.name} 苏醒！",
+                {"outcome": "awake", "roll": roll},
+            )
+        if roll == 1:
+            c.death_fails += 2
+            msg = f"{line} 天然1：死亡豁免失败 2 次（失败 {c.death_fails}/3）"
+            if c.death_fails >= 3:
+                c.dead = True
+                msg += "，第 3 次失败，死亡！"
+                return ResourceResult.ok(msg, {"outcome": "dead", "roll": roll})
+            return ResourceResult.ok(msg, {"outcome": "fail", "roll": roll})
+        if roll >= 10:
+            c.death_successes += 1
+            msg = f"{line} 成功（≥10）：死亡豁免成功 {c.death_successes}/3"
+            if c.death_successes >= 3:
+                c.stable = True
+                c.death_fails = 0
+                c.death_successes = 0
+                msg += "，第 3 次成功，转为稳定（停止豁免，仍昏迷）"
+                return ResourceResult.ok(msg, {"outcome": "stable", "roll": roll})
+            return ResourceResult.ok(msg, {"outcome": "success", "roll": roll})
+        c.death_fails += 1
+        msg = f"{line} 失败（<10）：死亡豁免失败 {c.death_fails}/3"
+        if c.death_fails >= 3:
+            c.dead = True
+            msg += "，第 3 次失败，死亡！"
+            return ResourceResult.ok(msg, {"outcome": "dead", "roll": roll})
+        return ResourceResult.ok(msg, {"outcome": "fail", "roll": roll})
 
     def add_maxhp(self, amount: int) -> ResourceResult:
         if not self.character:
@@ -206,6 +325,76 @@ class ResourceManager:
             return ResourceResult.fail("未设定目标")
         npc.hp = max(npc.hp - amount, 0)
         return ResourceResult.ok(f"目标 {npc.name} HP -{self._hp_change_display(amount)}")
+
+    def npc_change_status(self, name: str, hp: int = 0, max_hp: int = 0) -> ResourceResult:
+        """按名称对 NPC 增减 HP / 最大HP（负数=扣减）。NPC 生命值变更的唯一落账漏斗。
+
+        由工具箱 change_status 与 NPC 机械结算共用，禁止在漏斗外直写 npc.hp / npc.max_hp。
+        0 HP → 倒地昏迷留场（可治疗苏醒，BG3 式可复活）；巨量伤害（余量 ≥ 生命上限）→ 即死；
+        已死亡者不接受治疗/伤害（复活留待高等级法术，本期不做）。
+        """
+        npc = self.world.get_by_name(name) if self.world else None
+        if not npc:
+            return ResourceResult.fail(f"未找到 NPC「{name}」")
+        parts: list[str] = []
+        if hp:
+            if npc.dead:
+                parts.append(f"目标 {npc.name} 已死亡，无法变更 HP")
+            else:
+                hp_before = npc.hp
+                if hp > 0:
+                    npc.hp = min(npc.hp + hp, npc.max_hp)
+                    parts.append(f"目标 {npc.name} HP {hp:+d}点")
+                    if hp_before <= 0 < npc.hp:
+                        parts.append("苏醒")
+                else:
+                    npc.hp = max(npc.hp + hp, 0)
+                    parts.append(f"目标 {npc.name} HP {hp:+d}点")
+                    if npc.hp == 0:
+                        if hp_before == 0:
+                            parts.append("（仍倒地）")
+                        else:
+                            overkill = -hp - hp_before
+                            if overkill >= npc.max_hp:
+                                npc.dead = True
+                                parts.append("即死（巨量伤害 ≥ 生命上限）")
+                            else:
+                                parts.append("倒地昏迷")
+        if max_hp:
+            if npc.dead:
+                parts.append(f"目标 {npc.name} 已死亡，无法变更最大HP")
+            else:
+                npc.max_hp = max(npc.max_hp + max_hp, 1)
+                npc.hp = min(npc.hp, npc.max_hp)
+                parts.append(f"目标 {npc.name} 最大HP {max_hp:+d}点")
+        return ResourceResult.ok("，".join(parts) if parts else "无变化")
+
+    def change_attitude(self, name: str, delta: int = 0, reason: str = "",
+                        event: str = "") -> ResourceResult:
+        """NPC 态度变更的唯一漏斗（D2）：clamp ±100 + attitude_reasons 落账。
+
+        delta 为该轮净变化量（可正可负）；reason 为叙事理由（LLM 必填，审计用）；
+        event 为事件表 id（可选，供攻击基线等自动落账标注）。
+        """
+        from resource.attitude import clamp
+        npc = self.world.get_by_name(name) if self.world else None
+        if not npc:
+            return ResourceResult.fail(f"未找到 NPC「{name}」")
+        old = int(getattr(npc, "attitude", 0) or 0)
+        new = clamp(old + int(delta or 0))
+        applied = new - old
+        npc.attitude = new
+        reasons = getattr(npc, "attitude_reasons", None)
+        if not isinstance(reasons, list):
+            reasons = []
+            npc.attitude_reasons = reasons
+        reasons.append({
+            "event": event or "manual",
+            "delta": applied,
+            "reason": reason,
+            "source": "manager.change_attitude",
+        })
+        return ResourceResult.ok(f"目标 {npc.name} 态度 {old:+d} → {new:+d}")
 
     def target_cp_add(self, amount: int) -> ResourceResult:
         npc = self._get_target()
@@ -293,7 +482,7 @@ class ResourceManager:
     def item_add(self, fields: dict) -> ResourceResult:
         """填表创建物品：校验 → 运行时 ItemDef。
 
-        只定义不发放；如需进入背包，由 [物品变更] 中的 + 名称 xN 引用。
+        只定义不发放；如需进入背包，调用 grant_item 工具 + 名称引用。
         """
         if self.resource_mode != RESOURCE_MODE_FREE:
             return ResourceResult.fail("item_add 仅适用于填表创建模式")

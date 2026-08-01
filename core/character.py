@@ -64,6 +64,10 @@ class Character:
     level: int = 1
     hp: int = 10
     max_hp: int = 10
+    dead: bool = False
+    stable: bool = False
+    death_fails: int = 0
+    death_successes: int = 0
     strength: int = 10
     dexterity: int = 10
     constitution: int = 10
@@ -77,6 +81,22 @@ class Character:
     gender: str = "male"
     age: int = 20
     inventory: Inventory = field(default_factory=Inventory)
+
+    @property
+    def unconscious(self) -> bool:
+        """昏迷：0 生命值且未死亡（D&D：0 HP → 昏迷，除非即死/已稳定）。"""
+        return not self.dead and self.hp <= 0
+
+    @property
+    def condition_cn(self) -> str:
+        """当前状态中文描述：死亡/稳定/昏迷/正常。"""
+        if self.dead:
+            return "死亡"
+        if self.stable:
+            return "稳定（昏迷）"
+        if self.unconscious:
+            return "昏迷"
+        return "正常"
 
     @property
     def dex_mod(self) -> int:

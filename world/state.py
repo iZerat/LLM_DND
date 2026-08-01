@@ -51,12 +51,6 @@ class WorldState:
                     return e
         return None
 
-    def rename(self, entity_id: str, name: str) -> None:
-        """Rename an entity (e.g. DM shortens/corrects a name in [状态])."""
-        e = self.get(entity_id)
-        if e is not None:
-            e.name = name
-
     def remove(self, entity_id: str) -> None:
         self._remove_anywhere(entity_id)
 
@@ -114,20 +108,28 @@ class WorldState:
 
     # ── status rendering for LLM prompt ──
 
+    def _status_mark(self, e: Entity) -> str:
+        """NPC 倒地/死亡标记（LLM 上下文用）。"""
+        if getattr(e, "dead", False):
+            return "（已死亡）"
+        if getattr(e, "hp", 0) <= 0:
+            return "（倒地昏迷）"
+        return ""
+
     def render_status_block(self, player_line: str) -> str:
         lines = [f"玩家: {player_line}"]
         if self.active:
             for e in self.active.values():
                 tag = self._tag(e)
-                lines.append(f"目标: [{tag}]{e.name}, AC:{e.ac}, HP:{e.hp}/{e.max_hp}")
+                lines.append(f"目标: [{tag}]{e.name}, AC:{e.ac}, HP:{e.hp}/{e.max_hp}{self._status_mark(e)}")
         if not self.active:
             lines.append("目标: 无")
         for e in self.nearby.values():
             tag = self._tag(e)
-            lines.append(f"附近: [{tag}]{e.name}, AC:{e.ac}, HP:{e.hp}/{e.max_hp}")
+            lines.append(f"附近: [{tag}]{e.name}, AC:{e.ac}, HP:{e.hp}/{e.max_hp}{self._status_mark(e)}")
         for e in self.distant.values():
             tag = self._tag(e)
-            lines.append(f"外围: [{tag}]{e.name}, AC:{e.ac}, HP:{e.hp}/{e.max_hp}")
+            lines.append(f"外围: [{tag}]{e.name}, AC:{e.ac}, HP:{e.hp}/{e.max_hp}{self._status_mark(e)}")
         return "\n".join(lines)
 
     def to_dict(self) -> dict:
@@ -162,20 +164,22 @@ class WorldState:
             return level_cn(getattr(e, 'attitude', 0))
         return "中立"
 
-    def render_context_for_llm(self, pc_name: str, pc_ac: int, pc_hp: int, pc_max_hp: int) -> str:
+    def render_context_for_llm(self, pc_name: str, pc_ac: int, pc_hp: int, pc_max_hp: int,
+                               pc_dead: bool = False) -> str:
         """Render [当前世界状态] block for injection into LLM user message."""
         lines = ["[当前世界状态]"]
-        lines.append(f"玩家: {pc_name}, AC:{pc_ac}, HP:{pc_hp}/{pc_max_hp}")
+        pc_mark = "（已死亡）" if pc_dead else ("（倒地昏迷）" if pc_hp <= 0 else "")
+        lines.append(f"玩家: {pc_name}, AC:{pc_ac}, HP:{pc_hp}/{pc_max_hp}{pc_mark}")
         if self.active:
             for e in self.active.values():
                 tag = self._tag(e)
-                lines.append(f"主目标: [{tag}]{e.name}, AC:{e.ac}, HP:{e.hp}/{e.max_hp}")
+                lines.append(f"主目标: [{tag}]{e.name}, AC:{e.ac}, HP:{e.hp}/{e.max_hp}{self._status_mark(e)}")
         else:
             lines.append("主目标: 无")
         for e in self.nearby.values():
             tag = self._tag(e)
-            lines.append(f"附近: [{tag}]{e.name}, AC:{e.ac}, HP:{e.hp}/{e.max_hp}")
+            lines.append(f"附近: [{tag}]{e.name}, AC:{e.ac}, HP:{e.hp}/{e.max_hp}{self._status_mark(e)}")
         for e in self.distant.values():
             tag = self._tag(e)
-            lines.append(f"外围: [{tag}]{e.name}, AC:{e.ac}, HP:{e.hp}/{e.max_hp}")
+            lines.append(f"外围: [{tag}]{e.name}, AC:{e.ac}, HP:{e.hp}/{e.max_hp}{self._status_mark(e)}")
         return "\n".join(lines)

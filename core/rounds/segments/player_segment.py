@@ -8,7 +8,7 @@ from core.ui import (
 
 
 class PlayerSegment(Segment):
-    """玩家段：选择块 → 玩家输入 → 决定块 → 玩家行动块 → DM 短调用 → 副事件块 → 变更块 → 目标块。
+    """玩家段：选择块 → 玩家输入 → 决定块 → 行动块 → DM 短调用 → 副事件块 → 变更块 → 状态块。
 
     选项编号输入：本地机械结算（交互骰），DM 仅编织叙事（不重复结算）。
     自由文本/命令输入：交由 DM 全权处理（含工具落账）。
@@ -20,6 +20,10 @@ class PlayerSegment(Segment):
         self.on_prompt = on_prompt
 
     def run(self):
+        outcome = self.start_of_turn_death_save()
+        if outcome == "dead":
+            return RoundResult(action="menu")
+
         if self.choices_text:
             update_choices_map(self.gm, self.choices_text)
             render_choice_block(self.choices_text)

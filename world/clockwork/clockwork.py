@@ -50,11 +50,13 @@ class Clockwork:
 
     @staticmethod
     def _npcs(world):
+        """只漂 nearby/distant（D1）：世界池 active=在场，归大模型/调节器管辖，
+        发条不得触碰，避免与实时叙事/战斗结算打架。"""
         from world.entity import NPC
         if world is None:
             return []
         return [
-            e for pool in (world.active, world.nearby, world.distant)
+            e for pool in (world.nearby, world.distant)
             for e in pool.values()
             if isinstance(e, NPC)
         ]

@@ -41,8 +41,8 @@ class NPCController:
         - injected：注入主 DM 短调用的叙事行（空串=该 NPC 本轮无需行动/已倒下）
         - change_msg：变更块的落账消息（空串=无 HP 变更）
         """
-        if not npc or getattr(npc, "hp", 1) <= 0:
-            self.log_lines.append(f"{npc.name} 已倒下，跳过行动")
+        if not npc or getattr(npc, "dead", False) or getattr(npc, "hp", 1) <= 0:
+            self.log_lines.append(f"{npc.name} 已倒下/死亡，跳过行动")
             return "", "", ""
         decision = self._ask_npc(npc, player_input)
         line, injected, check_text, change_msg = self._resolve(npc, decision)
@@ -62,7 +62,8 @@ class NPCController:
     def _build_npc_prompt(self, npc: NPC, player_input: str) -> str:
         char = self.character
         context = self.world.render_context_for_llm(
-            char.name, char.ac, char.hp, char.max_hp
+            char.name, char.ac, char.hp, char.max_hp,
+            pc_dead=getattr(char, "dead", False),
         ) or ""
         weapon = self._npc_weapon(npc)
         weapon_desc = f"{weapon.name}（{weapon.damage_dice}）" if weapon.damage_dice else weapon.name
@@ -79,6 +80,7 @@ class NPCController:
             f"[当前局面]\n{player_input.strip()}\n\n{context}\n\n"
             f"请以「{npc.name}」的视角决定本轮唯一的行动。"
             f"若当前并无威胁或不在战斗中，倾向选择对话/观望/移动/协助，而非攻击。\n"
+            f"注意：HP 0 的目标已倒地昏迷，已死亡的目标无法被攻击。\n"
             f"只输出两行，不要解释：\n"
             f"行动: <攻击/移动/对话/协助/观望/撤退/躲藏>\n"
             f"目标: <玩家 或 在场角色名，仅当行动为攻击时填写>\n"
@@ -137,8 +139,9 @@ class NPCController:
             op = "<"
         color = "yellow" if roll == 20 else ("red" if not hit else "green")
         check_text = (
-            f"{npc.name} 攻击: d20({roll}) + ({bonus:+d}) = {total} "
-            f"{op} {target_ac} [{color}]{word}[/{color}]"
+            f"[yellow]{npc.name} 攻击检定[/yellow] 目标 [bold]{target_label}[/bold] "
+            f"AC [bold]{target_ac}[/bold] | 加值: {bonus:+d}\n"
+            f"[grey50]d20({roll}) + ({bonus:+d}) = {total} {op} {target_ac}[/grey50]"
         )
         self.check_results.append({
             "target": npc.name,
@@ -147,6 +150,8 @@ class NPCController:
         })
 
         if not hit:
+            check_text += f"\n[bold {color}]{word}[/bold {color}]"
+            self.check_results[-1]["text"] = check_text
             return (
                 f"{npc.name} 攻击{target_label}："
                 f"d20({roll})+({bonus:+d})={total} < {target_ac}，未命中",
@@ -157,14 +162,15 @@ class NPCController:
 
         weapon = self._npc_weapon(npc)
         dmg = self._roll_damage(weapon.damage_dice, npc, crit=(roll == 20))
-        self.check_results[-1]["text"] = check_text + f" 造成 {dmg} 伤害"
+        check_text += f"\n[bold {color}]命中，造成 {dmg} 点伤害[/bold {color}]"
+        self.check_results[-1]["text"] = check_text
         if is_player:
-            res = self.manager.remove_hp(dmg)
+            res = self.manager.remove_hp(dmg, crit=(roll == 20))
             self.changed_names.add(self.character.name)
             line = (f"{npc.name} 攻击玩家：d20({roll})+({bonus:+d})={total} ≥ {target_ac}，"
                     f"命中，造成 {dmg} 点伤害")
             injected = f"[{tag}] {npc.name}：攻击你，命中，造成 {dmg} 点伤害。"
-            change_msg = f"{self.character.name} HP {dmg:-d}"
+            change_msg = res.message if res and res.message else f"{self.character.name} HP {dmg:-d}"
         else:
             tgt = self.world.get_by_name(target)
             if tgt is None:
@@ -174,7 +180,7 @@ class NPCController:
                     "",
                     "",
                 )
-            tgt.hp = max(tgt.hp - dmg, 0)
+            self.manager.npc_change_status(tgt.name, hp=-dmg)
             self.changed_names.add(tgt.name)
             line = (f"{npc.name} 攻击 {tgt.name}：d20({roll})+({bonus:+d})={total} ≥ {target_ac}，"
                     f"命中，造成 {dmg} 点伤害")
@@ -209,6 +215,8 @@ class NPCController:
         if not target:
             return None, False
         if target in ("玩家", "player", "PC", "你") or target == self.character.name:
+            if getattr(self.character, "dead", False):
+                return None, False
             return self.character.ac, True
         tgt = self.world.get_by_name(target)
         if tgt is None:

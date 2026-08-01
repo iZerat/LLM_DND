@@ -8,6 +8,8 @@ from core.character import modifier
 from core.game_master import parse_check_from_text
 from core.game_loop import (
     log_dm_response, format_elapsed, _resolve_check, _resolve_attack, _find_target_ac,
+    _extract_attack_target, _attack_intent_target, settle_player_attack,
+    medicine_self_check,
 )
 from core.ui import console, render_decision_block
 
@@ -74,10 +76,13 @@ def record_to_display(record: str, is_option: bool) -> str:
     return record
 
 
-def resolve_player_input(gm, character, raw: str, from_command: bool = False):
+def resolve_player_input(gm, character, raw: str, from_command: bool = False,
+                         world=None, manager=None):
     """解析玩家输入。
 
     选项编号 → 映射选项文本 + 本地检定（交互骰：属性/攻击）；自由文本 → 原样传递。
+    攻击检定（选项或自由文本）命中攻击意图时，由系统机械结算（掷骰/伤害/态度基线，
+    经 manager 落账），并在输入中注入「系统已结算」标注，DM 只负责叙事。
     返回 (发送给 DM 的输入, 决定块文本, 检定文本)。
     """
     raw = raw.strip()
@@ -93,23 +98,42 @@ def resolve_player_input(gm, character, raw: str, from_command: bool = False):
         selected_num = raw
         option_text = gm.last_choices_map.get(selected_num, "")
         check_info = parse_check_from_text(option_text) if option_text else None
-        if check_info:
+        is_attack_opt = bool(re.search(r'[（(]\s*攻击\s*检定', option_text))
+        if character.unconscious and (check_info or is_attack_opt):
+            # 昏迷：拦截机械攻击/检定结算，仅允许医药自救（T17）
+            if manager:
+                med = medicine_self_check(character, manager, option_text)
+                if med:
+                    check_text, transformed = med
+                    return transformed, record_to_display(record, is_option), check_text
+            check_text = f"[red]{character.name} 已昏迷，无法执行该行动[/red]"
+            transformed = f"[选择选项{selected_num}] {option_text}（昏迷无法行动）"
+        elif check_info:
             ability_cn, ability_key, dc = check_info
             ability_mod = modifier(getattr(character, ability_key))
             roll = dice_random.randint(1, 20)
             total, success, word, color, line = _resolve_check(roll, ability_mod, dc)
             check_text = (
-                f"[yellow]{ability_cn}检定[/yellow] DC [bold]{dc}[/bold] | 调整值: {ability_mod:+d}\n"
+                f"[yellow]{character.name} {ability_cn}检定[/yellow] DC [bold]{dc}[/bold] | 调整值: {ability_mod:+d}\n"
                 f"[grey50]{line}[/grey50]\n[bold {color}]{word}[/bold {color}]"
             )
             transformed = f"[选择选项{selected_num}] {option_text} | [检定] d20({roll})+({ability_mod:+d})={total} {word}"
-        elif re.search(r'[（(]\s*攻击\s*检定', option_text):
+        elif is_attack_opt:
+            target_name = _extract_attack_target(option_text, world) if world else None
+            if target_name and manager:
+                settled = settle_player_attack(
+                    character, world, manager, target_name,
+                    label=f"[选择选项{selected_num}] {option_text}",
+                )
+                if settled:
+                    check_text, transformed = settled
+                    return transformed, record_to_display(record, is_option), check_text
             roll = dice_random.randint(1, 20)
             target_ac = _find_target_ac(gm)
             total, atk_bonus, hit, word, color, line = _resolve_attack(roll, character, target_ac)
             ac_label = target_ac if target_ac is not None else "?"
             check_text = (
-                f"[yellow]攻击检定[/yellow] AC [bold]{ac_label}[/bold] | 加值: {atk_bonus:+d}\n"
+                f"[yellow]{character.name} 攻击检定[/yellow] AC [bold]{ac_label}[/bold] | 加值: {atk_bonus:+d}\n"
                 f"[grey50]{line}[/grey50]"
             )
             if word:
@@ -120,6 +144,18 @@ def resolve_player_input(gm, character, raw: str, from_command: bool = False):
             )
         else:
             transformed = f"[选择选项{selected_num}] {option_text or selected_num}"
+    else:
+        if world and manager:
+            if character.unconscious:
+                med = medicine_self_check(character, manager, raw)
+                if med:
+                    check_text, transformed = med
+            else:
+                target_name = _attack_intent_target(raw, world)
+                if target_name:
+                    settled = settle_player_attack(character, world, manager, target_name, label=raw)
+                    if settled:
+                        check_text, transformed = settled
 
     return transformed, record_to_display(record, is_option), check_text
 
@@ -151,8 +187,12 @@ class BaseRound:
         if mode == "light":
             from core.game_master import NARRATION_SYSTEM_PROMPT
             system_override = NARRATION_SYSTEM_PROMPT
+        elif self.supervisor is not None:
+            # 方向A（监督者注入提示）：玩家输入 → 行为分类触发词 + 世界上下文
+            user_text = self.supervisor.prepare_player_input(user_text)
         self.toolbox.results = []
         self.toolbox.check_results = []
+        self.toolbox.tool_call_log = []
         t0 = _time.time()
         raw = ""
         for attempt in range(2):
@@ -194,6 +234,7 @@ class BaseRound:
                 self.ctx.round_num, user_text, audit.text,
                 raw_text=raw, tag=tag,
                 change_messages="\n".join(audit.messages) if audit.messages else "",
+                tool_log="\n".join(self.toolbox.tool_call_log) if self.toolbox.tool_call_log else "",
             )
         return audit, elapsed
 
@@ -204,10 +245,34 @@ class BaseRound:
         return self.world.render_context_for_llm(
             self.character.name, self.character.ac,
             self.character.hp, self.character.max_hp,
+            pc_dead=getattr(self.character, "dead", False),
         ) or ""
 
     def resolve_input(self, raw, from_command=False):
-        return resolve_player_input(self.gm, self.character, raw, from_command)
+        return resolve_player_input(
+            self.gm, self.character, raw, from_command,
+            world=self.world, manager=self.regulator.manager,
+        )
 
     def render_decision(self, decision_text):
         render_decision_block(decision_text)
+
+    # ── 死亡豁免（T17）──
+
+    def start_of_turn_death_save(self) -> str | None:
+        """玩家回合起手：0 HP 且未稳定 → 系统自动掷死亡豁免（d20）。
+
+        返回 outcome（awake/stable/dead/success/fail）或 None（无需豁免）。
+        已死亡时不重复掷（直接返回 dead）。
+        """
+        c = self.character
+        if c.dead:
+            return "dead"
+        if not c.unconscious or c.stable:
+            return None
+        res = self.regulator.manager.roll_death_save()
+        from core.ui import render_death_save_block, render_death_block
+        render_death_save_block(res.message)
+        if c.dead:
+            render_death_block(c.name)
+        return (res.data or {}).get("outcome") if res.success else None

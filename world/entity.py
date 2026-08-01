@@ -30,6 +30,7 @@ class NPC(Entity):
     hp: int = 8
     max_hp: int = 8
     ac: int = 10
+    dead: bool = False
 
     strength: int = 10
     dexterity: int = 10

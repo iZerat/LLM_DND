@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import random as dice_random
 import time as _time
@@ -31,17 +32,49 @@ LOG_DIR = Path("./logs")
 
 # ---------- 存档 ----------
 
+def _atomic_write(path: Path, text: str) -> None:
+    """原子写入：同目录临时文件 + os.replace，避免中途崩溃留下半截存档。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def _is_shell_dir(name: str) -> bool:
+    """空壳目录：存档目录却缺 info.json（如历史遗留的「我的档」）。"""
+    return not (SAVE_DIR / name / "info.json").exists()
+
+
 def list_saves():
-    saves = sorted(SAVE_DIR.glob("*.json"))
-    dirs = sorted(d for d in SAVE_DIR.iterdir() if d.is_dir())
+    """列出存档槽位（用 os.scandir/entry.name，避免 Path 往返导致的 Unicode 问题）。
+
+    跳过空壳目录（无 info.json）与旧格式单文件 .json。返回 (str 名列表)。
+    """
+    if not SAVE_DIR.is_dir():
+        return []
+    saves: list[str] = []
+    dirs: list[str] = []
+    with os.scandir(SAVE_DIR) as it:
+        for entry in it:
+            try:
+                if entry.is_dir(follow_symlinks=False):
+                    if _is_shell_dir(entry.name):
+                        continue
+                    dirs.append(entry.name)
+                elif entry.is_file(follow_symlinks=False) and entry.name.endswith(".json"):
+                    saves.append(entry.name)
+            except OSError:
+                continue
+    saves.sort()
+    dirs.sort()
     if not saves and not dirs:
         return []
     console.print("\n[bold]存档列表:[/bold]")
-    for i, save in enumerate(saves, 1):
-        size = save.stat().st_size
-        console.print(f"  {i}. {save.stem} ({size}B) [grey50]旧格式[/grey50]")
+    for i, s in enumerate(saves, 1):
+        size = (SAVE_DIR / s).stat().st_size
+        console.print(f"  {i}. {Path(s).stem} ({size}B) [grey50]旧格式[/grey50]")
     for i, d in enumerate(dirs, len(saves) + 1):
-        console.print(f"  {i}. {d.name}")
+        console.print(f"  {i}. {d}")
     return saves + dirs
 
 
@@ -82,37 +115,27 @@ def save_game(gm: GameMaster, name: str = None) -> bool:
 
     # info.json — character static stats only
     info_data = gm.character.to_dict()
-    (char_dir / "info.json").write_text(
-        json.dumps(info_data, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    _atomic_write(char_dir / "info.json", json.dumps(info_data, ensure_ascii=False, indent=2))
 
     # bag.json — inventory items (instance_id + guid)
     bag_data = [
         {"instance_id": inst.instance_id, "guid": inst.guid}
         for inst in gm.character.inventory.all_instances()
     ]
-    (char_dir / "bag.json").write_text(
-        json.dumps(bag_data, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    _atomic_write(char_dir / "bag.json", json.dumps(bag_data, ensure_ascii=False, indent=2))
 
     # equip.json — equipped items (slot -> guid)
     equip_data = {
         slot: guid for slot, guid in gm.character.inventory.equipped.items() if guid
     }
-    (char_dir / "equip.json").write_text(
-        json.dumps(equip_data, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    _atomic_write(char_dir / "equip.json", json.dumps(equip_data, ensure_ascii=False, indent=2))
 
     # money.json — currency (copper only)
     money_data = {"copper": gm.character.inventory.currency.copper}
-    (char_dir / "money.json").write_text(
-        json.dumps(money_data, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    _atomic_write(char_dir / "money.json", json.dumps(money_data, ensure_ascii=False, indent=2))
 
     # skill.json — skills
-    (char_dir / "skill.json").write_text(
-        json.dumps(gm.character.skills, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    _atomic_write(char_dir / "skill.json", json.dumps(gm.character.skills, ensure_ascii=False, indent=2))
 
     # history.json — game history
     initiative_data = []
@@ -131,26 +154,22 @@ def save_game(gm: GameMaster, name: str = None) -> bool:
         "world_source": getattr(gm, "world_source", "llm"),
         "initiative": initiative_data,
     }
-    (char_dir / "history.json").write_text(
-        json.dumps({
-            "meta": history_meta,
-            "compressed": gm.compressed_history,
-            "last_assistant": gm.last_assistant,
-        }, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    _atomic_write(char_dir / "history.json", json.dumps({
+        "meta": history_meta,
+        "compressed": gm.compressed_history,
+        "last_assistant": gm.last_assistant,
+    }, ensure_ascii=False, indent=2))
 
     # world.json — NPC / entity state
     if hasattr(gm, 'world_state') and gm.world_state:
-        (char_dir / "world.json").write_text(
-            json.dumps(gm.world_state.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        _atomic_write(char_dir / "world.json", json.dumps(
+            gm.world_state.to_dict(), ensure_ascii=False, indent=2))
 
     # character_template.json — 角色创建时的快照（角色模板，含初始背包/装备/金钱）
     tmpl = getattr(gm, "character_template", None)
     if tmpl:
-        (char_dir / "character_template.json").write_text(
-            json.dumps(tmpl, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        _atomic_write(char_dir / "character_template.json", json.dumps(
+            tmpl, ensure_ascii=False, indent=2))
 
     # runtime_defs/ — 填表创建的对象定义（随存档保存，重启可恢复）
     _save_runtime_defs(char_dir)
@@ -174,16 +193,12 @@ def _save_runtime_defs(char_dir: Path):
         items_dir = runtime_dir / "items"
         items_dir.mkdir(parents=True, exist_ok=True)
         for guid, item in runtime_items.items():
-            (items_dir / f"{guid}.json").write_text(
-                json.dumps(item.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8"
-            )
+            _atomic_write(items_dir / f"{guid}.json", json.dumps(item.to_dict(), ensure_ascii=False, indent=2))
     if runtime_npcs:
         npcs_dir = runtime_dir / "npcs"
         npcs_dir.mkdir(parents=True, exist_ok=True)
         for tid, entry in runtime_npcs.items():
-            (npcs_dir / f"{tid}.json").write_text(
-                json.dumps(entry, ensure_ascii=False, indent=2), encoding="utf-8"
-            )
+            _atomic_write(npcs_dir / f"{tid}.json", json.dumps(entry, ensure_ascii=False, indent=2))
 
 
 def _restore_runtime_defs(char_dir: Path):
@@ -362,7 +377,10 @@ def _migrate_old_inventory(char: Character):
 def load_game(save_path: str) -> GameMaster:
     path = Path(save_path)
     if path.is_dir():
-        info = json.loads((path / "info.json").read_text(encoding="utf-8"))
+        info_path = path / "info.json"
+        if not info_path.exists():
+            raise ValueError(f"存档「{path.name}」缺少 info.json（空壳存档），无法读取")
+        info = json.loads(info_path.read_text(encoding="utf-8"))
         info = _migrate_char_data(info)
         char = Character(**info)
 
@@ -449,7 +467,8 @@ def format_elapsed(seconds: float) -> str:
     return f"{hours}小时{mins}分{secs}秒"
 
 def log_dm_response(round_num: int, player_input: str, response_text: str,
-                    raw_text: str = "", change_messages: str = "", tag: str = ""):
+                    raw_text: str = "", change_messages: str = "",
+                    tool_log: str = "", tag: str = ""):
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     ts = _time.strftime("%Y%m%d_%H%M%S")
     tag_part = f"_{tag}" if tag else ""
@@ -460,6 +479,8 @@ def log_dm_response(round_num: int, player_input: str, response_text: str,
     parts.append("\n\n--- 处理后文本 ---\n" + response_text)
     if change_messages:
         parts.append("\n\n--- 变更消息（调节器落账）---\n" + change_messages)
+    if tool_log:
+        parts.append("\n\n--- 工具调用日志（含 reason）---\n" + tool_log)
     path.write_text("\n".join(parts), encoding="utf-8")
 
 
@@ -535,18 +556,165 @@ def _resolve_attack(roll: int, char: Character, target_ac: int | None) -> tuple[
 
 
 def _find_target_ac(gm) -> int | None:
-    """取当前战斗目标 AC：优先世界状态中的敌对活动 NPC，其次任意活动 NPC。"""
+    """取当前战斗目标 AC：优先世界状态中的敌对活动 NPC（存活），其次任意存活活动 NPC。"""
     from resource.attitude import level
     ws = getattr(gm, "world_state", None)
     if not ws:
         return None
     for e in ws.active.values():
-        if isinstance(e, NPC) and level(getattr(e, "attitude", 0)) == "hostile":
+        if (isinstance(e, NPC) and level(getattr(e, "attitude", 0)) == "hostile"
+                and getattr(e, "hp", 0) > 0):
             return getattr(e, "ac", None)
     for e in ws.active.values():
-        if isinstance(e, NPC):
+        if isinstance(e, NPC) and getattr(e, "hp", 0) > 0:
             return getattr(e, "ac", None)
     return None
+
+
+# ---------- 玩家攻击机械结算（P2：攻击意图识别 + 落账） ----------
+
+_ATTACK_INTENT_KEYWORDS = (
+    "攻击", "砍", "斩", "劈", "刺", "射", "轰", "揍", "踢", "挥拳", "挥剑",
+    "挥刀", "拔刀", "拔剑", "开火", "扑向", "扑上去", "打他", "打它", "打向",
+    "围殴", "突袭", "偷袭",
+)
+
+
+def _has_attack_intent(text: str) -> bool:
+    return any(kw in (text or "") for kw in _ATTACK_INTENT_KEYWORDS)
+
+
+def _extract_attack_target(text: str, world) -> str | None:
+    """从文本（玩家自由输入或选项文本）中提取唯一被攻击的在场 NPC 名。
+
+    仅在文本中恰好出现一个 active NPC 名时返回；0 个或多于 1 个 → None（交由 DM 处理）。
+    """
+    if not world:
+        return None
+    text = text or ""
+    present = [e.name for e in world.active.values() if isinstance(e, NPC) and e.name in text]
+    return present[0] if len(present) == 1 else None
+
+
+def _attack_intent_target(text: str, world) -> str | None:
+    """自由文本攻击意图：有攻击关键词 + 唯一在场 NPC 目标 → 返回目标名，否则 None。"""
+    if not _has_attack_intent(text or ""):
+        return None
+    return _extract_attack_target(text, world)
+
+
+def _player_weapon_dice(character) -> str:
+    from resource.item_db import item_db
+    weapon_guid = character.inventory.equipped.get("weapon")
+    wdef = item_db.get(weapon_guid) if weapon_guid else None
+    return (wdef.damage_dice if wdef and wdef.damage_dice else "1d4")
+
+
+def _roll_player_damage(character, crit: bool = False) -> int:
+    """玩家武器伤害掷骰（武器骰 + 力量调整值；暴击翻倍骰），最低 1 点。"""
+    dice = _player_weapon_dice(character)
+    m = re.match(r"(\d+)d(\d+)(?:\s*\+\s*(\d+))?", dice or "")
+    count = int(m.group(1)) if m else 1
+    sides = int(m.group(2)) if m else 1
+    extra = int(m.group(3)) if m and m.group(3) else 0
+    if count < 1:
+        count = 1
+    if sides < 1:
+        sides = 1
+    rolls = [dice_random.randint(1, sides) for _ in range(count)]
+    if crit:
+        rolls += [dice_random.randint(1, sides) for _ in range(count)]
+    total = sum(rolls) + extra + max(modifier(character.strength), 0)
+    return max(total, 1)
+
+
+def settle_player_attack(character, world, manager, target_name: str, label: str = ""):
+    """机械结算一次玩家攻击（非战斗/战斗统一路径，D5：机械数值系统算）。
+
+    掷骰（复用 _resolve_attack）→ 命中 → 武器伤害经 manager 落账；
+    目标若尚未敌对，按 EVENT_TABLE['attack'](-8) 基线落账态度（仅一次/目标）。
+
+    返回 (check_text, 注入玩家输入的「系统已结算」标注)；无法结算时返回 None。
+    """
+    if not world or not manager:
+        return None
+    tgt = world.get_by_name(target_name)
+    if tgt is None or not isinstance(tgt, NPC) or getattr(tgt, "ac", None) is None:
+        return None
+
+    ac = tgt.ac
+    roll = dice_random.randint(1, 20)
+    total, atk_bonus, hit, word, color, line = _resolve_attack(roll, character, ac)
+
+    from resource.attitude import EVENT_TABLE, level
+    attitude_applied = False
+    if level(getattr(tgt, "attitude", 0)) != "hostile":
+        att_res = manager.change_attitude(
+            tgt.name, delta=EVENT_TABLE["attack"]["delta"],
+            event="attack",
+            reason=EVENT_TABLE["attack"]["desc"] + "（玩家攻击，系统基线）",
+        )
+        attitude_applied = att_res.success
+
+    check_text = (
+        f"[yellow]{character.name} 攻击检定[/yellow] 目标 [bold]{tgt.name}[/bold]"
+        f" AC [bold]{ac}[/bold] | 加值: {atk_bonus:+d}\n[grey50]{line}[/grey50]"
+    )
+    fragment = f"[攻击] d20({roll})+({atk_bonus:+d})={total}"
+    parts = [f"对「{tgt.name}」发起攻击"]
+    if hit:
+        dmg = _roll_player_damage(character, crit=(roll == 20))
+        manager.npc_change_status(tgt.name, hp=-dmg)
+        check_text += f"\n[bold {color}]命中，造成 {dmg} 点伤害[/bold {color}]"
+        fragment += f" 命中 造成{dmg}伤害"
+        parts.append(f"命中，造成 {dmg} 点伤害")
+    else:
+        if word:
+            check_text += f"\n[bold {color}]{word}[/bold {color}]"
+            fragment += f" {word}"
+        parts.append(word or "未命中")
+    if attitude_applied:
+        parts.append(f"{tgt.name} 态度 {EVENT_TABLE['attack']['delta']:+d}")
+    note = "，".join(parts)
+    label_part = f"{label} | " if label else ""
+    return check_text, (
+        f"{label_part}{fragment} | 系统已结算：{note}"
+        "（伤害/态度已落账，你只需叙事，不要再调用 change_status 结算）"
+    )
+
+
+_MEDICINE_KEYWORDS = ("医药", "自救", "止血", "医疗", "急救", "稳定")
+
+
+def medicine_self_check(character, manager, raw: str) -> tuple[str, str] | None:
+    """玩家昏迷时的医药自救检定（T17）：DC10 感知·医药。
+
+    命中关键词（医药/自救/止血/医疗/急救/稳定）→ 系统掷 d20+感知；
+    成功 → 未稳定则转为稳定，已稳定则恢复 1 HP 苏醒。返回 (check_text, transformed)。
+    非昏迷/无关键词 → None。
+    """
+    if character.dead or not character.unconscious:
+        return None
+    if not any(kw in (raw or "") for kw in _MEDICINE_KEYWORDS):
+        return None
+    mod = modifier(character.wisdom)
+    roll = dice_random.randint(1, 20)
+    total, success, word, color, line = _resolve_check(roll, mod, 10)
+    check_text = (
+        f"[yellow]{character.name} 医药自救检定[/yellow] DC [bold]10[/bold] | 调整值: {mod:+d}\n"
+        f"[grey50]{line}[/grey50]\n[bold {color}]{word}[/bold {color}]"
+    )
+    if success:
+        if character.stable:
+            manager.add_hp(1)
+            check_text += f"\n[grey50]成功：恢复 1 点生命，{character.name} 苏醒[/grey50]"
+        else:
+            manager.set_stable()
+            check_text += f"\n[grey50]成功：转为稳定（停止死亡豁免，仍昏迷）[/grey50]"
+        transformed = f"{raw} | [医药自救] d20({roll})+({mod:+d})={total} 成功"
+    else:
+        transformed = f"{raw} | [医药自救] d20({roll})+({mod:+d})={total} 失败"
+    return check_text, transformed
 
 
 def _interactive_check(char: Character, ability_cn: str, ability_key: str, dc: int) -> tuple[int, int, int, bool]:
@@ -661,13 +829,17 @@ def _game_load(gm, args):
         return _GameCmdResult()
     try:
         idx = int(Prompt.ask("选择编号")) - 1
-        if 0 <= idx < len(saves):
-            new_gm = load_game(str(saves[idx]))
-            return _GameCmdResult(action="load", gm=new_gm)
     except ValueError:
         console.print("[grey50]请输入有效数字[/grey50]")
-    except Exception:
+        return _GameCmdResult()
+    if not (0 <= idx < len(saves)):
         console.print("[grey50]无效选择[/grey50]")
+        return _GameCmdResult()
+    try:
+        new_gm = load_game(str(SAVE_DIR / saves[idx]))
+        return _GameCmdResult(action="load", gm=new_gm)
+    except Exception as e:
+        console.print(f"[grey50]读取存档失败: {e}[/grey50]")
     return _GameCmdResult()
 
 

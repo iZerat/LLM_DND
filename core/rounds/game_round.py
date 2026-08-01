@@ -128,7 +128,8 @@ class GameRound:
             if pr.action == "menu":
                 return "menu"
             transformed, decision_text, check_text = resolve_player_input(
-                self.gm, self.character, pr.player_input, from_command=pr.from_command
+                self.gm, self.character, pr.player_input, from_command=pr.from_command,
+                world=self.world_state, manager=self.regulator.manager,
             )
             self.gm.last_check_block = check_text or None
             if not pr.from_command:

@@ -16,6 +16,8 @@ class NonCombatRound(BaseRound):
     """
 
     def run(self, player_input: str, on_prompt):
+        if self.start_of_turn_death_save() == "dead":
+            return RoundResult(action="menu")
         audit, elapsed = self.dm_call(player_input, tag="nc")
         sections = parse_sections(audit.text)
 
