@@ -3,13 +3,12 @@ import random
 import re
 from typing import Optional
 
-from core.character import modifier
 from world.entity import NPC
 from resource.item_db import item_db
 from resource.models import ItemType
 from resource.attitude import level_cn
-
-_ATTACK_HINTS = ("攻击", "冲锋", "斩", "劈", "刺", "射", "轰", "扑", "锤", "咬", "挥")
+from resource.checker import Checker
+from core.prompt_lib import _ATTACK_INTENT_KEYWORDS as _ATTACK_HINTS
 
 
 class NPCController:
@@ -27,6 +26,7 @@ class NPCController:
         self.character = gm.character
         self.manager = regulator.manager
         self.world = regulator.world
+        self.checker = Checker(self.character, self.world, self.manager)
         self.log_lines: list[str] = []
         self.changed_names: set[str] = set()
         self.check_results: list[dict] = []
@@ -122,7 +122,7 @@ class NPCController:
             )
 
         roll = random.randint(1, 20)
-        bonus = self._attack_bonus(npc)
+        bonus = self.checker._npc_attack_bonus(npc)
         total = roll + bonus
         if roll == 20:
             hit, word = True, "暴击"
@@ -161,7 +161,7 @@ class NPCController:
             )
 
         weapon = self._npc_weapon(npc)
-        dmg = self._roll_damage(weapon.damage_dice, npc, crit=(roll == 20))
+        dmg = self.checker.roll_npc_damage(npc, crit=(roll == 20))
         check_text += f"\n[bold {color}]命中，造成 {dmg} 点伤害[/bold {color}]"
         self.check_results[-1]["text"] = check_text
         if is_player:
@@ -190,19 +190,6 @@ class NPCController:
 
     # ── 数值辅助 ──
 
-    def _attack_bonus(self, npc: NPC) -> int:
-        prof = getattr(npc, "proficiency_bonus", 2) or 2
-        weapon = self._npc_weapon(npc)
-        finesse = any("灵巧" in p for p in weapon.properties)
-        ranged = weapon.weapon_range == "ranged" or any("远程" in t for t in weapon.tags)
-        if finesse:
-            mod = max(modifier(npc.strength), modifier(npc.dexterity))
-        elif ranged:
-            mod = modifier(npc.dexterity)
-        else:
-            mod = modifier(npc.strength)
-        return prof + mod
-
     def _npc_weapon(self, npc: NPC):
         """取 NPC 背包中第一把武器；无则退回徒手。"""
         for guid in getattr(npc, "inventory", None) or []:
@@ -222,21 +209,6 @@ class NPCController:
         if tgt is None:
             return None, False
         return getattr(tgt, "ac", 10), False
-
-    def _roll_damage(self, dice: str, npc: NPC, crit: bool = False) -> int:
-        m = re.match(r"(\d+)d(\d+)(?:\s*\+\s*(\d+))?", dice or "")
-        count = int(m.group(1)) if m else 1
-        sides = int(m.group(2)) if m else 1
-        extra = int(m.group(3)) if m and m.group(3) else 0
-        if count < 1:
-            count = 1
-        if sides < 1:
-            sides = 1
-        rolls = [random.randint(1, sides) for _ in range(count)]
-        if crit:
-            rolls += [random.randint(1, sides) for _ in range(count)]
-        total = sum(rolls) + extra + max(modifier(npc.strength), 0)
-        return max(total, 1)
 
 
 class _Unarmed:

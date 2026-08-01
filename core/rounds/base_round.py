@@ -6,11 +6,8 @@ from dataclasses import dataclass
 
 from core.character import modifier
 from core.game_master import parse_check_from_text
-from core.game_loop import (
-    log_dm_response, format_elapsed, _resolve_check, _resolve_attack, _find_target_ac,
-    _extract_attack_target, _attack_intent_target, settle_player_attack,
-    medicine_self_check,
-)
+from core.game_loop import log_dm_response, format_elapsed
+from resource.checker import Checker
 from core.ui import console, render_decision_block
 
 
@@ -81,8 +78,9 @@ def resolve_player_input(gm, character, raw: str, from_command: bool = False,
     """解析玩家输入。
 
     选项编号 → 映射选项文本 + 本地检定（交互骰：属性/攻击）；自由文本 → 原样传递。
-    攻击检定（选项或自由文本）命中攻击意图时，由系统机械结算（掷骰/伤害/态度基线，
-    经 manager 落账），并在输入中注入「系统已结算」标注，DM 只负责叙事。
+    选项带检定（属性/攻击）时由系统机械结算（掷骰/伤害/态度基线，经 manager 落账），
+    并在输入中注入「系统已结算」标注，DM 只负责叙事。
+    自由文本不再做关键词机械结算：是否检定交由 DM 判断，需要时经 d20_test 工具回本机结算（D5）。
     返回 (发送给 DM 的输入, 决定块文本, 检定文本)。
     """
     raw = raw.strip()
@@ -93,16 +91,20 @@ def resolve_player_input(gm, character, raw: str, from_command: bool = False,
     record = gm.last_choices_map[raw] if is_option else raw
     check_text = ""
     transformed = raw
+    checker = Checker(character, world, manager) if world else None
+    current_target = None
+    if manager is not None:
+        current_target = getattr(getattr(manager, "_target_npc", None), "name", None)
 
     if raw.isdigit():
         selected_num = raw
         option_text = gm.last_choices_map.get(selected_num, "")
         check_info = parse_check_from_text(option_text) if option_text else None
-        is_attack_opt = bool(re.search(r'[（(]\s*攻击\s*检定', option_text))
+        is_attack_opt = bool(re.search(r'[（(]\s*攻击', option_text))
         if character.unconscious and (check_info or is_attack_opt):
             # 昏迷：拦截机械攻击/检定结算，仅允许医药自救（T17）
-            if manager:
-                med = medicine_self_check(character, manager, option_text)
+            if manager and checker:
+                med = checker.medicine_self_check(option_text)
                 if med:
                     check_text, transformed = med
                     return transformed, record_to_display(record, is_option), check_text
@@ -112,25 +114,25 @@ def resolve_player_input(gm, character, raw: str, from_command: bool = False,
             ability_cn, ability_key, dc = check_info
             ability_mod = modifier(getattr(character, ability_key))
             roll = dice_random.randint(1, 20)
-            total, success, word, color, line = _resolve_check(roll, ability_mod, dc)
+            total, success, word, color, line = checker.resolve_check(roll, ability_mod, dc)
             check_text = (
                 f"[yellow]{character.name} {ability_cn}检定[/yellow] DC [bold]{dc}[/bold] | 调整值: {ability_mod:+d}\n"
                 f"[grey50]{line}[/grey50]\n[bold {color}]{word}[/bold {color}]"
             )
             transformed = f"[选择选项{selected_num}] {option_text} | [检定] d20({roll})+({ability_mod:+d})={total} {word}"
         elif is_attack_opt:
-            target_name = _extract_attack_target(option_text, world) if world else None
-            if target_name and manager:
-                settled = settle_player_attack(
-                    character, world, manager, target_name,
+            target_name = checker.resolve_target(option_text, current_target) if checker else None
+            if target_name and manager and checker:
+                settled = checker.settle_player_attack(
+                    target_name,
                     label=f"[选择选项{selected_num}] {option_text}",
                 )
                 if settled:
                     check_text, transformed = settled
                     return transformed, record_to_display(record, is_option), check_text
             roll = dice_random.randint(1, 20)
-            target_ac = _find_target_ac(gm)
-            total, atk_bonus, hit, word, color, line = _resolve_attack(roll, character, target_ac)
+            target_ac = checker.find_target_ac() if checker else None
+            total, atk_bonus, hit, word, color, line = checker.resolve_attack(roll, character, target_ac)
             ac_label = target_ac if target_ac is not None else "?"
             check_text = (
                 f"[yellow]{character.name} 攻击检定[/yellow] AC [bold]{ac_label}[/bold] | 加值: {atk_bonus:+d}\n"
@@ -145,17 +147,10 @@ def resolve_player_input(gm, character, raw: str, from_command: bool = False,
         else:
             transformed = f"[选择选项{selected_num}] {option_text or selected_num}"
     else:
-        if world and manager:
-            if character.unconscious:
-                med = medicine_self_check(character, manager, raw)
-                if med:
-                    check_text, transformed = med
-            else:
-                target_name = _attack_intent_target(raw, world)
-                if target_name:
-                    settled = settle_player_attack(character, world, manager, target_name, label=raw)
-                    if settled:
-                        check_text, transformed = settled
+        if world and manager and checker and character.unconscious:
+            med = checker.medicine_self_check(raw)
+            if med:
+                check_text, transformed = med
 
     return transformed, record_to_display(record, is_option), check_text
 

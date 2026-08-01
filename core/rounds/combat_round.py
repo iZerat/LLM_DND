@@ -4,7 +4,7 @@ from core.rounds.segments.npc_segment import NPCSegment
 from core.rounds.segments.player_segment import PlayerSegment
 from core.ui import (
     render_round_header, render_env_block, render_event_block,
-    render_change_block, parse_sections,
+    render_action_block, render_change_block, parse_sections,
 )
 from world.entity import NPC
 
@@ -30,6 +30,8 @@ class CombatRound(BaseRound):
             self.gm.last_time = sections["时间"]
         if "事件" in sections:
             render_event_block(sections["事件"])
+        if getattr(self.toolbox, "check_results", None):
+            render_action_block(self.toolbox.check_results)
         if audit.messages:
             render_change_block(audit.messages)
 

@@ -51,6 +51,8 @@ class PlayerSegment(Segment):
             audit, _ = self.dm_call(transformed, tag="seg")
 
         sections = parse_sections(audit.text)
+        if getattr(self.toolbox, "check_results", None):
+            render_action_block(self.toolbox.check_results)
         if "副事件" in sections:
             render_narration_block(sections["副事件"])
         if audit.messages:

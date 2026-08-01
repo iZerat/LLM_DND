@@ -30,9 +30,13 @@ class NonCombatRound(BaseRound):
             render_event_block(sections["事件"])
 
         carried_check = getattr(self.gm, "last_check_block", None)
+        check_blocks = []
         if carried_check:
-            render_action_block([{"text": carried_check}])
+            check_blocks.append({"text": carried_check})
             self.gm.last_check_block = None
+        check_blocks.extend(getattr(self.toolbox, "check_results", None) or [])
+        if check_blocks:
+            render_action_block(check_blocks)
             if "副事件" in sections:
                 render_narration_block(sections["副事件"])
         if audit.messages:

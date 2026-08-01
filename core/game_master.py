@@ -66,9 +66,9 @@ SYSTEM_PROMPT_TEMPLATE = """你是基于 D&D 5e 规则的地城主（GM），你
 {core_rules}
 
 ## 目标检定与[副事件]（可选）
-当[事件]中的目标（NPC/敌人）需要做攻击、豁免或属性检定，且未被系统机械结算时：
-1. 先描述目标要做什么，然后调用 target_check 工具提交检定（多个目标可一次提交多个）；
-2. 系统会立即在本地掷出骰子，并把每个检定的骰面、调整值、总值、DC和成败返回给你；
+当[事件]中的目标（NPC/敌人）或玩家需要做攻击、豁免或属性检定，且未被系统机械结算时：
+1. 先描述要做的事，然后调用 d20_test 工具提交检定（actor=发起者，kind=ability_check/saving_throw/attack_roll；attack_roll 对目标 AC，其余对 DC）；
+2. 系统会立即在本地掷出骰子，并把骰面、调整值、总值、DC/AC 和成败返回给你；玩家攻击的伤害与目标态度基线也由系统落账；
 3. 收到判定结果后，在[副事件]区块中用2-3句话描述目标行动的结果（命中/落空、成功/失败的效果，是否暴击/大失败）。
 另外，若本轮系统已结算在场 NPC 的行动（以 [系统·NPC行动·已结算] 注入，伤害已直接落账），
 也应把每个 NPC 的行动分别写入[副事件]，每行以 敌对/友方/中立 标签开头。
@@ -380,8 +380,8 @@ class GameMaster:
                 tool_rounds += 1
                 self._used_tools = True
 
-                has_target_check = any(c["name"] == "target_check" for c in tool_calls_acc.values())
-                if has_target_check and status_cb:
+                has_d20_test = any(c["name"] == "d20_test" for c in tool_calls_acc.values())
+                if has_d20_test and status_cb:
                     status_cb("正在结算目标检定…")
 
                 # 把工具调用与结果注入会话，继续取最终叙事
@@ -403,7 +403,7 @@ class GameMaster:
                     reply = tool_executor(c["name"], args)
                     messages.append({"role": "tool", "tool_call_id": c["id"], "content": reply})
 
-                if has_target_check and status_cb:
+                if has_d20_test and status_cb:
                     status_cb("目标检定已结算，DM 继续叙事…")
 
             self._round_num += 1

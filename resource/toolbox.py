@@ -7,39 +7,14 @@
 
 from __future__ import annotations
 import json
-import random
-from typing import Optional
 
 from resource.models import ItemDef
 from resource.objects import NPCTemplate, ResourceSchema
 from resource.packs import RESOURCE_MODE_PACK
 from resource.manager import ResourceResult
-from core.character import modifier
+from resource.checker import Checker, _tool, _tool_reply
 
-_ABILITY_KEYS = ["strength", "dexterity", "constitution", "intelligence", "wisdom", "charisma"]
-_ABILITY_CN = {
-    "strength": "力量", "dexterity": "敏捷", "constitution": "体质",
-    "intelligence": "智力", "wisdom": "感知", "charisma": "魅力",
-}
-_KIND_CN = {"attack": "攻击", "save": "豁免", "check": "检定"}
-
-
-def _tool(name: str, description: str, parameters: dict) -> dict:
-    return {
-        "type": "function",
-        "function": {
-            "name": name,
-            "description": description,
-            "parameters": parameters,
-        },
-    }
-
-
-def _tool_reply(success: bool, message: str, data: dict | None = None) -> str:
-    payload = {"ok": success, "message": message}
-    if data:
-        payload.update(data)
-    return json.dumps(payload, ensure_ascii=False)
+_SLOTS = ["weapon", "body", "off_hand", "head", "back", "neck", "ring1", "ring2"]
 
 
 # 数据变更工具：必须携带 reason（叙事理由），缺失 → 拒绝执行（D5/T5/T7）
@@ -64,13 +39,13 @@ def _reason_error(name: str) -> str:
     return _tool_reply(False, f"{name} 缺少必填的 reason（数据变更理由），已拒绝执行")
 
 
-_SLOTS = ["weapon", "body", "off_hand", "head", "back", "neck", "ring1", "ring2"]
-
-
 class ResourceToolbox:
-    def __init__(self, regulator):
+    def __init__(self, regulator, checker: Checker | None = None):
         self.regulator = regulator
         self.manager = regulator.manager
+        self.checker = checker or Checker(
+            self.manager.character, self.manager.world, self.manager,
+        )
         self.results: list[str] = []
         self.check_results: list[dict] = []
         self.tool_call_log: list[str] = []
@@ -135,27 +110,7 @@ class ResourceToolbox:
                           "delta": {"type": "integer",
                                     "description": "态度变化量，负=更敌对，正=更友好"},
                       }, "required": ["target", "delta"]})),
-            _tool("target_check",
-                  "为目标NPC执行本地检定（攻击/豁免/属性检定），骰子由系统在本机掷出并直接判定。"
-                  "攻击检定对玩家AC；豁免/属性检定对给定DC。收到返回的判定结果后，"
-                  "必须在[副事件]区块中描述结果。",
-                  {"type": "object", "properties": {
-                      "checks": {"type": "array", "items": {
-                          "type": "object",
-                          "properties": {
-                              "target": {"type": "string", "description": "目标NPC名称"},
-                              "kind": {"type": "string", "enum": ["attack", "save", "check"],
-                                       "description": "attack=攻击检定（对玩家AC）；save=豁免检定；check=属性检定"},
-                              "ability": {"type": "string", "enum": _ABILITY_KEYS,
-                                          "description": "所用属性（save/check 必填；attack 缺省取力量/敏捷较高者）"},
-                              "dc": {"type": "integer", "minimum": 1,
-                                     "description": "save/check 的目标DC"},
-                              "note": {"type": "string",
-                                       "description": "检定说明（如：对玩家发动攻击、躲避落石）"},
-                          },
-                          "required": ["target", "kind"],
-                      }},
-                  }, "required": ["checks"]}),
+            self.checker.tool_schema(),
         ]
 
     # ── 执行入口 ──
@@ -187,8 +142,16 @@ class ResourceToolbox:
                     int(arguments.get("delta") or 0),
                     reason=str(arguments.get("reason", "") or ""),
                 )
-            elif name == "target_check":
-                result = self._target_check(arguments)
+            elif name == "d20_test":
+                result = self.checker._d20_test(arguments)
+                if result.success and result.data:
+                    test = (result.data.get("test") or {})
+                    if test.get("display"):
+                        self.check_results.append({
+                            "target": test.get("actor", ""),
+                            "text": test["display"],
+                            "success": bool(test.get("success", False)),
+                        })
             else:
                 return _tool_reply(False, f"未知工具: {name}")
         except Exception as e:
@@ -266,79 +229,3 @@ class ResourceToolbox:
         if not npc:
             return ResourceResult.fail(f"未找到目标 NPC「{target}」，请先用 create_npc / set_target")
         return m.npc_change_status(target, hp=hp, max_hp=max_hp)
-
-    # ── 目标检定：本地掷骰，结果回填 LLM（副事件块）──
-
-    def _target_check(self, arguments: dict) -> ResourceResult:
-        checks = arguments.get("checks") or []
-        if not checks:
-            return ResourceResult.fail("target_check 缺少 checks")
-        player = self.manager.character
-        payload: list[dict] = []
-        for c in checks:
-            name = str(c.get("target", "")).strip()
-            kind = str(c.get("kind", "check")).strip().lower()
-            if kind not in _KIND_CN:
-                kind = "check"
-            ability = str(c.get("ability", "")).strip().lower()
-            note = str(c.get("note", "")).strip()
-            dc = c.get("dc")
-            npc = self.manager.world.get_by_name(name) if self.manager.world else None
-            if not npc:
-                payload.append({"ok": False, "target": name, "message": f"未找到目标 NPC「{name}」"})
-                continue
-            if ability not in _ABILITY_KEYS:
-                if kind == "attack":
-                    ability = "strength" if npc.strength >= npc.dexterity else "dexterity"
-                else:
-                    ability = "dexterity"
-            ab_mod = modifier(getattr(npc, ability))
-            prof = npc.proficiency_bonus or 0
-            has_prof = kind == "attack" or (kind == "save" and ability in (npc.saving_throws or []))
-            mod = ab_mod + prof if has_prof else ab_mod
-            if kind == "attack":
-                dc_value = player.ac if player else 10
-                dc_kind = "AC"
-            else:
-                try:
-                    dc_value = int(dc) if dc else 10
-                except (TypeError, ValueError):
-                    dc_value = 10
-                dc_kind = "DC"
-            roll = random.randint(1, 20)
-            total = roll + mod
-            nat20 = roll == 20
-            nat1 = roll == 1
-            success = nat20 or (not nat1 and total >= dc_value)
-            if total == dc_value:
-                op = "≥"
-            elif success:
-                op = ">"
-            else:
-                op = "<"
-            if nat20:
-                word, word_color = ("暴击" if kind == "attack" else "大成功"), "yellow"
-            elif nat1:
-                word, word_color = "大失败", "red"
-            elif success:
-                word, word_color = ("命中" if kind == "attack" else "成功"), "green"
-            else:
-                word, word_color = ("未命中" if kind == "attack" else "失败"), "red"
-            kind_cn = _KIND_CN[kind]
-            ability_cn = _ABILITY_CN.get(ability, ability)
-            prefix = f"{npc.name} {ability_cn}{kind_cn}" if kind != "attack" else f"{npc.name} 攻击"
-            label = "" if kind == "attack" else dc_kind
-            text = f"{prefix}: d20({roll}) + ({mod:+d}) = {total} {op} {label}{dc_value} [{word_color}]{word}[/{word_color}]"
-            if note:
-                text += f"\n[grey50]{note}[/grey50]"
-            self.check_results.append({"target": npc.name, "text": text, "success": success})
-            payload.append({
-                "ok": True,
-                "target": npc.name, "kind": kind, "kind_cn": kind_cn,
-                "ability": ability, "ability_cn": ability_cn,
-                "dc": dc_value, "dc_kind": dc_kind,
-                "roll": roll, "modifier": mod, "total": total,
-                "success": success, "natural_20": nat20, "natural_1": nat1,
-                "note": note,
-            })
-        return ResourceResult(True, "", {"checks": payload}, visible=False)

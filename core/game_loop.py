@@ -11,7 +11,7 @@ from rich.panel import Panel
 from rich import box
 
 from core.config import Config
-from core.character import Character, modifier, proficiency_bonus
+from core.character import Character, modifier
 from core.game_master import GameMaster, ABILITY_CN_TO_EN, parse_check_from_text
 from core.commands import parse_command
 from core.npc_controller import NPCController
@@ -19,7 +19,6 @@ from core.supervisor import Supervisor
 from resource.regulator import Regulator
 from resource.toolbox import ResourceToolbox
 from world.state import WorldState
-from world.entity import NPC
 from core.ui import (
     console, render_dm_output, show_status, show_info,
     show_equip, show_bag, show_skills, show_time, show_help,
@@ -484,270 +483,6 @@ def log_dm_response(round_num: int, player_input: str, response_text: str,
     path.write_text("\n".join(parts), encoding="utf-8")
 
 
-# ---------- 投骰与检定 ----------
-
-def _resolve_check(roll: int, mod: int, dc: int) -> tuple[int, bool, str, str, str]:
-    """D&D 5e 风格检定：骰面天然20=大成功（自动成功），天然1=大失败（自动失败）。
-
-    返回 (total, success, 结果词, 颜色, 展示行)。展示行带与 DC 的比较，一目了然。
-    """
-    total = roll + mod
-    if roll == 20:
-        return total, True, "大成功", "green", f"d20(20) + ({mod:+d}) = {total}"
-    if roll == 1:
-        return total, False, "大失败", "red", f"d20(1) + ({mod:+d}) = {total}"
-    success = total >= dc
-    word = "成功" if success else "失败"
-    if success:
-        op = "≥" if total == dc else ">"
-    else:
-        op = "<"
-    return total, success, word, ("green" if success else "red"), f"d20({roll}) + ({mod:+d}) = {total} {op} {dc}"
-
-
-def _attack_bonus(char: Character) -> tuple[int, str]:
-    """玩家攻击加值：近战=力量，远程=敏捷，灵巧=取高，另加熟练加值。
-
-    返回 (加值, 所用属性)。"""
-    from resource.item_db import item_db
-    prof = proficiency_bonus(char.level)
-    weapon_guid = char.inventory.equipped.get("weapon")
-    wdef = item_db.get(weapon_guid) if weapon_guid else None
-    if wdef:
-        is_finesse = any("灵巧" in p for p in wdef.properties)
-        is_ranged = wdef.weapon_range == "ranged" or any("远程" in t for t in wdef.tags)
-    else:
-        is_finesse = False
-        is_ranged = False
-    if is_finesse:
-        mod = max(modifier(char.strength), modifier(char.dexterity))
-        ability = "力量/敏捷"
-    elif is_ranged:
-        mod = modifier(char.dexterity)
-        ability = "敏捷"
-    else:
-        mod = modifier(char.strength)
-        ability = "力量"
-    return mod + prof, ability
-
-
-def _resolve_attack(roll: int, char: Character, target_ac: int | None) -> tuple[int, int, bool, str, str, str]:
-    """D&D 5e 攻击检定：d20 + 攻击加值 vs 目标 AC。
-
-    天然20=暴击（自动命中），天然1=大失败（自动未命中）。
-    返回 (total, 攻击加值, 是否命中, 结果词, 颜色, 展示行)。
-    无目标 AC 时不作命中判定（结果词为空，交由 LLM 圆场）。
-    """
-    atk_bonus, _ = _attack_bonus(char)
-    total = roll + atk_bonus
-    if roll == 20:
-        return total, atk_bonus, True, "暴击", "yellow", f"d20(20) + ({atk_bonus:+d}) = {total}"
-    if roll == 1:
-        return total, atk_bonus, False, "大失败", "red", f"d20(1) + ({atk_bonus:+d}) = {total}"
-    if target_ac is None:
-        return total, atk_bonus, False, "", "white", f"d20({roll}) + ({atk_bonus:+d}) = {total}"
-    hit = total >= target_ac
-    if hit:
-        op = "≥" if total == target_ac else ">"
-        word, color = "命中", "green"
-    else:
-        op, word, color = "<", "未命中", "red"
-    return total, atk_bonus, hit, word, color, f"d20({roll}) + ({atk_bonus:+d}) = {total} {op} {target_ac}"
-
-
-def _find_target_ac(gm) -> int | None:
-    """取当前战斗目标 AC：优先世界状态中的敌对活动 NPC（存活），其次任意存活活动 NPC。"""
-    from resource.attitude import level
-    ws = getattr(gm, "world_state", None)
-    if not ws:
-        return None
-    for e in ws.active.values():
-        if (isinstance(e, NPC) and level(getattr(e, "attitude", 0)) == "hostile"
-                and getattr(e, "hp", 0) > 0):
-            return getattr(e, "ac", None)
-    for e in ws.active.values():
-        if isinstance(e, NPC) and getattr(e, "hp", 0) > 0:
-            return getattr(e, "ac", None)
-    return None
-
-
-# ---------- 玩家攻击机械结算（P2：攻击意图识别 + 落账） ----------
-
-_ATTACK_INTENT_KEYWORDS = (
-    "攻击", "砍", "斩", "劈", "刺", "射", "轰", "揍", "踢", "挥拳", "挥剑",
-    "挥刀", "拔刀", "拔剑", "开火", "扑向", "扑上去", "打他", "打它", "打向",
-    "围殴", "突袭", "偷袭",
-)
-
-
-def _has_attack_intent(text: str) -> bool:
-    return any(kw in (text or "") for kw in _ATTACK_INTENT_KEYWORDS)
-
-
-def _extract_attack_target(text: str, world) -> str | None:
-    """从文本（玩家自由输入或选项文本）中提取唯一被攻击的在场 NPC 名。
-
-    仅在文本中恰好出现一个 active NPC 名时返回；0 个或多于 1 个 → None（交由 DM 处理）。
-    """
-    if not world:
-        return None
-    text = text or ""
-    present = [e.name for e in world.active.values() if isinstance(e, NPC) and e.name in text]
-    return present[0] if len(present) == 1 else None
-
-
-def _attack_intent_target(text: str, world) -> str | None:
-    """自由文本攻击意图：有攻击关键词 + 唯一在场 NPC 目标 → 返回目标名，否则 None。"""
-    if not _has_attack_intent(text or ""):
-        return None
-    return _extract_attack_target(text, world)
-
-
-def _player_weapon_dice(character) -> str:
-    from resource.item_db import item_db
-    weapon_guid = character.inventory.equipped.get("weapon")
-    wdef = item_db.get(weapon_guid) if weapon_guid else None
-    return (wdef.damage_dice if wdef and wdef.damage_dice else "1d4")
-
-
-def _roll_player_damage(character, crit: bool = False) -> int:
-    """玩家武器伤害掷骰（武器骰 + 力量调整值；暴击翻倍骰），最低 1 点。"""
-    dice = _player_weapon_dice(character)
-    m = re.match(r"(\d+)d(\d+)(?:\s*\+\s*(\d+))?", dice or "")
-    count = int(m.group(1)) if m else 1
-    sides = int(m.group(2)) if m else 1
-    extra = int(m.group(3)) if m and m.group(3) else 0
-    if count < 1:
-        count = 1
-    if sides < 1:
-        sides = 1
-    rolls = [dice_random.randint(1, sides) for _ in range(count)]
-    if crit:
-        rolls += [dice_random.randint(1, sides) for _ in range(count)]
-    total = sum(rolls) + extra + max(modifier(character.strength), 0)
-    return max(total, 1)
-
-
-def settle_player_attack(character, world, manager, target_name: str, label: str = ""):
-    """机械结算一次玩家攻击（非战斗/战斗统一路径，D5：机械数值系统算）。
-
-    掷骰（复用 _resolve_attack）→ 命中 → 武器伤害经 manager 落账；
-    目标若尚未敌对，按 EVENT_TABLE['attack'](-8) 基线落账态度（仅一次/目标）。
-
-    返回 (check_text, 注入玩家输入的「系统已结算」标注)；无法结算时返回 None。
-    """
-    if not world or not manager:
-        return None
-    tgt = world.get_by_name(target_name)
-    if tgt is None or not isinstance(tgt, NPC) or getattr(tgt, "ac", None) is None:
-        return None
-
-    ac = tgt.ac
-    roll = dice_random.randint(1, 20)
-    total, atk_bonus, hit, word, color, line = _resolve_attack(roll, character, ac)
-
-    from resource.attitude import EVENT_TABLE, level
-    attitude_applied = False
-    if level(getattr(tgt, "attitude", 0)) != "hostile":
-        att_res = manager.change_attitude(
-            tgt.name, delta=EVENT_TABLE["attack"]["delta"],
-            event="attack",
-            reason=EVENT_TABLE["attack"]["desc"] + "（玩家攻击，系统基线）",
-        )
-        attitude_applied = att_res.success
-
-    check_text = (
-        f"[yellow]{character.name} 攻击检定[/yellow] 目标 [bold]{tgt.name}[/bold]"
-        f" AC [bold]{ac}[/bold] | 加值: {atk_bonus:+d}\n[grey50]{line}[/grey50]"
-    )
-    fragment = f"[攻击] d20({roll})+({atk_bonus:+d})={total}"
-    parts = [f"对「{tgt.name}」发起攻击"]
-    if hit:
-        dmg = _roll_player_damage(character, crit=(roll == 20))
-        manager.npc_change_status(tgt.name, hp=-dmg)
-        check_text += f"\n[bold {color}]命中，造成 {dmg} 点伤害[/bold {color}]"
-        fragment += f" 命中 造成{dmg}伤害"
-        parts.append(f"命中，造成 {dmg} 点伤害")
-    else:
-        if word:
-            check_text += f"\n[bold {color}]{word}[/bold {color}]"
-            fragment += f" {word}"
-        parts.append(word or "未命中")
-    if attitude_applied:
-        parts.append(f"{tgt.name} 态度 {EVENT_TABLE['attack']['delta']:+d}")
-    note = "，".join(parts)
-    label_part = f"{label} | " if label else ""
-    return check_text, (
-        f"{label_part}{fragment} | 系统已结算：{note}"
-        "（伤害/态度已落账，你只需叙事，不要再调用 change_status 结算）"
-    )
-
-
-_MEDICINE_KEYWORDS = ("医药", "自救", "止血", "医疗", "急救", "稳定")
-
-
-def medicine_self_check(character, manager, raw: str) -> tuple[str, str] | None:
-    """玩家昏迷时的医药自救检定（T17）：DC10 感知·医药。
-
-    命中关键词（医药/自救/止血/医疗/急救/稳定）→ 系统掷 d20+感知；
-    成功 → 未稳定则转为稳定，已稳定则恢复 1 HP 苏醒。返回 (check_text, transformed)。
-    非昏迷/无关键词 → None。
-    """
-    if character.dead or not character.unconscious:
-        return None
-    if not any(kw in (raw or "") for kw in _MEDICINE_KEYWORDS):
-        return None
-    mod = modifier(character.wisdom)
-    roll = dice_random.randint(1, 20)
-    total, success, word, color, line = _resolve_check(roll, mod, 10)
-    check_text = (
-        f"[yellow]{character.name} 医药自救检定[/yellow] DC [bold]10[/bold] | 调整值: {mod:+d}\n"
-        f"[grey50]{line}[/grey50]\n[bold {color}]{word}[/bold {color}]"
-    )
-    if success:
-        if character.stable:
-            manager.add_hp(1)
-            check_text += f"\n[grey50]成功：恢复 1 点生命，{character.name} 苏醒[/grey50]"
-        else:
-            manager.set_stable()
-            check_text += f"\n[grey50]成功：转为稳定（停止死亡豁免，仍昏迷）[/grey50]"
-        transformed = f"{raw} | [医药自救] d20({roll})+({mod:+d})={total} 成功"
-    else:
-        transformed = f"{raw} | [医药自救] d20({roll})+({mod:+d})={total} 失败"
-    return check_text, transformed
-
-
-def _interactive_check(char: Character, ability_cn: str, ability_key: str, dc: int) -> tuple[int, int, int, bool]:
-    ability_mod = modifier(getattr(char, ability_key))
-    console.print()
-    console.print(f"[yellow]{ability_cn}检定[/yellow] DC [bold]{dc}[/bold] | 调整值: {ability_mod:+d}")
-    roll = dice_random.randint(1, 20)
-    total, success, word, color, line = _resolve_check(roll, ability_mod, dc)
-    console.print(f"[grey50]{line}[/grey50]")
-    console.print(f"[bold {color}]{word}[/bold {color}]")
-    console.print()
-    return roll, ability_mod, total, success
-
-
-def _roll_expression(expr: str) -> tuple[int, str]:
-    def roll_dice(m):
-        count = int(m.group(1)) if m.group(1) else 1
-        sides = int(m.group(2))
-        mod = int(m.group(3)) if m.group(3) else 0
-        if count < 1:
-            count = 1
-        results = [dice_random.randint(1, sides) for _ in range(count)]
-        total = sum(results) + mod
-        return str(total)
-
-    expr_parsed = re.sub(r"(\d+)?d(\d+)(?:\s*\+\s*(\d+))?", roll_dice, expr)
-    try:
-        total = eval(expr_parsed)
-    except:
-        return 0, f"[grey50]无效骰子表达式: {expr}[/grey50]"
-    return total, f"[grey50]{expr} = {total}[/grey50]"
-
-
 # ---------- 上轮记录 ----------
 
 def _show_round_recap(gm):
@@ -866,14 +601,16 @@ def _game_quit(gm, args):
 
 
 def _game_roll(gm, args):
+    from resource.checker import Checker
+    checker = Checker(gm.character, None, None)
     rest = args or "d20"
     dc_match = re.match(r"(\S+)\s+DC\s+(\d+)", rest) if not rest.startswith("d") else None
     if dc_match and dc_match.group(1) in ABILITY_CN_TO_EN:
         ability_cn = dc_match.group(1)
         ability_key = ABILITY_CN_TO_EN[ability_cn]
         dc = int(dc_match.group(2))
-        r, m, t, success = _interactive_check(gm.character, ability_cn, ability_key, dc)
-        _, _, rw, _, _ = _resolve_check(r, m, dc)
+        r, m, t, success = checker.interactive_check(gm.character, ability_cn, ability_key, dc)
+        _, _, rw, _, _ = checker.resolve_check(r, m, dc)
         player_input = f"[检定] {ability_cn} DC {dc}: d20({r})+({m:+d})={t} {rw}"
     elif rest in ABILITY_CN_TO_EN:
         ability_key = ABILITY_CN_TO_EN[rest]
@@ -884,7 +621,7 @@ def _game_roll(gm, args):
         console.print(f"\n[grey50]d20({roll}) + ({ability_mod:+d}) = {total}{tag}[/grey50]")
         player_input = f"[检定] {rest}: d20({roll})+({ability_mod:+d})={total}{tag}"
     else:
-        total, display = _roll_expression(rest)
+        total, display = checker.roll_expression(rest)
         console.print(f"\n{display}")
         player_input = f"[投骰] {rest} = {total}"
     return _GameCmdResult(action="narrative", player_input=player_input)
