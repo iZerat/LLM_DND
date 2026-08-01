@@ -137,11 +137,16 @@ class ResourceToolbox:
             elif name == "change_status":
                 result = self._change_status(arguments)
             elif name == "change_attitude":
-                result = m.change_attitude(
-                    str(arguments.get("target", "")).strip(),
-                    int(arguments.get("delta") or 0),
-                    reason=str(arguments.get("reason", "") or ""),
-                )
+                tgt_name = str(arguments.get("target", "")).strip()
+                delta = int(arguments.get("delta") or 0)
+                err = m.consume_pending_baseline(tgt_name, delta)
+                if err:
+                    result = err
+                else:
+                    result = m.change_attitude(
+                        tgt_name, delta,
+                        reason=str(arguments.get("reason", "") or ""),
+                    )
             elif name == "d20_test":
                 result = self.checker._d20_test(arguments)
                 if result.success and result.data:
@@ -212,6 +217,10 @@ class ResourceToolbox:
         hp = int(arguments.get("hp") or 0)
         max_hp = int(arguments.get("max_hp") or 0)
         m = self.manager
+        if hp < 0:
+            err = m.consume_pending_damage(target, hp)
+            if err:
+                return err
         if target == "玩家":
             parts = []
             if hp:

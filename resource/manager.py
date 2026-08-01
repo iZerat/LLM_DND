@@ -45,6 +45,9 @@ class ResourceManager:
         # 本轮已被工具主动改过 HP 的对象（"玩家" 或 NPC 名称），
         # 供 sync_status_block 判定「世界值 vs [状态] 声明值」谁生效。
         self.changed_npcs: set[str] = set()
+        # 攻击检定待落账登记（检定器掷骰判定后，交由 LLM 经调节器工具落账；
+        # 调节器据此校验数值一致性，拒绝随意/重复结算——游戏数据只经调节器变更）。
+        self.pending_attacks: dict[str, dict] = {}
 
     def set_target(self, name: str) -> ResourceResult:
         if not self.world:
@@ -71,6 +74,66 @@ class ResourceManager:
         if item:
             return item
         return item_db.find_best(query)
+
+    # ── 攻击检定待落账登记（检定器 → 调节器 校验落账） ──
+
+    def record_attack_outcome(self, target: str, damage: int = 0,
+                              baseline: int = 0, applied: bool = False) -> None:
+        """登记一次攻击判定的期望落账（检定器掷骰后调用，不在此处变更任何数据）。
+
+        target=待变更对象（玩家或 NPC 名），damage=命中伤害，baseline=态度基线。
+        applied=True（本地选项路径已由系统直接落账）时标记为已落账，
+        供工具层校验重复结算；applied=False（d20_test 工具路径）时等待 LLM
+        经 change_status / change_attitude 按此数值落账。
+        """
+        self.pending_attacks[target] = {
+            "damage": max(damage, 0),
+            "damage_applied": applied or damage <= 0,
+            "baseline": baseline,
+            "baseline_applied": applied or baseline == 0,
+        }
+
+    def reset_pending_attacks(self) -> None:
+        self.pending_attacks.clear()
+
+    def consume_pending_damage(self, target: str, hp: int) -> Optional[ResourceResult]:
+        """工具层落账前校验：待落账攻击的伤害必须与判定一致；已落账的攻击禁止重复结算。
+
+        返回错误 ResourceResult 表示拒绝（应中止本次变更）；None 表示放行。
+        """
+        pending = self.pending_attacks.get(target)
+        if not pending or not pending["damage"]:
+            return None
+        expected = -pending["damage"]
+        if not pending["damage_applied"]:
+            if hp != expected:
+                return ResourceResult.fail(
+                    f"「{target}」本次攻击检定已判定造成 {pending['damage']} 点伤害，"
+                    f"请用 change_status(target=\"{target}\", hp={expected}) 落账，不要传其他数值"
+                )
+            pending["damage_applied"] = True
+            return None
+        if hp == expected:
+            return ResourceResult.fail(f"「{target}」本次攻击伤害已落账，请勿重复结算")
+        return None
+
+    def consume_pending_baseline(self, target: str, delta: int) -> Optional[ResourceResult]:
+        """工具层态度基线校验：基线必须按判定值落账；已落账的基线禁止重复结算。"""
+        pending = self.pending_attacks.get(target)
+        if not pending or not pending["baseline"]:
+            return None
+        if not pending["baseline_applied"]:
+            if delta != pending["baseline"]:
+                return ResourceResult.fail(
+                    f"「{target}」本次攻击的态度基线为 {pending['baseline']:+d}，"
+                    f"请先用 change_attitude(target=\"{target}\", delta={pending['baseline']}) "
+                    f"落账基线，再在后续调用中叠加额外态度变化"
+                )
+            pending["baseline_applied"] = True
+            return None
+        if delta == pending["baseline"]:
+            return ResourceResult.fail(f"「{target}」本次攻击的态度基线已落账，请勿重复结算")
+        return None
 
     def _equipped_count(self, guid: str) -> int:
         return sum(1 for g in self.inv.equipped.values() if g == guid)

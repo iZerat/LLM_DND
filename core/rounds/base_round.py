@@ -188,6 +188,8 @@ class BaseRound:
         self.toolbox.results = []
         self.toolbox.check_results = []
         self.toolbox.tool_call_log = []
+        if self.toolbox.manager is not None:
+            self.toolbox.manager.reset_pending_attacks()
         t0 = _time.time()
         raw = ""
         for attempt in range(2):
