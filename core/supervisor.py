@@ -6,6 +6,37 @@ from core.prompt_lib import build_prompt_suffix
 from resource.regulator import _ITEM_BLOCK_RE, _STATUS_CHANGE_BLOCK_RE
 
 
+def _insert_reminder(text: str, reminder: str) -> str:
+    """把 [系统提醒] 插到 [选择] 之前（无 [选择] 则追加到末尾）。"""
+    m = re.search(r"\[选择\]", text)
+    if m:
+        return text[:m.start()] + reminder + "\n\n" + text[m.start():]
+    return text.rstrip() + "\n\n" + reminder
+
+
+# 叙事数值核验：捕获「名称 + 生命/HP/AC/态度 + 数字」的紧邻声明形式
+# （如「灰袍老者 生命 24」「目标A AC 15」），数字在关键字之后才算声明；
+# 「还剩 24 点生命」这类数字在前的说法不触发，避免把「战前值」误判为冲突。
+_NARR_VALUE_RE = re.compile(
+    r"(?P<name>[\u4e00-\u9fa5A-Za-z·0-9]{1,8}?)\s*[（(]?\s*"
+    r"(?P<kind>HP|最大生命值|最大HP|最大生命|生命值|生命|护甲等级|护甲|AC|态度)\s*[:：]?\s*"
+    r"(?P<num>-?\d+)\s*[）)]?"
+)
+
+_NARR_KIND_FIELD = {
+    "HP": "hp",
+    "生命值": "hp",
+    "生命": "hp",
+    "最大HP": "max_hp",
+    "最大生命值": "max_hp",
+    "最大生命": "max_hp",
+    "AC": "ac",
+    "护甲": "ac",
+    "护甲等级": "ac",
+    "态度": "attitude",
+}
+
+
 class AuditResult:
     """监督者方向B 一轮审核的结果：最终文本 + 可见变更消息 + 是否修复过。"""
 
@@ -103,6 +134,18 @@ class Supervisor:
         # 让玩家看到的“目标”面板永远与落账一致（允许大模型圆故事，不允许数值裸冲突）
         text = self.regulator.reconcile_status_block(text)
 
+        # 叙事数值核验：[事件]/[副事件] 中若出现「名称 + 生命/AC/态度 + 数字」的
+        # 声明形式，必须与真实落账一致；不一致 → [系统提醒] 打回 LLM 改措辞。
+        narr_issues = self.verify_narrative_numbers(text)
+        if narr_issues:
+            reminder = (
+                "[系统提醒] 你叙事中的数值与真实数据不符：" + "；".join(narr_issues)
+                + "。请按真实数据调整措辞（不得修改真实数值，只能改写叙事）。"
+            )
+            result.messages.append(reminder)
+            text = _insert_reminder(text, reminder)
+            self._record_reminder(reminder)
+
         # 3. 结构校验：缺目标信息 → 修复对话
         if self.needs_repair(text):
             text = self.repair(text)
@@ -111,6 +154,53 @@ class Supervisor:
         result.text = text
         self.gm.last_changed_npcs = result.changed_npcs
         return result
+
+    # ── 叙事数值核验 ──
+
+    def verify_narrative_numbers(self, response_text: str) -> list[str]:
+        """核验 [事件]/[副事件] 叙事中声明的 HP/AC/态度数值与真实落账是否一致。
+
+        只检查「名称 + 关键字 + 数字」的紧邻声明形式，返回不一致的问题列表；
+        名称无法解析或数值声明形式不标准的一律跳过（避免误伤正常叙事）。
+        """
+        issues: list[str] = []
+        body = ""
+        for content in re.findall(
+            r"\[(?:事件|副事件)\]\s*(.*?)(?=\[(?:环境|场景|场景细节|事件|副事件|状态|选择|历史|时间)\]|\Z)",
+            response_text, re.DOTALL,
+        ):
+            body += content
+        if not body.strip():
+            return issues
+        for m in _NARR_VALUE_RE.finditer(body):
+            name, kind = m.group("name").strip(), m.group("kind")
+            claimed = int(m.group("num"))
+            field = _NARR_KIND_FIELD.get(kind)
+            if field is None:
+                continue
+            actor = self._resolve_actor(name)
+            if actor is None:
+                continue
+            actual = getattr(actor, field, None)
+            if actual is not None and claimed != int(actual):
+                issues.append(
+                    f"叙事称「{name} {kind} {claimed}」，真实为 {actual}"
+                )
+        return issues
+
+    def _resolve_actor(self, name: str):
+        m = self.regulator.manager
+        if not m or not name:
+            return None
+        return m._resolve_actor(name)
+
+    def _record_reminder(self, reminder: str) -> None:
+        """把 [系统提醒] 写回 LLM 历史，下一轮 DM 能读到并自纠措辞。"""
+        if not self.gm.history:
+            return
+        last = self.gm.history[-1]
+        if last.get("role") == "assistant":
+            last["content"] = (last.get("content") or "") + "\n\n" + reminder
 
     def needs_repair(self, response_text: str) -> bool:
         """检测 [状态] 是否缺少目标行，且 [事件] 疑似发生了战斗/冲突。"""

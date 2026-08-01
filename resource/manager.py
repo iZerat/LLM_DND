@@ -6,7 +6,7 @@ from resource.models import Inventory, Currency, ItemInstance, ItemDef
 from resource.item_db import item_db
 from resource.objects import NPCTemplate
 from resource.packs import RESOURCE_MODE_PACK, RESOURCE_MODE_FREE
-from world.entity import NPC
+from world.actor import Actor
 
 
 class ResourceResult:
@@ -83,7 +83,7 @@ class ResourceManager:
 
         target=待变更对象（玩家或 NPC 名），damage=命中伤害，baseline=态度基线。
         applied=True（本地选项路径已由系统直接落账）时标记为已落账，
-        供工具层校验重复结算；applied=False（d20_test 工具路径）时等待 LLM
+        供工具层校验重复结算；applied=False（d20_roll 工具路径）时等待 LLM
         经 change_status / change_attitude 按此数值落账。
         """
         self.pending_attacks[target] = {
@@ -219,70 +219,12 @@ class ResourceManager:
         return self.character.name if self.character else "玩家"
 
     def add_hp(self, amount: int) -> ResourceResult:
-        """玩家治疗（D&D：0 HP 恢复生命 → 苏醒；死亡者普通治疗无效，需复活魔法）。"""
-        if not self.character:
-            return ResourceResult.fail("无法修改HP：未传入角色对象")
-        c = self.character
-        if c.dead:
-            return ResourceResult.fail(f"{c.name} 已死亡，普通治疗无法生效（需复活魔法）")
-        hp_before = c.hp
-        c.hp = min(c.hp + amount, c.max_hp)
-        notes = []
-        if hp_before <= 0 < c.hp:
-            c.stable = False
-            c.death_fails = 0
-            c.death_successes = 0
-            notes.append("苏醒")
-        return ResourceResult.ok(
-            f"{self._owner_name()} HP +{c.hp - hp_before} "
-            f"({hp_before}/{c.max_hp} >>> {c.hp}/{c.max_hp})"
-            + ("，" + "，".join(notes) if notes else "")
-        )
+        """玩家治疗（委托给统一落账）。"""
+        return self.change_status("玩家", hp=int(amount or 0))
 
     def remove_hp(self, amount: int, crit: bool = False) -> ResourceResult:
-        """玩家伤害（D&D 归零/濒死规则，T17）。
-
-        - HP 归零 → 昏迷；巨量伤害（余量 ≥ 生命上限）→ 即死。
-        - 0 HP 再受伤 → 死亡豁免失败（暴击 2 次）；伤害 ≥ 生命上限 → 即死；
-          稳定者受伤 → 稳定被打破。
-        - crit：本次伤害是否来自暴击（影响 0 HP 下的失败计数）。
-        """
-        if not self.character:
-            return ResourceResult.fail("无法修改HP：未传入角色对象")
-        c = self.character
-        if c.dead:
-            return ResourceResult.fail(f"{c.name} 已死亡，无法再承受伤害")
-        amount = int(amount or 0)
-        hp_before = c.hp
-        c.hp = max(c.hp - amount, 0)
-        notes: list[str] = []
-        if c.hp == 0 and amount > 0:
-            if hp_before == 0:
-                if c.stable:
-                    c.stable = False
-                    notes.append("稳定被打破")
-                if amount >= c.max_hp:
-                    c.dead = True
-                    notes.append("即死（伤害 ≥ 生命上限）")
-                else:
-                    fails = 2 if crit else 1
-                    c.death_fails += fails
-                    notes.append(f"死亡豁免失败 {fails} 次（{c.death_fails}/3）")
-                    if c.death_fails >= 3:
-                        c.dead = True
-                        notes.append("死亡")
-            else:
-                overkill = amount - hp_before
-                if overkill >= c.max_hp:
-                    c.dead = True
-                    notes.append("即死（巨量伤害 ≥ 生命上限）")
-                else:
-                    notes.append("昏迷")
-        return ResourceResult.ok(
-            f"{self._owner_name()} HP -{hp_before - c.hp} "
-            f"({hp_before}/{c.max_hp} >>> {c.hp}/{c.max_hp})"
-            + ("，" + "，".join(notes) if notes else "")
-        )
+        """玩家伤害（委托给统一落账）。"""
+        return self.change_status("玩家", hp=-int(amount or 0), crit=crit)
 
     def set_stable(self) -> ResourceResult:
         """稳定：停止死亡豁免（仍昏迷），计数清零。医药检定/治疗行为的结果。"""
@@ -352,22 +294,15 @@ class ResourceManager:
         return ResourceResult.ok(msg, {"outcome": "fail", "roll": roll})
 
     def add_maxhp(self, amount: int) -> ResourceResult:
-        if not self.character:
-            return ResourceResult.fail("无法修改HP：未传入角色对象")
-        self.character.max_hp += amount
-        self.character.hp = min(self.character.hp, self.character.max_hp)
-        return ResourceResult.ok(f"{self._owner_name()} 最大HP +{self._hp_change_display(amount)}")
+        return self.change_status("玩家", max_hp=int(amount or 0))
 
     def remove_maxhp(self, amount: int) -> ResourceResult:
-        if not self.character:
-            return ResourceResult.fail("无法修改HP：未传入角色对象")
-        self.character.max_hp = max(self.character.max_hp - amount, 1)
-        self.character.hp = min(self.character.hp, self.character.max_hp)
-        return ResourceResult.ok(f"{self._owner_name()} 最大HP -{self._hp_change_display(amount)}")
+        return self.change_status("玩家", max_hp=-int(amount or 0))
 
     # ── NPC operations ──
 
     def _get_target(self) -> Optional[NPC]:
+        from world.entity import NPC
         if self._target_npc:
             return self._target_npc
         if self.world and self.world.active:
@@ -381,92 +316,65 @@ class ResourceManager:
         npc = self._get_target()
         if not npc:
             return ResourceResult.fail("未设定目标")
-        npc.hp = min(npc.hp + amount, npc.max_hp)
-        return ResourceResult.ok(f"目标 {npc.name} HP +{self._hp_change_display(amount)}")
+        return self.change_status(npc.name, hp=int(amount or 0))
 
     def target_hp_remove(self, amount: int) -> ResourceResult:
         npc = self._get_target()
         if not npc:
             return ResourceResult.fail("未设定目标")
-        npc.hp = max(npc.hp - amount, 0)
-        return ResourceResult.ok(f"目标 {npc.name} HP -{self._hp_change_display(amount)}")
+        return self.change_status(npc.name, hp=-int(amount or 0))
 
-    def npc_change_status(self, name: str, hp: int = 0, max_hp: int = 0) -> ResourceResult:
-        """按名称对 NPC 增减 HP / 最大HP（负数=扣减）。NPC 生命值变更的唯一落账漏斗。
+    def _resolve_actor(self, target: str) -> Optional[Actor]:
+        t = str(target or "").strip()
+        if self.character and t in ("玩家", "player", "PC", "pc", self.character.name):
+            return self.character
+        if self.world:
+            e = self.world.get_by_name(t)
+            if isinstance(e, Actor):
+                return e
+        return None
 
-        由工具箱 change_status 与 NPC 机械结算共用，禁止在漏斗外直写 npc.hp / npc.max_hp。
-        0 HP → 倒地昏迷留场（可治疗苏醒，BG3 式可复活）；巨量伤害（余量 ≥ 生命上限）→ 即死；
-        已死亡者不接受治疗/伤害（复活留待高等级法术，本期不做）。
-        """
-        npc = self.world.get_by_name(name) if self.world else None
-        if not npc:
-            return ResourceResult.fail(f"未找到 NPC「{name}」")
+    def change_status(self, target: str, hp: int = 0, max_hp: int = 0,
+                      crit: bool = False) -> ResourceResult:
+        actor = self._resolve_actor(target)
+        if actor is None:
+            return ResourceResult.fail(f"未找到目标「{target}」")
         parts: list[str] = []
         if hp:
-            if npc.dead:
-                parts.append(f"{npc.name} 已死亡，无法变更 HP")
-            else:
-                hp_before = npc.hp
-                if hp > 0:
-                    npc.hp = min(npc.hp + hp, npc.max_hp)
-                    parts.append(
-                        f"{npc.name} HP +{npc.hp - hp_before} "
-                        f"({hp_before}/{npc.max_hp} >>> {npc.hp}/{npc.max_hp})"
-                    )
-                    if hp_before <= 0 < npc.hp:
-                        parts.append("苏醒")
-                else:
-                    npc.hp = max(npc.hp + hp, 0)
-                    parts.append(
-                        f"{npc.name} HP {npc.hp - hp_before:+d} "
-                        f"({hp_before}/{npc.max_hp} >>> {npc.hp}/{npc.max_hp})"
-                    )
-                    if npc.hp == 0:
-                        if hp_before == 0:
-                            parts.append("（仍倒地）")
-                        else:
-                            overkill = -hp - hp_before
-                            if overkill >= npc.max_hp:
-                                npc.dead = True
-                                parts.append("即死（巨量伤害 ≥ 生命上限）")
-                            else:
-                                parts.append("倒地昏迷")
+            if actor.dead:
+                return ResourceResult.fail(f"{actor.name} 已死亡，无法变更 HP")
+            before, new, notes = actor.apply_hp(hp, crit=crit)
+            parts.append(f"{actor.name} HP {new - before:+d} ({before}/{actor.max_hp} >>> {new}/{actor.max_hp})")
+            parts.extend(notes)
         if max_hp:
-            if npc.dead:
-                parts.append(f"{npc.name} 已死亡，无法变更最大HP")
-            else:
-                max_before = npc.max_hp
-                npc.max_hp = max(npc.max_hp + max_hp, 1)
-                npc.hp = min(npc.hp, npc.max_hp)
-                parts.append(f"{npc.name} 最大HP {max_hp:+d} ({max_before} >>> {npc.max_hp})")
+            if actor.dead:
+                return ResourceResult.fail(f"{actor.name} 已死亡，无法变更最大HP")
+            mbefore, mnew, mnotes = actor.apply_max_hp(max_hp)
+            parts.append(f"{actor.name} 最大HP {max_hp:+d} ({mbefore} >>> {mnew})")
+            parts.extend(mnotes)
         return ResourceResult.ok("，".join(parts) if parts else "无变化")
+
+    def npc_change_status(self, name: str, hp: int = 0, max_hp: int = 0) -> ResourceResult:
+        return self.change_status(name, hp=hp, max_hp=max_hp)
 
     def change_attitude(self, name: str, delta: int = 0, reason: str = "",
                         event: str = "") -> ResourceResult:
-        """NPC 态度变更的唯一漏斗（D2）：clamp ±100 + attitude_reasons 落账。
-
-        delta 为该轮净变化量（可正可负）；reason 为叙事理由（LLM 必填，审计用）；
-        event 为事件表 id（可选，供攻击基线等自动落账标注）。
-        """
-        from resource.attitude import clamp
-        npc = self.world.get_by_name(name) if self.world else None
-        if not npc:
-            return ResourceResult.fail(f"未找到 NPC「{name}」")
-        old = int(getattr(npc, "attitude", 0) or 0)
-        new = clamp(old + int(delta or 0))
+        actor = self._resolve_actor(name)
+        if actor is None:
+            return ResourceResult.fail(f"未找到目标「{name}」")
+        old, new = actor.apply_attitude(delta)
         applied = new - old
-        npc.attitude = new
-        reasons = getattr(npc, "attitude_reasons", None)
+        reasons = getattr(actor, "attitude_reasons", None)
         if not isinstance(reasons, list):
             reasons = []
-            npc.attitude_reasons = reasons
+            actor.attitude_reasons = reasons
         reasons.append({
             "event": event or "manual",
             "delta": applied,
             "reason": reason,
             "source": "manager.change_attitude",
         })
-        return ResourceResult.ok(f"{npc.name} 态度 {applied:+d} ({old:+d} >>> {new:+d})")
+        return ResourceResult.ok(f"{actor.name} 态度 {applied:+d} ({old:+d} >>> {new:+d})")
 
     def target_cp_add(self, amount: int) -> ResourceResult:
         npc = self._get_target()

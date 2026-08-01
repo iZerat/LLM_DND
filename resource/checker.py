@@ -1,7 +1,7 @@
 """【检定器】Checker：本地 D20 检定唯一实现（一逻辑，两入口）。
 
 - 本地入口：base_round / npc_controller 等直接调用方法（选项带检定 → 本地结算）。
-- LLM 入口：`d20_test` 工具（schemas/execute），监督者让 LLM 决定是否发起检定后，
+- LLM 入口：`d20_roll` 工具（schemas/execute），监督者让 LLM 决定是否发起检定后，
   由 LLM 调回本机掷骰并直接判定。
 
 术语与规则书一致（rules/playing-the-game.md「D20 Tests」）：
@@ -218,7 +218,7 @@ class Checker:
         掷骰 → 命中判定 → 计算目标态度基线（未敌对时 -8）与武器伤害。
 
         apply=True（本地选项路径）：由系统直接经 manager 落账伤害与态度基线；
-        apply=False（d20_test 工具路径）：只掷骰判定并登记 pending_attacks，
+        apply=False（d20_roll 工具路径）：只掷骰判定并登记 pending_attacks，
         由 LLM 再经调节器工具 change_status / change_attitude 落账（调节器校验数值）。
 
         返回 {tgt, ac, roll, total, atk_bonus, hit, word, color, line, dmg,
@@ -424,11 +424,11 @@ class Checker:
             return 0, f"[grey50]无效骰子表达式: {expr}[/grey50]"
         return total, f"[grey50]{expr} = {total}[/grey50]"
 
-    # ══════════════════════ LLM 工具入口（d20_test：玩家 + NPC 通用） ══════════════════════
+    # ══════════════════════ LLM 工具入口（d20_roll：玩家 + NPC 通用） ══════════════════════
 
     def tool_schema(self) -> dict:
         return _tool(
-            "d20_test",
+            "d20_roll",
             "为玩家或目标NPC执行本地 D20 检定（ability_check=属性检定 / saving_throw=豁免检定 / "
             "attack_roll=攻击检定），骰子由系统在本机掷出并直接判定。"
             "ability_check 与 saving_throw 对给定 DC 判定；attack_roll 对目标 AC 判定。"
@@ -454,16 +454,16 @@ class Checker:
         )
 
     def execute(self, name: str, arguments: dict) -> str:
-        if name != "d20_test":
+        if name != "d20_roll":
             return _tool_reply(False, f"未知工具: {name}")
         try:
-            result = self._d20_test(arguments)
+            result = self._d20_roll(arguments)
         except Exception as e:
             return _tool_reply(False, f"工具执行异常: {e}")
         return _tool_reply(result.success, result.message, result.data)
 
-    def _d20_test(self, arguments: dict) -> ResourceResult:
-        """d20_test 工具实现：玩家/NPC 检定统一路径（D20 Test 三种 kind）。"""
+    def _d20_roll(self, arguments: dict) -> ResourceResult:
+        """d20_roll 工具实现：玩家/NPC 检定统一路径（D20 Test 三种 kind）。"""
         actor = str(arguments.get("actor", "")).strip()
         kind = str(arguments.get("kind", "ability_check")).strip().lower()
         ability = str(arguments.get("ability", "")).strip().lower()
@@ -474,12 +474,12 @@ class Checker:
         if kind not in _KIND_CN:
             kind = "ability_check"
         if not actor:
-            return ResourceResult.fail("d20_test 缺少 actor（玩家 或 NPC名称）")
+            return ResourceResult.fail("d20_roll 缺少 actor（玩家 或 NPC名称）")
 
         is_player = actor in ("玩家", "player", "PC", "你") or actor == self.character.name
 
         if kind == "attack_roll":
-            return self._attack_test(is_player, actor, target, note)
+            return self._attack_roll(is_player, actor, target, note)
 
         # ability_check / saving_throw
         if ability not in _ABILITY_KEYS:
@@ -526,7 +526,7 @@ class Checker:
         }
         return ResourceResult(True, "", {"test": data}, visible=False)
 
-    def _attack_test(self, is_player: bool, actor: str, target: str, note: str) -> ResourceResult:
+    def _attack_roll(self, is_player: bool, actor: str, target: str, note: str) -> ResourceResult:
         """攻击检定（检定器：只掷骰判定，不做任何数据落账）。
 
         判定结果（命中伤害、态度基线）登记到 manager.pending_attacks，

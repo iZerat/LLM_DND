@@ -81,7 +81,7 @@ _TRIGGERS: list[dict] = [
         "prompt": (
             "[系统提示] 注意：玩家表达了攻击/战斗意图。\n"
             "检定由系统统一掷骰：若玩家的行动需要攻击检定或属性检定/豁免检定（如攻击目标、"
-            "闪避、挣脱、感知观察），请调用 d20_test 工具让系统掷骰并直接判定：\n"
+            "闪避、挣脱、感知观察），请调用 d20_roll 工具让系统掷骰并直接判定：\n"
             "- 攻击：kind=attack_roll，actor=玩家，target=目标NPC名\n"
             "- 属性/豁免：kind=ability_check 或 saving_throw，actor=玩家，ability=属性，dc=目标DC\n"
             "系统掷骰后会把命中/伤害（含目标态度基线）落账，并在结果中说明；你只需把系统返回的"

@@ -67,7 +67,7 @@ SYSTEM_PROMPT_TEMPLATE = """你是基于 D&D 5e 规则的地城主（GM），你
 
 ## 目标检定与[副事件]（可选）
 当[事件]中的目标（NPC/敌人）或玩家需要做攻击、豁免或属性检定，且未被系统机械结算时：
-1. 先描述要做的事，然后调用 d20_test 工具提交检定（actor=发起者，kind=ability_check/saving_throw/attack_roll；attack_roll 对目标 AC，其余对 DC）；
+1. 先描述要做的事，然后调用 d20_roll 工具提交检定（actor=发起者，kind=ability_check/saving_throw/attack_roll；attack_roll 对目标 AC，其余对 DC）；
 2. 系统会立即在本地掷出骰子，并把骰面、调整值、总值、DC/AC 和成败返回给你；玩家攻击的伤害与目标态度基线也由系统落账；
 3. 收到判定结果后，在[副事件]区块中用2-3句话描述目标行动的结果（命中/落空、成功/失败的效果，是否暴击/大失败）。
 另外，若本轮系统已结算在场 NPC 的行动（以 [系统·NPC行动·已结算] 注入，伤害已直接落账），
@@ -246,7 +246,7 @@ class GameMaster:
 
     def _build_system_prompt(self) -> str:
         char_summary = self.character.summary()
-        format_rule = "\n\n[记住] [状态]必须包含'玩家:'和'目标:'两行。有敌人/NPC就写目标行并加[敌对][中立][友方]标签。多个目标每个单独一行用'其他:'（不要用xN合并）。无目标写'目标: 无'。目标/其他名称必须是稳定角色名，禁止加括号或事件描述（如「(已逃窜)」），名称一律用中文（如「哥布林」「地精喽啰」），禁止英文原名（如 Goblin、Orc）。角色信息中【装备】是穿在身上的（有槽位），【背包】是携带品，【金钱】是货币总量（单位为cp），三者不要混淆。\n角色对话用「」包裹，特殊名词（地名、物品名、法术名、组织名等）用【】包裹。\n数据变更（物品、金钱、HP、NPC）一律通过调用工具完成，禁止在叙事中手写 [物品变更]/[状态变更] 文本区块；工具失败时只继续叙事，不做数据变更。金钱统一用cp（1金=10000铜、1银=100铜），HP用hp。"
+        format_rule = "\n\n[记住] [状态]必须包含'玩家:'和'目标:'两行。有敌人/NPC就写目标行并加[敌对][中立][友方]标签。多个目标每个单独一行用'其他:'（不要用xN合并）。无目标写'目标: 无'。目标/其他名称必须是稳定角色名，禁止加括号或事件描述（如「(已逃窜)」），名称一律用中文（如「哥布林」「地精喽啰」），禁止英文原名（如 Goblin、Orc）。角色信息中【装备】是穿在身上的（有槽位），【背包】是携带品，【金钱】是货币总量（单位为cp），三者不要混淆。\n角色对话用「」包裹，特殊名词（地名、物品名、法术名、组织名等）用【】包裹。\n数据变更（物品、金钱、HP、NPC）一律通过调用工具完成，禁止在叙事中手写 [物品变更]/[状态变更] 文本区块；工具失败时只继续叙事，不做数据变更。金钱统一用cp（1金=10000铜、1银=100铜），HP用hp。\n工具边界：change_status 只改生命值（HP/最大HP），change_attitude 只改态度，两者绝不互相代劳。攻击伤害必须与 d20_roll 判定结果完全一致，且一次攻击只落账一次；叙事中写到的 HP/AC/态度数字必须与真实数据一致，否则会被 [系统提醒] 打回修正。"
         template_note = ""
         if self.template and not self.history:
             t = load_opening_template(self.template)
@@ -278,7 +278,7 @@ class GameMaster:
             user_content = player_input
         else:
             system_content = self._build_system_prompt()
-            user_content = player_input + "\n\n[记住] [状态]必包含'玩家:'和'目标:'两行。有敌人/NPC就写目标行并加[敌对][中立][友方]标签。多个目标每个单独一行用'其他:'（不要用xN合并）。无目标写'目标: 无'。目标名称禁止加括号或事件描述（如「(已逃窜)」），状态写进[事件]，名称一律用中文（如「哥布林」「地精喽啰」），禁止英文原名（如 Goblin、Orc）。角色对话用「」包裹，特殊名词用【】包裹。数据变更（物品/金钱/HP/NPC）一律通过调用工具完成，禁止手写[物品变更]/[状态变更]区块；工具失败时只继续叙事，不做数据变更。金钱统一用cp（1金=10000铜、1银=100铜），HP用hp。"
+            user_content = player_input + "\n\n[记住] [状态]必包含'玩家:'和'目标:'两行。有敌人/NPC就写目标行并加[敌对][中立][友方]标签。多个目标每个单独一行用'其他:'（不要用xN合并）。无目标写'目标: 无'。目标名称禁止加括号或事件描述（如「(已逃窜)」），状态写进[事件]，名称一律用中文（如「哥布林」「地精喽啰」），禁止英文原名（如 Goblin、Orc）。角色对话用「」包裹，特殊名词用【】包裹。数据变更（物品/金钱/HP/NPC）一律通过调用工具完成，禁止手写[物品变更]/[状态变更]区块；工具失败时只继续叙事，不做数据变更。金钱统一用cp（1金=10000铜、1银=100铜），HP用hp。工具边界：change_status 只改生命值，change_attitude 只改态度，两者不互相代劳；攻击伤害必须与 d20_roll 判定结果一致且只落账一次；叙事中的 HP/AC/态度数字必须与真实数据一致，否则会被 [系统提醒] 打回。"
         messages = [{"role": "system", "content": system_content}]
         messages.append({"role": "user", "content": user_content})
         return messages
@@ -380,8 +380,8 @@ class GameMaster:
                 tool_rounds += 1
                 self._used_tools = True
 
-                has_d20_test = any(c["name"] == "d20_test" for c in tool_calls_acc.values())
-                if has_d20_test and status_cb:
+                has_d20_roll = any(c["name"] == "d20_roll" for c in tool_calls_acc.values())
+                if has_d20_roll and status_cb:
                     status_cb("正在结算目标检定…")
 
                 # 把工具调用与结果注入会话，继续取最终叙事
@@ -403,7 +403,7 @@ class GameMaster:
                     reply = tool_executor(c["name"], args)
                     messages.append({"role": "tool", "tool_call_id": c["id"], "content": reply})
 
-                if has_d20_test and status_cb:
+                if has_d20_roll and status_cb:
                     status_cb("目标检定已结算，DM 继续叙事…")
 
             self._round_num += 1

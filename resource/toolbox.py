@@ -94,7 +94,10 @@ class ResourceToolbox:
                       "name": {"type": "string"},
                   }, "required": ["name"]}),
             _tool("change_status",
-                  "修改玩家或 NPC 的生命值。target 传「玩家」或 NPC 名称。",
+                  "只修改生命值（HP / max_hp），绝不改变态度（态度请用 change_attitude）。"
+                  "target 传「玩家」或 NPC 名称；hp 正数=治疗、负数=伤害。"
+                  "伤害的数值必须与攻击检定的判定结果一致（不能随意填），"
+                  "检定后的伤害只允许落账一次。",
                   _with_reason({
                       "type": "object", "properties": {
                           "target": {"type": "string", "description": "玩家 或 NPC 名称"},
@@ -102,8 +105,9 @@ class ResourceToolbox:
                           "max_hp": {"type": "integer", "description": "最大HP 增减量"},
                       }, "required": ["target"]})),
             _tool("change_attitude",
-                  "调整某 NPC 对玩家的敌对/友好态度（-100..+100：负数=变敌对，正数=变友好）。"
-                  "攻击、威胁、偷窃、侮辱等敌对行为应传负数；帮助、赠送、治疗应传正数。",
+                  "只修改态度（-100..+100，负数=更敌对，正数=更友好），绝不改变生命值"
+                  "（HP 请用 change_status）。攻击、威胁、偷窃、侮辱等敌对行为应传负数；"
+                  "帮助、赠送、治疗应传正数。每次调用的 delta 为本次净变化量，累积超出 ±100 会被截断。",
                   _with_reason({
                       "type": "object", "properties": {
                           "target": {"type": "string", "description": "NPC 名称"},
@@ -147,8 +151,8 @@ class ResourceToolbox:
                         tgt_name, delta,
                         reason=str(arguments.get("reason", "") or ""),
                     )
-            elif name == "d20_test":
-                result = self.checker._d20_test(arguments)
+            elif name == "d20_roll":
+                result = self.checker._d20_roll(arguments)
                 if result.success and result.data:
                     test = (result.data.get("test") or {})
                     if test.get("display"):
@@ -221,22 +225,4 @@ class ResourceToolbox:
             err = m.consume_pending_damage(target, hp)
             if err:
                 return err
-        if target == "玩家":
-            parts = []
-            if hp:
-                res = m.add_hp(hp) if hp > 0 else m.remove_hp(-hp)
-                if res.success:
-                    parts.append(res.message)
-                else:
-                    return res
-            if max_hp:
-                res = m.add_maxhp(max_hp) if max_hp > 0 else m.remove_maxhp(-max_hp)
-                if res.success:
-                    parts.append(res.message)
-                else:
-                    return res
-            return ResourceResult.ok("，".join(parts) if parts else "无变化")
-        npc = m.world.get_by_name(target) if m.world else None
-        if not npc:
-            return ResourceResult.fail(f"未找到目标 NPC「{target}」，请先用 create_npc / set_target")
-        return m.npc_change_status(target, hp=hp, max_hp=max_hp)
+        return m.change_status(target, hp=hp, max_hp=max_hp)

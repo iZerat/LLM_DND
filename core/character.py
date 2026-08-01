@@ -9,6 +9,7 @@ from rules.srd_data import (
 )
 from resource.models import Inventory, ItemInstance
 from resource.item_db import item_db
+from world.actor import Actor
 
 RACES = [s.name for s in SPECIES_LIST]
 CLASSES = [c.name for c in CLASS_LIST]
@@ -44,52 +45,28 @@ def strip_en_parens(text: str) -> str:
 
 
 @dataclass
-class Combatant:
-    name: str = tr("unknown")
-    ac: int = 10
-    hp: int = 10
-    max_hp: int = 10
-
-    def status_line(self) -> str:
-        return f"{self.name}  AC:{self.ac}  HP:{self.hp}/{self.max_hp}"
-
-
-@dataclass
-class Character:
-    name: str = ""
+class Character(Actor):
     race: str = ""
     lineage: str = ""
-    char_class: str = ""
     background: str = ""
-    level: int = 1
-    hp: int = 10
-    max_hp: int = 10
-    dead: bool = False
     stable: bool = False
     death_fails: int = 0
     death_successes: int = 0
-    strength: int = 10
-    dexterity: int = 10
-    constitution: int = 10
-    intelligence: int = 10
-    wisdom: int = 10
-    charisma: int = 10
-    skills: list = field(default_factory=list)
-    saving_throws: list = field(default_factory=list)
     feats: list = field(default_factory=list)
-    description: str = ""
     gender: str = "male"
     age: int = 20
     inventory: Inventory = field(default_factory=Inventory)
 
+    @classmethod
+    def create(cls, name: str = "", **kwargs) -> "Character":
+        return cls(name=name, **kwargs)
+
     @property
     def unconscious(self) -> bool:
-        """昏迷：0 生命值且未死亡（D&D：0 HP → 昏迷，除非即死/已稳定）。"""
         return not self.dead and self.hp <= 0
 
     @property
     def condition_cn(self) -> str:
-        """当前状态中文描述：死亡/稳定/昏迷/正常。"""
         if self.dead:
             return "死亡"
         if self.stable:
@@ -219,3 +196,44 @@ class Character:
             f"{tr('general:money')}: {self.currency_str()}\n"
             f"{tr('general:desc')}: {self.description}"
         )
+
+    def apply_hp(self, delta: int, crit: bool = False) -> tuple[int, int, list[str]]:
+        before = self.hp
+        if self.dead:
+            return before, self.hp, [f"{self.name} 已死亡，无法变更 HP"]
+        if delta >= 0:
+            new = min(self.hp + int(delta or 0), self.max_hp)
+            self.hp = new
+            notes: list[str] = []
+            if before <= 0 < new:
+                self.stable = False
+                self.death_fails = 0
+                self.death_successes = 0
+                notes.append("苏醒")
+            return before, new, notes
+        amount = -int(delta or 0)
+        self.hp = max(self.hp - amount, 0)
+        notes: list[str] = []
+        if self.hp == 0 and amount > 0:
+            if before == 0:
+                if self.stable:
+                    self.stable = False
+                    notes.append("稳定被打破")
+                if amount >= self.max_hp:
+                    self.dead = True
+                    notes.append("即死（伤害 ≥ 生命上限）")
+                else:
+                    fails = 2 if crit else 1
+                    self.death_fails += fails
+                    notes.append(f"死亡豁免失败 {fails} 次（{self.death_fails}/3）")
+                    if self.death_fails >= 3:
+                        self.dead = True
+                        notes.append("死亡")
+            else:
+                overkill = amount - before
+                if overkill >= self.max_hp:
+                    self.dead = True
+                    notes.append("即死（巨量伤害 ≥ 生命上限）")
+                else:
+                    notes.append("昏迷")
+        return before, self.hp, notes

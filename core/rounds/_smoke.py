@@ -52,7 +52,7 @@ def run_combat(seed_quit=True):
     gm = FakeGM(make_char())
     ws = WorldState()
     ws.add_active(NPC(id="t1", name="目标A", char_class="thug", hp=12, max_hp=12,
-                      ac=15, dexterity=10, strength=14, attitude=-40,
+                      base_ac=15, dexterity=10, strength=14, attitude=-40,
                       inventory=["长剑"]))
     gm.world_state = ws
     inputs = iter(["1", "我是自由行动", "/quit"] if seed_quit else ["1"])

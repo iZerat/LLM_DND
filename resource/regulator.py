@@ -229,6 +229,6 @@ class Regulator:
                 return npc
         return NPC(
             id=f"npc_{abs(hash(name)) % 1000000:x}",
-            name=name, ac=10, hp=8, max_hp=8,
+            name=name, base_ac=10, hp=8, max_hp=8,
             attitude=attitude,
         )
