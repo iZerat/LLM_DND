@@ -44,11 +44,39 @@ def list_saves():
     return saves + dirs
 
 
-def save_game(gm: GameMaster, name: str = None):
-    if not name:
-        name = gm.character.name
+def _safe_slot_name(name: str) -> str:
+    """存档槽位名安全化：去非法路径字符/首尾空白，防止路径穿越。"""
+    cleaned = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "", (name or "").strip())
+    if cleaned in (".", "..", ""):
+        return ""
+    return cleaned
+
+
+def save_game(gm: GameMaster, name: str = None) -> bool:
+    """保存游戏，返回是否真正写入。
+
+    - 首次存档（尚无绑定槽位）：提示玩家输入存档名称。
+    - 只要目标存档已存在（含当前绑定槽位、另存为新槽位）：都先询问是否覆盖。
+    - 槽位绑定用于把"匿名 /save"定位到本会话已使用的存档，避免串到别的存档。
+    """
     SAVE_DIR.mkdir(parents=True, exist_ok=True)
-    char_dir = SAVE_DIR / name
+
+    target = _safe_slot_name(name) if name else ""
+    if not target:
+        target = gm.save_slot or ""
+    if not target:
+        target = _safe_slot_name(Prompt.ask("为本次冒险命名存档"))
+        if not target:
+            console.print("[grey50]存档名称无效，已取消保存[/grey50]")
+            return False
+    char_dir = SAVE_DIR / target
+
+    # 只要目标已存在，一律询问覆盖
+    if char_dir.exists() or (SAVE_DIR / f"{target}.json").exists():
+        confirm = Prompt.ask(f"存档「{target}」已存在，是否覆盖？y/n")
+        if confirm not in ("y", "yes", ""):
+            console.print("[grey50]已取消保存[/grey50]")
+            return False
     char_dir.mkdir(parents=True, exist_ok=True)
 
     # info.json — character static stats only
@@ -121,8 +149,10 @@ def save_game(gm: GameMaster, name: str = None):
     # runtime_defs/ — 填表创建的对象定义（随存档保存，重启可恢复）
     _save_runtime_defs(char_dir)
 
-    console.print(f"[grey50]已保存: {name}[/grey50]")
+    gm.save_slot = target
+    console.print(f"[grey50]已保存: {target}[/grey50]")
     console.print()
+    return True
 
 
 def _save_runtime_defs(char_dir: Path):
@@ -390,6 +420,7 @@ def load_game(save_path: str) -> GameMaster:
             gm.last_time = data["last_time"]
         from world.state import WorldState
         gm.world_state = WorldState()
+    gm.save_slot = path.name if path.is_dir() else path.stem
     console.print(f"[grey50]已加载: {path.stem}[/grey50]")
     return gm
 
