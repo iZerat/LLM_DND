@@ -171,7 +171,8 @@ class ResourceManager:
             c.death_successes = 0
             notes.append("苏醒")
         return ResourceResult.ok(
-            f"{self._owner_name()} HP +{self._hp_change_display(amount)}"
+            f"{self._owner_name()} HP +{c.hp - hp_before} "
+            f"({hp_before}/{c.max_hp} >>> {c.hp}/{c.max_hp})"
             + ("，" + "，".join(notes) if notes else "")
         )
 
@@ -215,7 +216,8 @@ class ResourceManager:
                 else:
                     notes.append("昏迷")
         return ResourceResult.ok(
-            f"{self._owner_name()} HP -{self._hp_change_display(amount)}"
+            f"{self._owner_name()} HP -{hp_before - c.hp} "
+            f"({hp_before}/{c.max_hp} >>> {c.hp}/{c.max_hp})"
             + ("，" + "，".join(notes) if notes else "")
         )
 
@@ -339,17 +341,23 @@ class ResourceManager:
         parts: list[str] = []
         if hp:
             if npc.dead:
-                parts.append(f"目标 {npc.name} 已死亡，无法变更 HP")
+                parts.append(f"{npc.name} 已死亡，无法变更 HP")
             else:
                 hp_before = npc.hp
                 if hp > 0:
                     npc.hp = min(npc.hp + hp, npc.max_hp)
-                    parts.append(f"目标 {npc.name} HP {hp:+d}点")
+                    parts.append(
+                        f"{npc.name} HP +{npc.hp - hp_before} "
+                        f"({hp_before}/{npc.max_hp} >>> {npc.hp}/{npc.max_hp})"
+                    )
                     if hp_before <= 0 < npc.hp:
                         parts.append("苏醒")
                 else:
                     npc.hp = max(npc.hp + hp, 0)
-                    parts.append(f"目标 {npc.name} HP {hp:+d}点")
+                    parts.append(
+                        f"{npc.name} HP {npc.hp - hp_before:+d} "
+                        f"({hp_before}/{npc.max_hp} >>> {npc.hp}/{npc.max_hp})"
+                    )
                     if npc.hp == 0:
                         if hp_before == 0:
                             parts.append("（仍倒地）")
@@ -362,11 +370,12 @@ class ResourceManager:
                                 parts.append("倒地昏迷")
         if max_hp:
             if npc.dead:
-                parts.append(f"目标 {npc.name} 已死亡，无法变更最大HP")
+                parts.append(f"{npc.name} 已死亡，无法变更最大HP")
             else:
+                max_before = npc.max_hp
                 npc.max_hp = max(npc.max_hp + max_hp, 1)
                 npc.hp = min(npc.hp, npc.max_hp)
-                parts.append(f"目标 {npc.name} 最大HP {max_hp:+d}点")
+                parts.append(f"{npc.name} 最大HP {max_hp:+d} ({max_before} >>> {npc.max_hp})")
         return ResourceResult.ok("，".join(parts) if parts else "无变化")
 
     def change_attitude(self, name: str, delta: int = 0, reason: str = "",
@@ -394,7 +403,7 @@ class ResourceManager:
             "reason": reason,
             "source": "manager.change_attitude",
         })
-        return ResourceResult.ok(f"目标 {npc.name} 态度 {old:+d} → {new:+d}")
+        return ResourceResult.ok(f"{npc.name} 态度 {applied:+d} ({old:+d} >>> {new:+d})")
 
     def target_cp_add(self, amount: int) -> ResourceResult:
         npc = self._get_target()

@@ -57,14 +57,14 @@ def _tool_reply(success: bool, message: str, data: dict | None = None) -> str:
 def build_action_text(
     actor: str, label: str, dc_kind: str, dc, mod_label: str, mod: int,
     line: str, word: str, color: str, target: str = "", dmg: int = 0,
-    att_delta: int | None = None, note: str = "",
 ) -> str:
     """统一行动块文本（唯一入口，玩家/NPC 行动共用，禁止各路径自行拼接）。
 
     actor=行动者名，label=检定名（如「攻击检定」「敏捷检定」），
     dc_kind=DC/AC，mod_label=调整值/加值，line=骰面算式行，
     word 为统一结果词（成功/失败/大成功/大失败），color 为其颜色。
-    dmg 命中伤害单独一行、不加色；att_delta 显示目标态度变化；note 为检定说明。
+    dmg 命中伤害单独一行、不加色。态度变化与检定说明由[变更]块 / 叙事承担，
+    行动块不再重复展示。
     """
     header = f"[yellow]{actor} {label}[/yellow]"
     if target:
@@ -75,10 +75,6 @@ def build_action_text(
         text += f"\n[bold {color}]{word}[/bold {color}]"
     if dmg:
         text += f"\n造成 {dmg} 点伤害"
-    if att_delta is not None:
-        text += f"\n[grey50]{target or actor} 态度 {att_delta:+d}[/grey50]"
-    if note:
-        text += f"\n[grey50]{note}[/grey50]"
     return text
 
 
@@ -222,7 +218,8 @@ class Checker:
         掷骰 → 命中判定 → 目标态度基线（未敌对时落账）→ 命中则武器伤害经 manager 落账。
 
         返回 {tgt, ac, roll, total, atk_bonus, hit, word, color, line, dmg,
-        attitude_applied, attitude_delta}；无法结算时返回 None。
+        attitude_applied, attitude_delta, changes}；无法结算时返回 None。
+        changes 为本轮落账的变更消息（HP/态度），供[变更]块展示。
         """
         world, manager = self.world, self.manager
         if not world or not manager:
@@ -238,18 +235,24 @@ class Checker:
 
         from resource.attitude import EVENT_TABLE, level
         attitude_applied = False
+        att_msg = ""
         if level(getattr(tgt, "attitude", 0)) != "hostile":
             att_res = manager.change_attitude(
                 tgt.name, delta=EVENT_TABLE["attack"]["delta"],
                 event="attack",
                 reason=EVENT_TABLE["attack"]["desc"] + "（玩家攻击，系统基线）",
             )
-            attitude_applied = att_res.success
+            if att_res.success:
+                attitude_applied = True
+                att_msg = att_res.message or ""
 
         dmg = 0
+        hp_msg = ""
         if hit:
             dmg = self.roll_player_damage(char, crit=(roll == 20))
-            manager.npc_change_status(tgt.name, hp=-dmg)
+            hp_res = manager.npc_change_status(tgt.name, hp=-dmg)
+            if hp_res.success:
+                hp_msg = hp_res.message or ""
 
         return {
             "tgt": tgt, "ac": ac, "roll": roll, "total": total,
@@ -257,6 +260,7 @@ class Checker:
             "color": color, "line": line, "dmg": dmg,
             "attitude_applied": attitude_applied,
             "attitude_delta": EVENT_TABLE["attack"]["delta"],
+            "changes": [m for m in (hp_msg, att_msg) if m],
         }
 
     def settle_player_attack(self, target_name: str, label: str = ""):
@@ -282,7 +286,6 @@ class Checker:
         check_text = build_action_text(
             char.name, "攻击检定", "AC", ac, "加值", atk_bonus,
             line, word, color, target=tgt.name, dmg=dmg,
-            att_delta=attitude_delta if attitude_applied else None,
         )
         fragment = f"[攻击] d20({roll})+({atk_bonus:+d})={total}"
         parts = [f"对「{tgt.name}」发起攻击"]
@@ -497,7 +500,7 @@ class Checker:
         ability_cn = _ABILITY_CN.get(ability, ability)
         text = build_action_text(
             name, f"{ability_cn}检定", "DC", dc_value, "调整值", mod,
-            line, word, color, note=note,
+            line, word, color,
         )
         data = {
             "ok": True, "actor": name, "kind": kind, "kind_cn": label,
@@ -527,6 +530,7 @@ class Checker:
             )
             line, dmg = r["line"], r["dmg"]
             attitude_applied, attitude_delta = r["attitude_applied"], r["attitude_delta"]
+            changes = r["changes"]
             target_label = tgt.name
         else:
             npc = self._get_npc(actor)
@@ -550,22 +554,25 @@ class Checker:
             op = "≥" if total == ac else (">" if hit else "<")
             line = f"d20({roll}) + ({bonus:+d}) = {total} {op} {ac}"
             dmg = 0
+            changes: list[str] = []
             attitude_applied, attitude_delta = False, 0
             if hit:
                 dmg = self.roll_npc_damage(npc, crit=(roll == 20))
                 if target_label == "玩家":
-                    self.manager.remove_hp(dmg, crit=(roll == 20))
+                    res = self.manager.remove_hp(dmg, crit=(roll == 20))
+                    if res.success and res.message:
+                        changes.append(res.message)
                 else:
                     tgt = self._get_npc(target)
                     if tgt is not None:
-                        self.manager.npc_change_status(tgt.name, hp=-dmg)
+                        res = self.manager.npc_change_status(tgt.name, hp=-dmg)
+                        if res.success and res.message:
+                            changes.append(res.message)
 
         word, color = _attack_display(roll, hit)
         text = build_action_text(
             name, "攻击检定", "AC", ac, "加值", atk_bonus,
             line, word, color, target=target_label, dmg=dmg,
-            att_delta=attitude_delta if attitude_applied else None,
-            note=note,
         )
         data = {
             "ok": True, "actor": name, "kind": "attack_roll", "kind_cn": "攻击检定",
@@ -574,9 +581,13 @@ class Checker:
             "roll": roll, "modifier": atk_bonus, "total": total,
             "success": hit, "natural_20": roll == 20, "natural_1": roll == 1,
             "damage": dmg, "attitude_delta": attitude_delta if attitude_applied else 0,
-            "note": note, "display": text,
+            "note": note, "display": text, "changes": changes,
         }
-        return ResourceResult(True, "", {"test": data}, visible=False)
+        message = (
+            "攻击已由系统在本机落账（命中伤害与目标态度基线均已结算，见 changes）。"
+            "请勿再调用 change_status / change_attitude 重复结算，直接编织叙事。"
+        )
+        return ResourceResult(True, message, {"test": data}, visible=False)
 
     # ══════════════════════ 辅助 ══════════════════════
 

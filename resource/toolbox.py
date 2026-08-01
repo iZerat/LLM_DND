@@ -152,6 +152,8 @@ class ResourceToolbox:
                             "text": test["display"],
                             "success": bool(test.get("success", False)),
                         })
+                    for msg in (test.get("changes") or []):
+                        self.results.append(msg)
             else:
                 return _tool_reply(False, f"未知工具: {name}")
         except Exception as e:

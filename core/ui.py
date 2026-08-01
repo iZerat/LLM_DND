@@ -227,12 +227,17 @@ def render_status_row(character, world_state=None, targets=None):
             tag, color = "倒地", "grey50"
         else:
             color = _hostility_color(attitude)
-            tag = {"hostile": "敌对", "neutral": "中立", "friendly": "友方"}.get(
-                level(attitude), "中立"
-            )
+            tag = None
         hp_text = _hp_full_markup(e.hp, e.max_hp)
+        if tag:
+            body = f"[{color}]{tag}[/{color}]  [grey50]生命[/grey50] {hp_text}  [grey50]AC[/grey50] {e.ac}"
+        else:
+            body = (
+                f"[grey50]等级[/grey50] {e.level}  "
+                f"[grey50]生命[/grey50] {hp_text}  [grey50]AC[/grey50] {e.ac}"
+            )
         panels.append(Panel(
-            f"[{color}]{tag}[/{color}]  [grey50]生命[/grey50] {hp_text}  [grey50]AC[/grey50] {e.ac}",
+            body,
             title=f"[{color}]{e.name}[/{color}]",
             border_style=color,
             box=box.SQUARE,

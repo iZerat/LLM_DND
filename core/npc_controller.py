@@ -171,12 +171,12 @@ class NPCController:
                     "",
                     "",
                 )
-            self.manager.npc_change_status(tgt.name, hp=-dmg)
+            res = self.manager.npc_change_status(tgt.name, hp=-dmg)
             self.changed_names.add(tgt.name)
             line = (f"{npc.name} 攻击 {tgt.name}：d20({roll})+({bonus:+d})={total} ≥ {target_ac}，"
                     f"命中，造成 {dmg} 点伤害")
             injected = f"[{tag}] {npc.name}：攻击 {tgt.name}，命中，造成 {dmg} 点伤害。"
-            change_msg = f"{tgt.name} HP {dmg:-d}"
+            change_msg = res.message if res and res.message else f"{tgt.name} HP {dmg:-d}"
         return line, injected, self.check_results[-1]["text"], change_msg
 
     # ── 数值辅助 ──
