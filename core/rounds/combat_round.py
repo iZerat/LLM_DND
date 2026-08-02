@@ -4,7 +4,7 @@ from core.rounds.segments.npc_segment import NPCSegment
 from core.rounds.segments.player_segment import PlayerSegment
 from core.ui import (
     render_round_header, render_env_block, render_event_block,
-    render_action_block, render_change_block, parse_sections,
+    render_action_block, render_change_block, render_choice_block, parse_sections,
 )
 from world.entity import NPC
 
@@ -17,12 +17,11 @@ class CombatRound(BaseRound):
     """
 
     def run(self, player_input: str, on_prompt):
-        self.gm.last_check_block = None
-        # 预调用只做叙事（tools=[] + mode=light）：战场环境/主事件/行动倾向均由
-        # 后续玩家段/NPC 段机械结算，防止预调中 LLM 抢先落账造成双重结算（C7）。
+        # 预调用只做叙事（tools=[] + mode=full）：战场环境/主事件/行动倾向均由
+        # 后续玩家段/NPC 段机械结算，防止预调中 LLM 抢先结算造成双重结算（C7）。
         audit, elapsed = self.dm_call(
             self._prelude_prompt(player_input),
-            tools=[], mode="light", tag="pre",
+            tools=[], mode="full", tag="pre",
         )
         sections = parse_sections(audit.text)
         render_round_header(self.ctx.round_num, kind="战斗")
@@ -32,16 +31,27 @@ class CombatRound(BaseRound):
             self.gm.last_time = sections["时间"]
         if "事件" in sections:
             render_event_block(sections["事件"])
-        if getattr(self.toolbox, "check_results", None):
-            render_action_block(self.toolbox.check_results)
+
+        carried_check = getattr(self.gm, "last_check_block", None)
+        check_blocks = []
+        if carried_check:
+            check_blocks.append({"text": carried_check})
+            self.gm.last_check_block = None
+        check_blocks.extend(getattr(self.toolbox, "check_results", None) or [])
+        if check_blocks:
+            render_action_block(check_blocks)
         if audit.messages:
             render_change_block(audit.messages)
+
+        choices_text = sections.get("选择", "")
+        if choices_text:
+            update_choices_map(self.gm, choices_text)
+            render_choice_block(choices_text)
 
         initiative = self.ctx.initiative
         if not initiative.order:
             initiative.roll(self.world)
         order = initiative.resolve(self.world)
-        choices_text = sections.get("选择", "")
 
         next_input = player_input
         for name, entity in order:

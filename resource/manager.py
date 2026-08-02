@@ -519,7 +519,11 @@ class ResourceManager:
             if actor.dead:
                 return ResourceResult.fail(f"{actor.name} 已死亡，无法变更 HP")
             before, new, notes = actor.apply_hp(hp, crit=crit)
-            parts.append(f"{actor.name} HP {new - before:+d} ({before}/{actor.max_hp} >>> {new}/{actor.max_hp})")
+            delta = new - before
+            hp_color = "#6CB77A" if delta >= 0 else "#E08E8E"
+            parts.append(
+                f"{actor.name} HP [{hp_color}]{delta:+d}[/{hp_color}]"
+                f" ({before}/{actor.max_hp} >>> {new}/{actor.max_hp})")
             parts.extend(notes)
         if max_hp:
             if actor.dead:
@@ -549,7 +553,9 @@ class ResourceManager:
             "reason": reason,
             "source": "manager.change_attitude",
         })
-        return ResourceResult.ok(f"{actor.name} 态度 {applied:+d} ({old:+d} >>> {new:+d})")
+        color = "#E08E8E" if applied < 0 else "#6CB77A"
+        return ResourceResult.ok(
+            f"{actor.name} 态度 [{color}]{applied:+d}[/{color}] ({old:+d} >>> {new:+d})")
 
     def npc_add_issue(self, req: dict) -> Optional[str]:
         """校验 npc_add 请求是否可执行（原子拒绝前置检查）。

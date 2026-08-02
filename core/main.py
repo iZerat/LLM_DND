@@ -95,7 +95,7 @@ def _test_api_connection(model: str) -> bool:
 def _setup_interactive():
     while True:
         console.print("\n[white]配置 API[/white]")
-        console.print("输入你的 LLM API 信息（支持 OpenAI、DeepSeek 或任何兼容服务）\n")
+        console.print("输入你的 LLM API 信息（支持 OpenAI 兼容 API）\n")
 
         while True:
             base_url = Prompt.ask("API 地址")

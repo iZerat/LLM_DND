@@ -29,8 +29,7 @@ ENV_BASIC_FIELDS = {"地点", "时间", "温度"}
 _round_counter = 0
 
 _HP_GREEN = "#6CB77A"      # API 连接成功的绿：满血
-_HP_DSEAGREEN = "#8FBC8F"  # 选择块边框的暗海绿：血量不满（仍过半）
-_HP_YELLOW = "#F9F1A5"     # 对话选项的黄：半血及以下
+_HP_YELLOW = "#F9F1A5"     # 对话选项的黄：不满血
 _HP_RED = "#E08E8E"        # 偏亮灰的红：仅剩 1 滴血
 _HP_RE = re.compile(r"HP:\s*(\d+)/(\d+)")
 
@@ -40,11 +39,9 @@ def _hp_color(hp: int, max_hp: int) -> str:
         return "grey50"
     if hp == 1:
         return _HP_RED
-    if hp * 2 <= max_hp:
-        return _HP_YELLOW
     if hp >= max_hp:
         return _HP_GREEN
-    return _HP_DSEAGREEN
+    return _HP_YELLOW
 
 
 def _hp_markup(hp: int, max_hp: int) -> str:

@@ -416,7 +416,7 @@ class GameMaster:
                     messages.append({"role": "tool", "tool_call_id": c["id"], "content": reply})
 
                 if has_d20_roll and status_cb:
-                    status_cb("目标检定已结算，DM 继续叙事…")
+                    status_cb("目标检定已结算，DM 继续思考…")
 
             self._round_num += 1
             if round_num is not None:
