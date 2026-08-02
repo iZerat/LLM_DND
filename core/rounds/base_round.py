@@ -168,7 +168,8 @@ class BaseRound:
 
     def dm_call(self, user_text, tools=None, status="DM 思考中...",
                 protected_npcs=None, mode="full", tag="", settle_scope="dm",
-                require_event: bool = False, require_choices: bool = False):
+                require_event: bool = False, require_choices: bool = False,
+                _suppress_meta: bool = False):
         """单次 DM 调用：流式收集 → 监督者审计/落账。返回 (audit, elapsed)。
 
         tools：传 None 用工具箱 schemas；传 [] 表示不给工具（段内纯叙事调用）。
@@ -178,6 +179,7 @@ class BaseRound:
         require_event：True 时审计阶段强制 [事件] 区块非空，缺失即打回 DM 补写。
         require_choices：True 时本轮必须已调 create_choice（choices 非空），
         缺失则打回 DM 补调一次（只重试一轮，防死循环）。
+        _suppress_meta：内部参数——递归补选时不重复打印「思考耗时」，由外层合并输出。
         """
         if tools is None:
             tools = self.toolbox.schemas()
@@ -233,7 +235,8 @@ class BaseRound:
         if require_choices and (getattr(self.toolbox, "manager", None) is None
                                 or not self.toolbox.manager.choices):
             console.print("[indian_red]缺少选择块，正在要求 DM 补调 create_choice…[/indian_red]")
-            audit, _ = self.dm_call(
+            usage_before = getattr(self.gm, "last_usage", None) or {}
+            audit, _elapsed = self.dm_call(
                 "[系统要求] 你上一轮回复没有为玩家创建选择选项。"
                 "请立即调用 create_choice 工具创建 3 个选择选项"
                 "（choice_type=attack/ability_check/narrative，选项文本用纯描述语言），"
@@ -242,10 +245,20 @@ class BaseRound:
                 protected_npcs=protected_npcs, mode=mode, tag=tag,
                 settle_scope=settle_scope,
                 require_event=require_event, require_choices=False,
+                _suppress_meta=True,
             )
+            elapsed += _elapsed
+            usage_after = getattr(self.gm, "last_usage", None) or {}
+            merged = {
+                k: (usage_before.get(k) or 0) + (usage_after.get(k) or 0)
+                for k in ("prompt_tokens", "completion_tokens", "total_tokens")
+            }
+            if any(merged.values()):
+                self.gm.last_usage = merged
         if not self.gm.history:
             self.gm.set_history([])
-        console.print(f"[grey50]思考耗时: {format_elapsed(elapsed)}{self.gm.usage_summary()}[/grey50]")
+        if not _suppress_meta:
+            console.print(f"[grey50]思考耗时: {format_elapsed(elapsed)}{self.gm.usage_summary()}[/grey50]")
         console.print()
         if tag:
             tools_label = ""
