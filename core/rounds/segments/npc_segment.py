@@ -31,19 +31,22 @@ class NPCSegment(Segment):
     def run(self):
         controller = self.ctx.npc_controller
         check_text, injected, change_msg = controller.act(self.npc, self.player_input)
+        if not injected:
+            render_status_row(self.character, self.world)
+            return
+        # 先 DM 短调用编织叙事，再打印行动块（行动块放在「DM 思考中…」后，阅读更连贯）
+        audit, _ = self.dm_call(
+            f"{injected}\n\n请把以上行动编织进 [副事件] 区块，"
+            f"用 2-3 句话描述 {self.npc.name} 的这轮行动。"
+            f"数值变化已由系统处理，叙事中不要出现「已落账」「系统结算」或具体扣血数字，"
+            f"只需用画面感语言描述过程与结果。"
+            f"\n\n[当前战场]\n{self.world_context()}",
+            tools=[], mode="light", tag="seg",
+        )
         if check_text:
             render_action_block([{"text": check_text}])
         elif injected:
             render_action_block([{"text": _action_display(self.npc.name, injected)}])
-        if not injected:
-            render_status_row(self.character, self.world)
-            return
-        audit, _ = self.dm_call(
-            f"{injected}\n\n请把以上已经系统结算的行动编织进 [副事件] 区块，"
-            f"用 2-3 句话描述 {self.npc.name} 的这轮行动。伤害/结果已落账，不要重复扣血。"
-            f"\n\n[当前战场]\n{self.world_context()}",
-            tools=[], mode="light", tag="seg",
-        )
         sections = parse_sections(audit.text)
         if "副事件" in sections:
             render_narration_block(sections["副事件"])

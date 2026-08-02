@@ -148,7 +148,6 @@ class ResourceManager:
         self.change_log.clear()
         self.lookup_fail_count = 0
         self.pending_changes.clear()
-        self.reset_choices()
 
     def _bump_lookup_fail(self, hint: str) -> str:
         """查表失败计数 + 1；返回面向 LLM 的提示语（含当前次数/上限/回退状态）。"""

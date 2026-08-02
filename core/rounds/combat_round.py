@@ -12,8 +12,8 @@ from world.entity import NPC
 class CombatRound(BaseRound):
     """战斗回合：DM 预调用（长上下文）→ 环境/主事件 → 按先攻小循环逐段。
 
-    每个 actor 依次执行自己的段（NPC段：行动块 → 副事件 → 变更 → 状态块；
-    玩家段：选择块 → 输入 → 决定块 → 行动块 → 副事件 → 变更 → 状态块）。
+    每个 actor 依次执行自己的段（NPC段：DM 短调用 → 行动块 → 副事件 → 变更 → 状态块；
+    玩家段：选择块 → 输入 → 决定块 → DM 短调用 → 行动块 → 副事件 → 变更 → 状态块）。
     """
 
     def run(self, player_input: str, on_prompt):
@@ -54,6 +54,21 @@ class CombatRound(BaseRound):
             render_change_block(audit.messages)
             self.rendered_blocks.append("变更")
 
+        initiative = self.ctx.initiative
+        if not initiative.order:
+            initiative.roll(self.world)
+        order = initiative.resolve(self.world)
+
+        # [状态] 目标块：prelude 渲染了行动/变更块后必须以目标块收尾（小循环一段一处理，
+        # carried 行动段不能被下一个行动段紧接）；无行动/变更但玩家先手时也补打，
+        # 保证玩家输入前能看到战场状态。
+        if "行动" in self.rendered_blocks or "变更" in self.rendered_blocks:
+            render_status_row(self.character, self.world)
+            self.rendered_blocks.append("状态")
+        elif order and order[0][0] == self.character.name:
+            render_status_row(self.character, self.world)
+            self.rendered_blocks.append("状态")
+
         # [选择] 由 PlayerSegment 渲染，prelude 不重复
         choices_text = sections.get("选择", "")
 
@@ -61,17 +76,6 @@ class CombatRound(BaseRound):
             self.rendered_blocks, "战斗", self.ctx.round_num, node="prelude")
         for err in errs:
             console.print(f"[indian_red]{err}[/indian_red]")
-
-        initiative = self.ctx.initiative
-        if not initiative.order:
-            initiative.roll(self.world)
-        order = initiative.resolve(self.world)
-
-        # 玩家先手时，首个段就是玩家段：段尾状态块要等输入后才渲染，
-        # 选择前先补打一次战场状态（NPC 先手时其段尾状态块会在选择前渲染，无需补打）。
-        if order and order[0][0] == self.character.name:
-            render_status_row(self.character, self.world)
-            self.rendered_blocks.append("状态")
 
         next_input = player_input
         for name, entity in order:
@@ -96,7 +100,9 @@ class CombatRound(BaseRound):
             prefix = (
                 f"（上一轮玩家行动：{player_input}）\n"
                 "新一轮战斗开始。请总结上一回合战况、铺垫本轮战场局势。"
-                "输出 [事件] 区块；有玩家检定结果时另加 [副事件] 区块描述。"
+                "输出 [事件] 区块；上一轮有玩家检定结果时另加 [副事件] 区块描述其过程与结果。"
+                "叙事中不要出现「已落账」「系统结算」「HP 减少」等记账式/系统用语——"
+                "数值变化由系统单独渲染的[变更]块展示，你只需用画面感语言描述。"
             )
         if self.character.hp <= 0:
             prefix += "（注意：玩家当前处于昏迷/倒地状态）"

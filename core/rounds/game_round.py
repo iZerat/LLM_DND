@@ -68,6 +68,8 @@ class GameRound:
         while True:
             self.round_num += 1
             self.gm.last_changed_npcs = set()
+            # 选择选项每轮重建：由本轮 DM 经 create_choice 创建，跨段保留到玩家输入前
+            self.regulator.manager.reset_choices()
             ctx = RoundContext(
                 self.gm, self.regulator, self.supervisor, self.toolbox,
                 self.npc_controller, self.initiative, self.round_num,

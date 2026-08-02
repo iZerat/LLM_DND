@@ -113,7 +113,21 @@ class Supervisor:
                 errors.append(
                     f"第 {round_num} 轮（{round_kind}）{label}缺少块：{block}"
                 )
+        # prelude 段完整性：渲染了行动/变更块后必须以目标块（状态）收尾，
+        # 否则会与下一个行动段的行动块紧接（小循环要求一段一处理）。
+        if node == "prelude" and (
+            "行动" in rendered or "变更" in rendered
+        ) and "状态" not in rendered:
+            errors.append(
+                f"第 {round_num} 轮（{round_kind}）prelude 渲染了行动/变更块后缺少目标块（状态）"
+            )
         return errors
+
+    def check_player_choice_ready(self, rendered: list[str], round_num: int) -> list[str]:
+        """玩家输入前检查：选择块必须已渲染（每次玩家行动前都要有选项可选）。"""
+        if "选择" not in rendered:
+            return [f"第 {round_num} 轮（战斗）玩家输入前缺少选择块"]
+        return []
 
     # ── 方向B：LLM 输出 → 审核 ──
 
