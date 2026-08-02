@@ -17,12 +17,3 @@ class WriteStamp:
     writer: str = "clockwork"
     version: int = 1
     at: object = ""
-
-
-def newer(a: WriteStamp | None, b: WriteStamp | None) -> WriteStamp | None:
-    """取两者中较新的 stamp（version 大者新）；任一为 None 时取另一个。"""
-    if a is None:
-        return b
-    if b is None:
-        return a
-    return a if a.version >= b.version else b

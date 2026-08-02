@@ -15,8 +15,7 @@ from core.rounds.base_round import (
 from core.rounds.initiative import Initiative
 from core.rounds.noncombat_round import NonCombatRound
 from core.rounds.combat_round import CombatRound
-from core.game_loop import _GAME_REGISTRY, _show_round_recap
-
+from core.rounds.registry import GAME_REGISTRY, _show_round_recap
 
 class GameRound:
     """回合大循环：非战斗/战斗分派、回合计数（每轮 +1，所有段共用同一轮号）、玩家输入与命令处理。"""
@@ -158,7 +157,7 @@ class GameRound:
             if not raw.strip():
                 continue
             if parse_command(raw) is not None:
-                result = _GAME_REGISTRY.resolve(raw, "game")
+                result = GAME_REGISTRY.resolve(raw, "game")
                 if result is None:
                     console.print("[grey50]无效命令，输入 /help 查看可用命令[/grey50]")
                     continue

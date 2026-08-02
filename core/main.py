@@ -1,5 +1,6 @@
 import re
 import sys
+import threading
 import time as _time
 from pathlib import Path
 
@@ -17,11 +18,44 @@ from core.game_master import GameMaster
 from core.ui import console, render_dm_output, render_character_sheet
 from core import char_gen
 from core.game_loop import (
-    game_loop, save_game, load_game, log_dm_response, format_elapsed,
-    list_saves, SAVE_DIR, LOG_DIR, _show_round_recap,
+    game_loop, load_game, list_saves, SAVE_DIR, LOG_DIR,
 )
 from core.world_bg import list_world_backgrounds, load_world_background
 from core.opening_templates import list_opening_templates
+
+
+# ---------- 版本更新检查 ----------
+
+def _start_update_check():
+    result = {}
+
+    def _worker():
+        try:
+            from core.version_check import check_update
+            result["value"] = check_update()
+        except Exception:
+            result["value"] = None
+
+    thread = threading.Thread(target=_worker, daemon=True)
+    thread.start()
+    return thread, result
+
+
+def _print_update_status(thread, result):
+    """API 成功后调用：git 已出结果就打印，未完成则不等，直接进入游戏。"""
+    thread.join(timeout=2)
+    value = result.get("value")
+    if not value:
+        return
+    if value["status"] == "update_available":
+        console.print(
+            f"[gold3]游戏有更新可用：落后 {value['behind']} 个提交"
+            f"（最新 {value['new_commit']}）({value.get('remote_url', '')})[/gold3]")
+        console.print("[grey50]可 git pull 更新，不自动拉取[/grey50]")
+    else:
+        console.print(
+            f"[grey50]游戏版本已是最新版本 ({value.get('remote_url', '')})[/grey50]")
+    console.print()
 
 
 # ---------- API 连接测试 ----------
@@ -68,13 +102,24 @@ def _setup_interactive():
 
     model = Config._detect_model(base_url)
 
+    save_key = Prompt.ask(
+        "是否将 API 密钥保存到 .env 文件？\n"
+        "[grey50]选择否将只在本次会话生效，重启需重新输入；保存为明文，请注意保管[/grey50]",
+        choices=["y", "n"],
+        default="n",
+    )
+    save_key = save_key in ("y", "yes", "是", "")
+
     lines = [
         f"API_BASE_URL={base_url}",
-        f"API_KEY={api_key}",
         f"MODEL_NAME={model}",
     ]
+    if save_key:
+        lines.append(f"API_KEY={api_key}")
     Path(".env").write_text("\n".join(lines) + "\n", encoding="utf-8")
     Config.load()
+    if not save_key:
+        Config.API_KEY = api_key
 
     if not _test_api_connection(model):
         console.print("[indian_red]API 连接测试失败，可稍后通过菜单重新配置[/indian_red]")
@@ -911,7 +956,9 @@ def _quickstart():
 
 def main(skip_api_test=False):
     Config.load()
+    update_thread = update_result = None
     if not skip_api_test:
+        update_thread, update_result = _start_update_check()
         check_config()
 
     if not skip_api_test and Config.is_ready() and not _test_api_connection(Config.MODEL_NAME):
@@ -922,6 +969,9 @@ def main(skip_api_test=False):
         else:
             sys.exit(1)
         return
+
+    if update_thread is not None:
+        _print_update_status(update_thread, update_result)
 
     logo = (
         "  ██╗     ██╗     ███╗   ███╗  ██████╗   ███╗   ██╗  ██████╗ \n"

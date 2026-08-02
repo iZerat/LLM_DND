@@ -25,16 +25,6 @@ class ResourceResult:
         return cls(False, message)
 
 
-class NPCProxy:
-    """Thin wrapper to apply changes to an NPC via the manager."""
-    def __init__(self, npc: NPC):
-        self._npc = npc
-
-    @property
-    def npc(self) -> NPC:
-        return self._npc
-
-
 class ResourceManager:
     def __init__(self, inventory: Inventory, character=None):
         self.inv = inventory
@@ -81,10 +71,13 @@ class ResourceManager:
     # ── 攻击检定待落账登记（检定器 → 调节器 校验落账） ──
 
     def record_attack_outcome(self, target: str, damage: int = 0,
-                              baseline: int = 0, applied: bool = False) -> None:
+                              baseline: int = 0, applied: bool = False,
+                              actor: str = "") -> None:
         """登记一次攻击判定的期望落账（检定器掷骰后调用，不在此处变更任何数据）。
 
-        target=待变更对象（玩家或 NPC 名），damage=命中伤害，baseline=态度基线。
+        target=待变更对象（玩家或 NPC 名），damage=命中伤害，baseline=态度基线，
+        actor=攻击发起者（玩家名或 NPC 名），供玩家段校验「非玩家发起的伤害」
+        只能在对应 NPC 行动段由系统结算。
         applied=True（本地选项路径已由系统直接落账）时标记为已落账，
         供工具层校验重复结算；applied=False（d20_roll 工具路径）时等待 LLM
         经 change_status / change_attitude 按此数值落账。
@@ -94,6 +87,7 @@ class ResourceManager:
             "damage_applied": applied or damage <= 0,
             "baseline": baseline,
             "baseline_applied": applied or baseline == 0,
+            "actor": actor,
         }
 
     def reset_pending_attacks(self) -> None:
@@ -324,29 +318,6 @@ class ResourceManager:
 
     # ── NPC operations ──
 
-    def _get_target(self) -> Optional[NPC]:
-        from world.entity import NPC
-        if self._target_npc:
-            return self._target_npc
-        if self.world and self.world.active:
-            first = list(self.world.active.values())[0]
-            if isinstance(first, NPC):
-                self._target_npc = first
-                return first
-        return None
-
-    def target_hp_add(self, amount: int) -> ResourceResult:
-        npc = self._get_target()
-        if not npc:
-            return ResourceResult.fail("未设定目标")
-        return self.change_status(npc.name, hp=int(amount or 0))
-
-    def target_hp_remove(self, amount: int) -> ResourceResult:
-        npc = self._get_target()
-        if not npc:
-            return ResourceResult.fail("未设定目标")
-        return self.change_status(npc.name, hp=-int(amount or 0))
-
     def _resolve_actor(self, target: str) -> Optional[Actor]:
         t = str(target or "").strip()
         if self.character and t in ("玩家", "player", "PC", "pc", self.character.name):
@@ -356,6 +327,11 @@ class ResourceManager:
             if isinstance(e, Actor):
                 return e
         return None
+
+    def is_player_name(self, name: str) -> bool:
+        """判断名称是否指向玩家角色（用于玩家段伤害落账范围校验）。"""
+        t = str(name or "").strip()
+        return bool(self.character) and t in ("玩家", "player", "PC", "pc", self.character.name)
 
     def change_status(self, target: str, hp: int = 0, max_hp: int = 0,
                       crit: bool = False) -> ResourceResult:
@@ -398,22 +374,6 @@ class ResourceManager:
             "source": "manager.change_attitude",
         })
         return ResourceResult.ok(f"{actor.name} 态度 {applied:+d} ({old:+d} >>> {new:+d})")
-
-    def target_cp_add(self, amount: int) -> ResourceResult:
-        npc = self._get_target()
-        if not npc:
-            return ResourceResult.fail("未设定目标")
-        npc.currency.add(amount)
-        return ResourceResult.ok(f"目标 {npc.name} +{self._format_cp(amount)}")
-
-    def target_cp_remove(self, amount: int) -> ResourceResult:
-        npc = self._get_target()
-        if not npc:
-            return ResourceResult.fail("未设定目标")
-        if npc.currency.copper < amount:
-            return ResourceResult.fail(f"目标 {npc.name} 金钱不足")
-        npc.currency.remove(amount)
-        return ResourceResult.ok(f"目标 {npc.name} -{self._format_cp(amount)}")
 
     def npc_add_issue(self, req: dict) -> Optional[str]:
         """校验 npc_add 请求是否可执行（原子拒绝前置检查）。
@@ -494,45 +454,3 @@ class ResourceManager:
             return ResourceResult.fail("；".join(errs))
         item_db.add_runtime(item_def)
         return ResourceResult.ok(f"新物品定义: {item_def.name}")
-
-    def process_requests(self, requests: list[dict]) -> list[ResourceResult]:
-        results = []
-        for req in requests:
-            action = req.get("action")
-            if action == "add":
-                results.append(self.add_item(req["guid"], req.get("quantity", 1)))
-            elif action == "remove":
-                results.append(self.remove_item(req["guid"], req.get("quantity", 1)))
-            elif action == "equip":
-                results.append(self.equip(req["slot"], req["guid"]))
-            elif action == "unequip":
-                results.append(self.unequip(req["slot"]))
-            elif action == "currency_add":
-                results.append(self.add_currency(req["amount"]))
-            elif action == "currency_remove":
-                results.append(self.remove_currency(req["amount"]))
-            elif action == "hp_add":
-                results.append(self.add_hp(req["amount"]))
-            elif action == "hp_remove":
-                results.append(self.remove_hp(req["amount"]))
-            elif action == "maxhp_add":
-                results.append(self.add_maxhp(req["amount"]))
-            elif action == "maxhp_remove":
-                results.append(self.remove_maxhp(req["amount"]))
-            elif action == "set_target":
-                results.append(self.set_target(req["name"]))
-            elif action == "target_hp_add":
-                results.append(self.target_hp_add(req["amount"]))
-            elif action == "target_hp_remove":
-                results.append(self.target_hp_remove(req["amount"]))
-            elif action == "target_cp_add":
-                results.append(self.target_cp_add(req["amount"]))
-            elif action == "target_cp_remove":
-                results.append(self.target_cp_remove(req["amount"]))
-            elif action == "npc_add":
-                results.append(self.npc_add(req["fields"]))
-            elif action == "item_add":
-                results.append(self.item_add(req["fields"]))
-            else:
-                results.append(ResourceResult.fail(f"未知操作: {action}"))
-        return results

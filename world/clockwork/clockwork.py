@@ -41,11 +41,6 @@ class Clockwork:
                 events.extend(job.apply(npc, elapsed, stamp, combat=combat))
         return events
 
-    def catch_up(self, world, elapsed: int, at: object = "",
-                 locked: set[str] | None = None) -> list[ChangeEvent]:
-        """离屏结算：对象离开玩家视线期间的批量推进（对齐设计 §5.2）。"""
-        return self.tick(world, elapsed=elapsed, at=at, locked=locked)
-
     # ── 内部 ──
 
     @staticmethod

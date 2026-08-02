@@ -48,7 +48,9 @@ class PlayerSegment(Segment):
                 tools=[], mode="light", tag="seg",
             )
         else:
-            audit, _ = self.dm_call(transformed, tag="seg")
+            # 玩家回合段：限制工具落账范围——非玩家发起的伤害不得在此结算
+            # （由对应 NPC 行动段系统结算），防止 LLM 抢先落账造成双重结算。
+            audit, _ = self.dm_call(transformed, tag="seg", settle_scope="player")
 
         sections = parse_sections(audit.text)
         if getattr(self.toolbox, "check_results", None):

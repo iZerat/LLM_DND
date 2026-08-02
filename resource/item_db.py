@@ -115,8 +115,5 @@ class ItemDatabase:
         self.load()
         return list(self._items.values()) + list(self._runtime.values())
 
-    def items_by_type(self, t: ItemType) -> list[ItemDef]:
-        return [it for it in self.all_items() if it.type == t]
-
 
 item_db = ItemDatabase()

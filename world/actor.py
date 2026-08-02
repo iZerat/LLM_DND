@@ -3,22 +3,12 @@ from dataclasses import dataclass, field, asdict
 from uuid import uuid4
 
 from resource.attitude import clamp, coerce_legacy
+from world.object import Object
 
 
 @dataclass
-class Entity:
-    id: str = ""
+class Entity(Object):
     name: str = ""
-    tags: list[str] = field(default_factory=list)
-    memory_weight: int = 50
-    description: str = ""
-
-    def to_dict(self) -> dict:
-        return asdict(self)
-
-    @classmethod
-    def from_dict(cls, d: dict) -> Entity:
-        return cls(**d)
 
 
 @dataclass

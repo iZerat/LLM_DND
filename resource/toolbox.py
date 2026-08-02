@@ -49,6 +49,10 @@ class ResourceToolbox:
         self.results: list[str] = []
         self.check_results: list[dict] = []
         self.tool_call_log: list[str] = []
+        # 工具落账范围："dm"=全权（默认）；"player"=玩家回合段——
+        # 该段内禁止落账非玩家发起的伤害，防止 LLM 抢先结算 NPC 攻击、
+        # 随后 NPC 段系统再结算一次（双重结算）。
+        self._settle_scope = "dm"
 
     # ── 工具定义（由 ResourceSchema 自动生成）──
 
@@ -228,6 +232,14 @@ class ResourceToolbox:
         max_hp = int(arguments.get("max_hp") or 0)
         m = self.manager
         if hp < 0:
+            if self._settle_scope == "player":
+                pending = m.pending_attacks.get(target) or {}
+                attacker = pending.get("actor", "")
+                if not attacker or not m.is_player_name(attacker):
+                    return ResourceResult.fail(
+                        f"「{target}」受到的伤害来自{attacker or '未知来源'}的攻击，"
+                        f"应在对应 NPC 行动段由系统结算，玩家回合内请勿手动落账"
+                    )
             err = m.consume_pending_damage(target, hp)
             if err:
                 return err

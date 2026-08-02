@@ -262,9 +262,11 @@ class Checker:
                 hp_res = manager.npc_change_status(tgt.name, hp=-dmg)
                 if hp_res.success and hp_res.message:
                     changes.append(hp_res.message)
-            manager.record_attack_outcome(tgt.name, damage=dmg, baseline=baseline, applied=True)
+            manager.record_attack_outcome(tgt.name, damage=dmg, baseline=baseline,
+                                          applied=True, actor=char.name)
         else:
-            manager.record_attack_outcome(tgt.name, damage=dmg, baseline=baseline, applied=False)
+            manager.record_attack_outcome(tgt.name, damage=dmg, baseline=baseline,
+                                          applied=False, actor=char.name)
             attitude_applied = False
 
         return {
@@ -575,7 +577,8 @@ class Checker:
             baseline = 0
             if hit:
                 dmg = self.roll_npc_damage(npc, crit=(roll == 20))
-            self.manager.record_attack_outcome(target_label, damage=dmg, baseline=0, applied=False)
+            self.manager.record_attack_outcome(target_label, damage=dmg, baseline=0,
+                                               applied=False, actor=npc.name)
 
         word, color = _attack_display(roll, hit)
         text = build_action_text(

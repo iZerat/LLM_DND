@@ -170,14 +170,18 @@ class BaseRound:
     # ── DM 调用 ──
 
     def dm_call(self, user_text, tools=None, status="DM 思考中...",
-                protected_npcs=None, mode="full", tag=""):
+                protected_npcs=None, mode="full", tag="", settle_scope="dm"):
         """单次 DM 调用：流式收集 → 监督者审计/落账。返回 (audit, elapsed)。
 
         tools：传 None 用工具箱 schemas；传 [] 表示不给工具（段内纯叙事调用）。
         mode：'full' 完整落账；'light' 仅剥离变更区块、不落账（段内叙事用，防止双重结算）。
+        settle_scope：工具落账范围——'player'=玩家回合段（禁止落账非玩家发起伤害，
+        防止双重结算）；其他=全权。
         """
         if tools is None:
             tools = self.toolbox.schemas()
+        if self.toolbox is not None:
+            self.toolbox._settle_scope = settle_scope
         system_override = None
         if mode == "light":
             from core.game_master import NARRATION_SYSTEM_PROMPT
@@ -233,6 +237,8 @@ class BaseRound:
                 change_messages="\n".join(audit.messages) if audit.messages else "",
                 tool_log="\n".join(self.toolbox.tool_call_log) if self.toolbox.tool_call_log else "",
             )
+        if self.toolbox is not None:
+            self.toolbox._settle_scope = "dm"
         return audit, elapsed
 
     # ── 玩家输入 ──
