@@ -49,6 +49,13 @@ class ResourceManager:
         # 工具层段内防重复日志：同一目标同一类型同一数值的变更只允许一次，
         # 配合 pending_attacks 防止 LLM 重复调用工具造成数据多次修改（C1/C3）。
         self.change_log: dict[str, list[tuple[str, int]]] = {}
+        # 结构化选择（DM 通过 create_choice 工具创建，替代正则解析）
+        self.choices: list = []
+        self.next_choice_index: int = 1
+
+    def reset_choices(self) -> None:
+        self.choices.clear()
+        self.next_choice_index = 1
         # 资源创建管线：查表失败计数（每回合重置）+ 回退开关
         self.lookup_fail_count: int = 0
         self.resource_lookup_retries: int = _env_int("RESOURCE_LOOKUP_RETRIES", 2)
@@ -123,6 +130,7 @@ class ResourceManager:
         self.pending_attacks.clear()
         self.change_log.clear()
         self.lookup_fail_count = 0
+        self.reset_choices()
 
     def _bump_lookup_fail(self, hint: str) -> str:
         """查表失败计数 + 1；返回面向 LLM 的提示语（含当前次数/上限/回退状态）。"""
@@ -178,6 +186,31 @@ class ResourceManager:
         return ResourceResult.ok(
             f"找到 {len(results)} 条匹配", {"matches": results}, visible=False,
         )
+
+    def create_choice(self, fields: dict) -> ResourceResult:
+        ct = str(fields.get("choice_type", "narrative")).strip().lower()
+        if ct not in ("attack", "ability_check", "narrative"):
+            ct = "narrative"
+        label = str(fields.get("label", "")).strip()
+        if not label:
+            return ResourceResult.fail("create_choice 缺少 label（选项文本）")
+        ability = str(fields.get("ability", "")).strip()
+        dc = int(fields.get("dc") or 0)
+        target = str(fields.get("target", "")).strip()
+        skill = str(fields.get("skill", "")).strip()
+        idx = self.next_choice_index
+        self.next_choice_index += 1
+        self.choices.append({
+            "id": f"choice_{uuid4().hex[:8]}",
+            "index": idx,
+            "choice_type": ct,
+            "label": label,
+            "ability": ability,
+            "dc": dc,
+            "target": target,
+            "skill": skill,
+        })
+        return ResourceResult.ok(f"选项 {idx}: {label}", data={"index": idx}, visible=False)
 
     def check_change_repeat(self, target: str, kind: str, value: int) -> Optional[ResourceResult]:
         """工具层段内防重复校验：同一目标同一类型同一数值的变更只允许一次。

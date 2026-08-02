@@ -20,6 +20,7 @@ class NPCSegment(Segment):
         if check_text:
             render_action_block([{"text": check_text}])
         if not injected:
+            render_status_row(self.character, self.world)
             return
         audit, _ = self.dm_call(
             f"{injected}\n\n请把以上已经系统结算的行动编织进 [副事件] 区块，"

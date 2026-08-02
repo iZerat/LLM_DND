@@ -3,7 +3,7 @@ from core.rounds.base_round import BaseRound, RoundResult, update_choices_map
 from core.ui import (
     render_round_header, render_env_block, render_event_block, render_action_block,
     render_narration_block, render_change_block, render_status_row,
-    render_choice_block, parse_sections,
+    render_choice_block, parse_sections, console,
 )
 
 
@@ -20,6 +20,10 @@ class NonCombatRound(BaseRound):
             return RoundResult(action="menu")
         audit, elapsed = self.dm_call(player_input, tag="nc")
         sections = parse_sections(audit.text)
+
+        errs = self.supervisor.check_round_integrity(sections, "非战斗", self.ctx.round_num)
+        for err in errs:
+            console.print(f"[indian_red]{err}[/indian_red]")
 
         render_round_header(self.ctx.round_num, kind="非战斗")
         if "环境" in sections:

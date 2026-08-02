@@ -5,7 +5,7 @@ from core.rounds.segments.player_segment import PlayerSegment
 from core.ui import (
     render_round_header, render_env_block, render_event_block,
     render_action_block, render_narration_block, render_change_block,
-    parse_sections,
+    render_status_row, parse_sections, console,
 )
 from world.entity import NPC
 
@@ -24,6 +24,10 @@ class CombatRound(BaseRound):
         )
         sections = parse_sections(audit.text)
         render_round_header(self.ctx.round_num, kind="战斗")
+
+        errs = self.supervisor.check_round_integrity(sections, "战斗", self.ctx.round_num)
+        for err in errs:
+            console.print(f"[indian_red]{err}[/indian_red]")
         if "环境" in sections:
             render_env_block(sections["环境"], self.gm)
         if self.gm and "时间" in sections:
@@ -59,6 +63,7 @@ class CombatRound(BaseRound):
             elif isinstance(entity, NPC) and getattr(entity, "hp", 0) > 0:
                 NPCSegment(self.ctx, entity, player_input).run()
 
+        render_status_row(self.character, self.world)
         if not self._hostile_alive():
             initiative.order = []
         return RoundResult(player_input=next_input)

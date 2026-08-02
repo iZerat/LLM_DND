@@ -269,9 +269,8 @@ def render_choice_block(choice_text: str):
     for line in lines:
         line = line.strip()
         if re.match(r"^\d+[.)]", line):
-            line = re.sub(r'[（(]\s*无需[^）)]*[）)]', '', line).strip()
             line_colored = re.sub(
-                r'([（(][^）)]*(?:(?:力量|敏捷|体质|智力|感知|魅力)|检定|击骰)[^）)]*[）)])',
+                r'([（(][^）)]*[）)])',
                 r'[#5DCCCC]\1[/#5DCCCC]',
                 line,
             )

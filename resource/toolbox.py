@@ -21,7 +21,7 @@ _SLOTS = ["weapon", "body", "off_hand", "head", "back", "neck", "ring1", "ring2"
 _REASON_REQUIRED_TOOLS = {
     "change_status", "grant_item", "remove_item", "change_currency",
     "change_attitude", "create_npc", "create_item", "use_item",
-    "create_scene", "create_object",
+    "create_scene", "create_object", "create_choice",
 }
 _REASON_DESC = "本次数据变更的叙事理由（必填，用于审计与结算日志）"
 
@@ -99,7 +99,24 @@ class ResourceToolbox:
                           "description": {"type": "string", "description": "对象描述"},
                           "tags": {"type": "array", "items": {"type": "string"},
                                    "description": "标签"},
-                      }, "required": ["name"]})),
+                       }, "required": ["name"]})),
+            _tool("create_choice",
+                  "创建玩家选择选项。每轮至少创建 3 个选项，让玩家可以选编号或自由输入。"
+                  "choice_type: attack=攻击(系统掷攻击检定vs目标AC)、"
+                  "ability_check=属性/技能检定(系统掷d20+调整值vs DC)、"
+                  "narrative=纯叙事(不掷骰)。target 仅 attack 类型必填。",
+                  _with_reason({
+                      "type": "object", "properties": {
+                          "choice_type": {"type": "string",
+                                          "enum": ["attack", "ability_check", "narrative"],
+                                          "description": "选项类型"},
+                          "label": {"type": "string", "description": "选项文本（如'拔出短剑正面迎战'）"},
+                          "ability": {"type": "string", "description": "所用属性: strength/dexterity/constitution/intelligence/wisdom/charisma"},
+                          "dc": {"type": "integer", "minimum": 1,
+                                 "description": "难度等级（ability_check 时使用，attack 时忽略）"},
+                          "target": {"type": "string", "description": "攻击目标名称（仅 attack 类型填）"},
+                          "skill": {"type": "string", "description": "技能名（可选，用于熟练项加成）"},
+                      }, "required": ["choice_type", "label"]})),
             _tool("create_item",
                   "填表创建新物品（仅填表创建模式可用）。创建后如需放进背包，再调用 grant_item。",
                   item_params),
@@ -191,6 +208,8 @@ class ResourceToolbox:
                     description=str(arguments.get("description", "")).strip(),
                     tags=arguments.get("tags") or [],
                 )
+            elif name == "create_choice":
+                result = m.create_choice(arguments)
             elif name == "search_resource":
                 result = m.search_resource(
                     query=str(arguments.get("query", "")).strip(),

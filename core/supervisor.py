@@ -86,6 +86,23 @@ class Supervisor:
                 enriched += "\n\n" + ctx
         return enriched
 
+    # ── 回合完整性检查 ──
+
+    def check_round_integrity(self, sections: dict, round_kind: str,
+                               round_num: int) -> list[str]:
+        """检查 DM 输出是否包含必需的区块；返回错误信息列表（空=无问题）。"""
+        errors = []
+        required = {"环境", "事件"}
+        optional = {"时间", "状态", "选择", "副事件", "历史"}
+        if round_kind == "非战斗":
+            required.update({"状态", "选择"})
+        missing = required - set(sections.keys())
+        if missing:
+            errors.append(
+                f"第 {round_num} 轮（{round_kind}）缺少必需区块：{'、'.join(sorted(missing))}"
+            )
+        return errors
+
     # ── 方向B：LLM 输出 → 审核 ──
 
     def audit(self, raw_text: str, protected_npcs: set | None = None,

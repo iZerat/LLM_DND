@@ -127,3 +127,51 @@ class Spell(Object):
     saving_throw: str = ""
     attack_roll: bool = False
     effect: str = ""
+
+
+# ── D&D 5e 标准行动类型 ──
+_CHOICE_TYPES = {
+    "attack": "攻击",
+    "ability_check": "属性检定",
+    "narrative": "叙事",
+}
+
+
+@dataclass
+class Choice(Object):
+    choice_type: str = "narrative"
+    label: str = ""
+    ability: str = ""
+    dc: int = 0
+    target: str = ""
+    skill: str = ""
+
+
+def coerce_choice(obj) -> Optional[Choice]:
+    if obj is None:
+        return None
+    if isinstance(obj, Choice):
+        return obj
+    if isinstance(obj, dict):
+        ct = str(obj.get("choice_type", "narrative")).strip().lower()
+        if ct not in _CHOICE_TYPES:
+            ct = "narrative"
+        try:
+            return Choice(
+                id=obj.get("id", ""),
+                name=obj.get("name", ""),
+                tags=list(obj.get("tags") or []),
+                description=obj.get("description", ""),
+                source=obj.get("source", ""),
+                persistent=bool(obj.get("persistent", True)),
+                memory_weight=int(obj.get("memory_weight", 50)),
+                choice_type=ct,
+                label=obj.get("label", obj.get("name", "")),
+                ability=obj.get("ability", ""),
+                dc=int(obj.get("dc", 0)),
+                target=obj.get("target", ""),
+                skill=obj.get("skill", ""),
+            )
+        except Exception:
+            return None
+    return None
