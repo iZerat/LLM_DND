@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from mods.types import INDEX_PACKS, display_name
+from mods.types import INDEX_PACKS, display_name, find_resource_file, find_resource_dirs
 
 
 @dataclass
@@ -24,8 +24,8 @@ class Preset:
 
 
 def load_preset(preset_id: str) -> Optional[Preset]:
-    fp = INDEX_PACKS / f"{preset_id}.json"
-    if not fp.exists():
+    fp = find_resource_file("index", f"{preset_id}.json")
+    if fp is None:
         return None
     try:
         data = json.loads(fp.read_text(encoding="utf-8"))
@@ -47,16 +47,20 @@ def load_preset(preset_id: str) -> Optional[Preset]:
 
 
 def list_presets() -> list[tuple[str, str]]:
-    """(显示名, preset_id)。"""
-    if not INDEX_PACKS.exists():
-        return []
+    """(显示名, preset_id)。遍历所有 mod 根下的 index/，主目录优先、同名去重。"""
+    INDEX_PACKS.mkdir(parents=True, exist_ok=True)
     out = []
-    for fp in sorted(INDEX_PACKS.glob("*.json")):
-        data = None
-        try:
-            data = json.loads(fp.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-        name = display_name(fp.stem, data)
-        out.append((name, fp.stem))
+    seen = set()
+    for idx_dir in find_resource_dirs("index"):
+        for fp in sorted(idx_dir.glob("*.json")):
+            if fp.stem in seen:
+                continue
+            seen.add(fp.stem)
+            data = None
+            try:
+                data = json.loads(fp.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+            name = display_name(fp.stem, data)
+            out.append((name, fp.stem))
     return out

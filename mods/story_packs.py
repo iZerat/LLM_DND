@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 from mods.story_roles import StoryRole, load_role
-from mods.types import STORY_PACKS, display_name
+from mods.types import STORY_PACKS, display_name, find_resource_dirs, find_resource_file
 
 
 @dataclass
@@ -21,7 +21,8 @@ class StoryPack:
 
 
 def pack_path(pack_id: str) -> Path:
-    return STORY_PACKS / f"{pack_id}.json"
+    """在所有 mod 根中查找故事包文件；未找到则回退到主目录路径。"""
+    return find_resource_file("story", "story_packs", f"{pack_id}.json") or STORY_PACKS / f"{pack_id}.json"
 
 
 def _manifest(pack_id: str) -> Optional[dict]:
@@ -61,12 +62,16 @@ def load_story_roles(story_pack: Optional[StoryPack]) -> list[StoryRole]:
 
 
 def list_story_packs() -> list[tuple[str, str]]:
-    """(显示名, pack_id)。"""
-    if not STORY_PACKS.exists():
-        return []
+    """(显示名, pack_id)。遍历所有 mod 根下的 story/story_packs/，主目录优先、同名去重。"""
+    STORY_PACKS.mkdir(parents=True, exist_ok=True)
     out = []
-    for fp in sorted(STORY_PACKS.glob("*.json")):
-        m = _manifest(fp.stem)
-        name = display_name(fp.stem, m)
-        out.append((name, fp.stem))
+    seen = set()
+    for sp_dir in find_resource_dirs("story", "story_packs"):
+        for fp in sorted(sp_dir.glob("*.json")):
+            if fp.stem in seen:
+                continue
+            seen.add(fp.stem)
+            m = _manifest(fp.stem)
+            name = display_name(fp.stem, m)
+            out.append((name, fp.stem))
     return out

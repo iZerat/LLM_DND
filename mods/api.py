@@ -17,10 +17,14 @@ from mods.story_roles import StoryRole, list_all_roles, load_role
 from mods.types import (
     GENERATION_RESOURCES,
     GENERATION_RULES,
+    INDEX_PACKS,
     OPENING_TEMPLATES,
+    RESOURCE_PACKS,
     WORLD_BACKGROUNDS,
     WORLDS,
     display_name,
+    find_resource_dirs,
+    find_resource_file,
 )
 
 __all__ = [
@@ -32,24 +36,22 @@ __all__ = [
 
 # ── 世界背景 ──
 def list_world_backgrounds() -> list[tuple[str, str]]:
-    if not WORLD_BACKGROUNDS.exists():
-        WORLD_BACKGROUNDS.mkdir(parents=True, exist_ok=True)
-    return _list_json(WORLD_BACKGROUNDS)
+    WORLD_BACKGROUNDS.mkdir(parents=True, exist_ok=True)
+    return _list_json(find_resource_dirs("world", "backgrounds"))
 
 
 def load_world_background(stem: str) -> str:
-    return _load_json_content(WORLD_BACKGROUNDS, stem)
+    return _load_json_content(find_resource_dirs("world", "backgrounds"), stem)
 
 
 # ── 开场模板 ──
 def list_opening_templates() -> list[tuple[str, str]]:
-    if not OPENING_TEMPLATES.exists():
-        OPENING_TEMPLATES.mkdir(parents=True, exist_ok=True)
-    return _list_json(OPENING_TEMPLATES)
+    OPENING_TEMPLATES.mkdir(parents=True, exist_ok=True)
+    return _list_json(find_resource_dirs("story", "openings"))
 
 
 def load_opening_template(stem: str) -> str:
-    return _load_json_content(OPENING_TEMPLATES, stem)
+    return _load_json_content(find_resource_dirs("story", "openings"), stem)
 
 
 # ── 生成类（开发中） ──
@@ -65,44 +67,53 @@ def list_worlds() -> list[tuple[str, str]]:
     return _list_json(WORLDS)
 
 
-def _list_json(directory) -> list[tuple[str, str]]:
-    """扫描目录下 *.json，(正式显示名 display_name, 文件 stem)。"""
+def _list_json(directories) -> list[tuple[str, str]]:
+    """扫描每个目录下 *.json，(正式显示名 display_name, 文件 stem)；主目录优先、同名去重。"""
     import json as _json
-    if not directory.exists():
-        directory.mkdir(parents=True, exist_ok=True)
     out = []
-    for fp in sorted(directory.glob("*.json")):
-        try:
-            data = _json.loads(fp.read_text(encoding="utf-8"))
-        except Exception:
-            data = None
-        out.append((display_name(fp.stem, data), fp.stem))
+    seen = set()
+    for directory in directories:
+        if not directory.exists():
+            continue
+        for fp in sorted(directory.glob("*.json")):
+            if fp.stem in seen:
+                continue
+            seen.add(fp.stem)
+            try:
+                data = _json.loads(fp.read_text(encoding="utf-8"))
+            except Exception:
+                data = None
+            out.append((display_name(fp.stem, data), fp.stem))
     return out
 
 
-def _load_json_content(directory, stem: str) -> str:
-    """读取 json 的 content 字段（无则返回空串）。"""
+def _load_json_content(directories, stem: str) -> str:
+    """按目录顺序查找并读取 json 的 content 字段（无则返回空串）。"""
     import json as _json
-    fp = directory / f"{stem}.json"
-    if not fp.exists():
-        return ""
-    try:
-        data = _json.loads(fp.read_text(encoding="utf-8"))
-    except Exception:
-        return ""
-    return str((data or {}).get("content", "")).strip()
+    for directory in directories:
+        fp = directory / f"{stem}.json"
+        if not fp.exists():
+            continue
+        try:
+            data = _json.loads(fp.read_text(encoding="utf-8"))
+        except Exception:
+            return ""
+        return str((data or {}).get("content", "")).strip()
+    return ""
 
 
 # ── 资源包 ──
 def list_resource_packs() -> list[str]:
-    """已安装资源包 id（resource_packs/ 下的子目录）。"""
-    from mods.types import RESOURCE_PACKS
-    if not RESOURCE_PACKS.exists():
-        return []
-    return sorted(
-        d.name for d in RESOURCE_PACKS.iterdir()
-        if d.is_dir()
-    )
+    """已安装资源包 id（各 mod 根下 resource/resource_packs/ 的子目录，主目录优先、同名去重）。"""
+    RESOURCE_PACKS.mkdir(parents=True, exist_ok=True)
+    out = []
+    seen = set()
+    for packs_root in find_resource_dirs("resource", "resource_packs"):
+        for d in sorted(packs_root.iterdir()):
+            if d.is_dir() and d.name not in seen:
+                seen.add(d.name)
+                out.append(d.name)
+    return sorted(out)
 
 
 def load_story_role_or_none(role_id: str) -> Optional[StoryRole]:

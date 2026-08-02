@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from mods.types import STORY_ROLES, display_name
+from mods.types import STORY_ROLES, display_name, find_resource_dirs, find_resource_file
 
 _STAT_DEFAULTS = {"力量": 10, "敏捷": 10, "体质": 10, "智力": 10, "感知": 10, "魅力": 10}
 
@@ -30,7 +30,8 @@ class StoryRole:
 
 
 def role_path(role_id: str) -> Path:
-    return STORY_ROLES / f"{role_id}.json"
+    """在所有 mod 根中查找故事角色文件；未找到则回退到主目录路径。"""
+    return find_resource_file("resource", "story_character", f"{role_id}.json") or STORY_ROLES / f"{role_id}.json"
 
 
 def load_role(role_id: str) -> Optional[StoryRole]:
@@ -61,12 +62,16 @@ def load_role(role_id: str) -> Optional[StoryRole]:
 
 
 def list_all_roles() -> list[tuple[str, str]]:
-    """全部故事角色 (显示名, role_id)。仅用于调试，正常流程走故事包引用。"""
-    if not STORY_ROLES.exists():
-        return []
+    """全部故事角色 (显示名, role_id)。遍历所有 mod 根，主目录优先、同名去重。仅用于调试。"""
+    STORY_ROLES.mkdir(parents=True, exist_ok=True)
     out = []
-    for fp in sorted(STORY_ROLES.glob("*.json")):
-        r = load_role(fp.stem)
-        if r:
-            out.append((r.name, r.role_id))
+    seen = set()
+    for role_dir in find_resource_dirs("resource", "story_character"):
+        for fp in sorted(role_dir.glob("*.json")):
+            if fp.stem in seen:
+                continue
+            seen.add(fp.stem)
+            r = load_role(fp.stem)
+            if r:
+                out.append((r.name, r.role_id))
     return out

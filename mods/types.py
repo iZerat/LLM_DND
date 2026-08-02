@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Optional
 
 MODS_DIR = Path(__file__).resolve().parent
+MODS_PACKS_DIR = MODS_DIR / "packs"
 
 # ── 四大类目录 ──
 WORLD_BACKGROUNDS = MODS_DIR / "world" / "backgrounds"
@@ -27,6 +28,33 @@ RESOURCE_TYPE_GENERATION_RESOURCES = "generation_resources"
 RESOURCE_TYPE_WORLD = "world"
 RESOURCE_TYPE_STORY_ROLE = "story_role"
 RESOURCE_TYPE_INDEX = "index"
+
+
+def iter_mod_roots() -> list[Path]:
+    """虚拟 mod 根列表：主目录优先，随后是 mods/packs/ 下每个外部独立 mod 包目录。"""
+    roots = [MODS_DIR]
+    if MODS_PACKS_DIR.is_dir():
+        roots.extend(sorted(d for d in MODS_PACKS_DIR.iterdir() if d.is_dir()))
+    return roots
+
+
+def find_resource_dirs(*rel_parts: str) -> list[Path]:
+    """在所有 mod 根中查找 rel_parts 相对路径存在的目录，主目录优先。"""
+    out = []
+    for root in iter_mod_roots():
+        d = root.joinpath(*rel_parts)
+        if d.is_dir():
+            out.append(d)
+    return out
+
+
+def find_resource_file(*rel_parts: str) -> Optional[Path]:
+    """在所有 mod 根中查找 rel_parts 相对路径存在的文件，主目录优先；无则返回 None。"""
+    for root in iter_mod_roots():
+        fp = root.joinpath(*rel_parts)
+        if fp.is_file():
+            return fp
+    return None
 
 
 def display_name(stem: str, data: Optional[dict] = None) -> str:

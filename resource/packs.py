@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from mods.types import find_resource_dirs
+
 DEFAULT_PACK_ID = "default-dnd"
 
 RESOURCE_MODE_PACK = "pack"
@@ -16,6 +18,11 @@ def packs_dir() -> Path:
 
 
 def pack_dir(pack_id: str = DEFAULT_PACK_ID) -> Path:
+    """在所有 mod 根的 resource/resource_packs/ 下查找 <pack_id> 目录，主目录优先；
+    找不到再回退到主目录下的默认路径。"""
+    found = find_resource_dirs("resource", "resource_packs", pack_id)
+    if found:
+        return found[0]
     return packs_dir() / pack_id
 
 
