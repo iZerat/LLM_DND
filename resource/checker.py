@@ -70,7 +70,7 @@ def build_action_text(
     if target:
         header += f" 目标 [bold]{target}[/bold]"
     header += f" {dc_kind} [bold]{dc}[/bold] | {mod_label}: {mod:+d}"
-    text = f"{header}\n[grey50]{line}[/grey50]"
+    text = f"{header}\n\n[grey50]{line}[/grey50]"
     if word:
         text += f"\n[bold {color}]{word}[/bold {color}]"
     if dmg:
@@ -583,15 +583,15 @@ class Checker:
             else:
                 if hit and dmg:
                     if target_label == "玩家":
-                        self.manager.change_status("玩家", hp=-dmg)
+                        r = self.manager.change_status("玩家", hp=-dmg)
                     else:
-                        self.manager.npc_change_status(target_label, hp=-dmg)
+                        r = self.manager.npc_change_status(target_label, hp=-dmg)
+                    if r and r.message:
+                        changes.append(r.message)
                 self.manager.record_attack_outcome(
                     target_label, damage=dmg, baseline=0,
                     applied=True, actor=npc.name,
                 )
-                if hit and dmg:
-                    changes.append(f"{name} 对 {target_label} 造成 {dmg} 点伤害（系统已结算）")
 
         word, color = _attack_display(roll, hit)
         text = build_action_text(

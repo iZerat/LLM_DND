@@ -57,7 +57,7 @@ class AttitudeDriftJob(ClockworkJob):
             })
         return [ChangeEvent(
             target=obj.name,
-            message=f"{obj.name} 的态度向中立缓和（{cur:+d} → {new:+d}）",
+            message=f"{obj.name} 态度 缓和 {applied:+d} ({cur:+d} >>> {new:+d})",
             field=self.field,
             source="clockwork",
         )]

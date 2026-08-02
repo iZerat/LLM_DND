@@ -305,7 +305,7 @@ class ResourceToolbox:
         if slot and result.success:
             eq = self.manager.equip(str(slot).strip(), item.guid)
             if eq.success:
-                return ResourceResult.ok(f"{result.message}（{eq.message}）")
+                return ResourceResult.ok(f"{result.message} | {eq.message}")
         return result
 
     def _remove_item(self, arguments: dict) -> ResourceResult:

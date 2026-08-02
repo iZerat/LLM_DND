@@ -62,7 +62,7 @@ def record_to_display(record: str, is_option: bool) -> str:
             r'[（(]\s*无需[^）)]*[）)]', '', record,
         ).strip()
         record = re.sub(
-            r'([（(][^）)]*(?:(?:力量|敏捷|体质|智力|感知|魅力)|检定|击骰)[^）)]*[）)])',
+            r'([（(][^）)]*[）)])',
             r'[#5DCCCC]\1[/#5DCCCC]',
             record,
         )
@@ -91,6 +91,7 @@ def resolve_player_input(gm, character, raw: str, from_command: bool = False,
     record = gm.last_choices_map[raw] if is_option else raw
     check_text = ""
     transformed = raw
+    record_display = record_to_display(record, is_option)
     checker = Checker(character, world, manager) if world else None
     current_target = None
     if manager is not None:
@@ -121,7 +122,9 @@ def resolve_player_input(gm, character, raw: str, from_command: bool = False,
                         check_text, transformed, changes = settled
                         if manager:
                             gm.last_check_changes = changes
-                        return transformed, record_to_display(record, is_option), check_text
+                        if check_text and record_display and is_option:
+                            check_text = f"{record_display}\n\n{check_text}"
+                        return transformed, record_display, check_text
                 transformed = f"[选择选项{selected_num}] {label}"
             elif ct == "ability_check" and checker:
                 ability_key = structured.get("ability", "dexterity") or "dexterity"
@@ -143,7 +146,9 @@ def resolve_player_input(gm, character, raw: str, from_command: bool = False,
             if med:
                 check_text, transformed = med
 
-    return transformed, record_to_display(record, is_option), check_text
+    if check_text and record_display and is_option:
+        check_text = f"{record_display}\n\n{check_text}"
+    return transformed, record_display, check_text
 
 
 class BaseRound:
@@ -233,6 +238,7 @@ class BaseRound:
                 self.ctx.round_num, user_text, audit.text,
                 raw_text=raw, tag=tag,
                 change_messages="\n".join(audit.messages) if audit.messages else "",
+                notices="\n".join(audit.notices) if audit.notices else "",
                 tool_log="\n".join(self.toolbox.tool_call_log) if self.toolbox.tool_call_log else "",
                 system_prompt=self.gm._build_system_prompt() if mode == "full" else "[light mode]",
                 tools_summary=f"[{len(tools or [])} tools] {tools_label}" if tools else "",

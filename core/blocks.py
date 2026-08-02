@@ -4,7 +4,7 @@
 - [环境] → Scene.environment
 - [事件]/[副事件] → DM 文本（唯一的自由区）
 - [行动] → checker 本地掷骰结果
-- [变更] → manager.pending_changes + audit.messages
+- [变更] → 结构化变更记录（Actor 属性 变更 (旧值 >>> 新值)），由 ChangeBlock/MoneyChangeBlock 渲染
 - [状态] → world.active + character
 - [选择] → manager.choices（create_choice 工具）
 - [决定] → 玩家输入
@@ -12,11 +12,14 @@
 
 from __future__ import annotations
 
+import re
+
 from rich.panel import Panel
 from rich.markdown import Markdown
 from rich import box
 
 from core.ui import console
+from resource.models import format_cp_change
 
 # ── 基类 ──
 
@@ -96,14 +99,58 @@ class ActionBlock(RoundBlock):
 
 
 class ChangeBlock(RoundBlock):
+    """变更块基类：只渲染结构化变更记录「Actor 属性 变更 (旧值 >>> 新值)」。
+
+    监督者诊断（状态格式需修正 / 系统提醒）等随意文本不属于变更，
+    不会出现在这里——非结构化行一律过滤丢弃。
+    """
     title = "变更"
     border_color = "#d4a0a0"
+
+    # 结构化变更行：行尾必须是 (旧值 >>> 新值)，括号内不含半角括号
+    _STRUCTURED_RE = re.compile(r"\([^()]*?>>>[^()]*\)\s*$")
 
     @classmethod
     def from_messages(cls, messages: list[str]):
         if not messages:
             return None
-        return cls(content="\n".join(messages))
+        lines = []
+        for m in messages:
+            s = cls._line_text(m)
+            if not s or not cls._STRUCTURED_RE.search(s):
+                continue
+            lines.append(s)
+        return cls(content="\n".join(lines)) if lines else None
+
+    @staticmethod
+    def _line_text(m) -> str:
+        if isinstance(m, str):
+            return m.strip()
+        get = getattr(m, "line", None)
+        return (get() if callable(get) else str(m)).strip()
+
+
+class MoneyChangeBlock(ChangeBlock):
+    """金钱变更块：金钱变更的专用子类（金银铜换算 + 金色标注）。
+
+    金钱是唯一需要单位换算的变更类型（1金=10000铜、1银=100铜），
+    因此单独成子类，由 from_cp 统一换算后打印；未来其他特殊变更
+    类型可仿照此类各自成子类。
+    """
+    title = "变更"
+    border_color = "#e3c26b"
+
+    @classmethod
+    def is_money_line(cls, s: str) -> bool:
+        return bool(re.match(r"^\S+\s+金钱\s+[+-]", cls._line_text(s)))
+
+    @classmethod
+    def from_cp(cls, actor: str, delta_cp: int, before_cp: int, after_cp: int):
+        return cls(content=format_cp_change(actor, delta_cp, before_cp, after_cp))
+
+    @classmethod
+    def format_line(cls, s: str) -> str:
+        return f"[#e3c26b]{cls._line_text(s)}[/#e3c26b]"
 
 
 class StatusBlock(RoundBlock):

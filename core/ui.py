@@ -168,13 +168,25 @@ def render_narration_block(narration_text: str):
 
 
 def render_change_block(change_messages: list[str] | None):
-    if change_messages:
-        console.print(Panel(
-            "\n".join(change_messages),
-            title="[#d4a0a0]变更[/#d4a0a0]",
-            border_style="#d4a0a0",
-            box=box.SQUARE,
-        ))
+    """渲染 [变更] 块：只接受结构化变更记录「Actor 属性 变更 (旧值 >>> 新值)」。
+
+    金钱行经 MoneyChangeBlock 子类换算标注，其余走基类 ChangeBlock；
+    监督者诊断等随意文本被基类过滤，绝不进入 [变更] 块。
+    """
+    if not change_messages:
+        return
+    from core.blocks import ChangeBlock, MoneyChangeBlock
+    block = ChangeBlock.from_messages(change_messages)
+    if not block:
+        return
+    lines = []
+    for s in block.content.split("\n"):
+        if MoneyChangeBlock.is_money_line(s):
+            lines.append(MoneyChangeBlock.format_line(s))
+        else:
+            lines.append(s)
+    block.content = "\n".join(lines)
+    block.render()
 
 
 def _hostility_color(attitude) -> str:
@@ -198,7 +210,7 @@ def render_status_row(character, world_state=None, targets=None):
     cond_color = "grey50" if character.dead else ("grey62" if character.unconscious else "grey50")
     player_panel_body = (
         f"[grey50]等级[/grey50] {character.level}  "
-        f"[grey50]生命[/grey50] {_hp_full_markup(character.hp, character.max_hp)}  "
+        f"[grey50]HP[/grey50] {_hp_full_markup(character.hp, character.max_hp)}  "
         f"[grey50]AC[/grey50] {character.ac}"
     )
     if character.unconscious or character.dead:
@@ -227,11 +239,11 @@ def render_status_row(character, world_state=None, targets=None):
             tag = None
         hp_text = _hp_full_markup(e.hp, e.max_hp)
         if tag:
-            body = f"[{color}]{tag}[/{color}]  [grey50]生命[/grey50] {hp_text}  [grey50]AC[/grey50] {e.ac}"
+            body = f"[{color}]{tag}[/{color}]  [grey50]HP[/grey50] {hp_text}  [grey50]AC[/grey50] {e.ac}"
         else:
             body = (
                 f"[grey50]等级[/grey50] {e.level}  "
-                f"[grey50]生命[/grey50] {hp_text}  [grey50]AC[/grey50] {e.ac}"
+                f"[grey50]HP[/grey50] {hp_text}  [grey50]AC[/grey50] {e.ac}"
             )
         panels.append(Panel(
             body,

@@ -458,7 +458,7 @@ def format_elapsed(seconds: float) -> str:
 
 def log_dm_response(round_num: int, player_input: str, response_text: str,
                     raw_text: str = "", change_messages: str = "",
-                    tool_log: str = "", tag: str = "",
+                    notices: str = "", tool_log: str = "", tag: str = "",
                     system_prompt: str = "", tools_summary: str = ""):
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     ts = _time.strftime("%Y%m%d_%H%M%S")
@@ -525,6 +525,11 @@ def log_dm_response(round_num: int, player_input: str, response_text: str,
     if change_messages:
         parts.append(sep + "[ 结算 ]" + sep)
         parts.append(change_messages)
+
+    # -------------- 监督者诊断（不进终端） --------------
+    if notices:
+        parts.append(sep + "[ 监督者 ]" + sep)
+        parts.append(notices)
 
     path.write_text("\n".join(parts), encoding="utf-8")
 

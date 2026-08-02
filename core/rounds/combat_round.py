@@ -54,10 +54,6 @@ class CombatRound(BaseRound):
             render_change_block(audit.messages)
             self.rendered_blocks.append("变更")
 
-        # [状态]
-        render_status_row(self.character, self.world)
-        self.rendered_blocks.append("状态")
-
         # [选择] 由 PlayerSegment 渲染，prelude 不重复
         choices_text = sections.get("选择", "")
 
@@ -71,6 +67,12 @@ class CombatRound(BaseRound):
             initiative.roll(self.world)
         order = initiative.resolve(self.world)
 
+        # 玩家先手时，首个段就是玩家段：段尾状态块要等输入后才渲染，
+        # 选择前先补打一次战场状态（NPC 先手时其段尾状态块会在选择前渲染，无需补打）。
+        if order and order[0][0] == self.character.name:
+            render_status_row(self.character, self.world)
+            self.rendered_blocks.append("状态")
+
         next_input = player_input
         for name, entity in order:
             if name == self.character.name:
@@ -83,8 +85,6 @@ class CombatRound(BaseRound):
                     next_input = res.player_input
             elif isinstance(entity, NPC) and getattr(entity, "hp", 0) > 0:
                 NPCSegment(self.ctx, entity, player_input).run()
-
-        render_status_row(self.character, self.world)
 
         if not self._hostile_alive():
             initiative.order = []

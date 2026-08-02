@@ -35,7 +35,7 @@ SYSTEM_PROMPT_TEMPLATE = """你是基于 D&D 5e 规则的
 你需要通过调用工具来操作游戏世界：
 
 - set_environment — 每轮更新当前场景环境（地点/时间/温度/天气等）
-- create_choice — 每轮创建 3 个选择选项（choice_type=attack/ability_check/narrative）
+- create_choice — 每轮创建 3 个选择选项（choice_type=attack/ability_check/narrative；选项文本用纯描述语言，不要附（攻击 对X）/（魅力威吓）/（魅力检定 DC 15）这类括号技术标注，检定类型/目标/DC 由系统自动渲染）
 - create_npc / create_scene / create_object — 创建 NPC、场景、道具
 - set_target — 指定交互目标
 - d20_roll — 掷骰判定（攻击/属性检定/豁免）
@@ -50,7 +50,8 @@ SYSTEM_PROMPT_TEMPLATE = """你是基于 D&D 5e 规则的
 2. 每轮必须输出 [事件]，有检定结果时输出 [副事件]
 3. 对话框用「」包裹，特殊名词用【】包裹
 4. 保持冒险节奏紧凑
-5. 不要在 [事件] 中列出编号选项——选项由系统根据你调用的 create_choice 工具自动渲染"""
+5. 不要在 [事件] 中列出编号选项——选项由系统根据你调用的 create_choice 工具自动渲染
+6. 选项文本用纯描述语言，不要写（攻击 对X）/（魅力威吓）/（魅力检定 DC 15）这类括号技术标注；检定类型、目标、DC 由系统根据工具参数自动渲染到选项后面"""
 
 CORE_RULES = """- 属性调整值 = (属性值-10)//2
 - 熟练加值: 1级+2
@@ -205,7 +206,7 @@ class GameMaster:
 
     def _build_system_prompt(self) -> str:
         char_summary = self.character.summary()
-        format_rule = "\n\n数据变更（物品、金钱、HP、NPC）一律通过调用工具完成；工具失败时只继续叙事，不做数据变更。金钱统一用cp（1金=10000铜、1银=100铜）。\n每轮必须调用set_environment、create_choice（3个选项）。\n攻击伤害由d20_roll工具在掷骰后由系统自动结算，你无需再调用change_status重复扣血。\n叙事中写到的HP/AC/态度数字必须与真实数据一致，否则会被[系统提醒]打回修正。\n创建NPC/物品前先调用search_resource查询本地目录。\nset_target只能选择已在场的NPC；创建新目标NPC必须调用create_npc。"
+        format_rule = "\n\n数据变更（物品、金钱、HP、NPC）一律通过调用工具完成；工具失败时只继续叙事，不做数据变更。金钱统一用cp（1金=10000铜、1银=100铜）。\n每轮必须调用set_environment、create_choice（3个选项）。\n攻击伤害由d20_roll工具在掷骰后由系统自动结算，你无需再调用change_status重复扣血。\n叙事中写到的HP/AC/态度数字必须与真实数据一致，否则会被[系统提醒]打回修正。\n创建NPC/物品前先调用search_resource查询本地目录。\nset_target只能选择已在场的NPC；创建新目标NPC必须调用create_npc。\n选项文本用纯描述语言，禁止附带（攻击 对X）/（魅力威吓）/（魅力检定 DC 15）这类括号技术标注——检定类型/目标/DC 由系统渲染。"
         template_note = ""
         if self.template and not self.history:
             t = load_opening_template(self.template)

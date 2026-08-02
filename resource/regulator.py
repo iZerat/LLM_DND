@@ -190,7 +190,8 @@ class Regulator:
         # GC：衰减权重，驱逐过期实体
         pruned = self.world.tick()
         if pruned:
-            report.messages.append(f"已遗忘: {', '.join(pruned)}")
+            report.messages.append(
+                f"已遗忘 {', '.join(pruned)} (在场 >>> 离场)")
         return report
 
     def _fuzzy_match_npc(self, name: str, changed_npcs: set[str]) -> NPC | None:

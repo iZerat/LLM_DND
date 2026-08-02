@@ -3,7 +3,7 @@ import os
 import re
 from typing import Optional
 from uuid import uuid4
-from resource.models import Inventory, Currency, ItemInstance, ItemDef
+from resource.models import Inventory, Currency, ItemInstance, ItemDef, format_cp, format_cp_change
 from resource.item_db import item_db
 from resource.objects import NPCTemplate
 from resource.packs import RESOURCE_MODE_PACK, RESOURCE_MODE_FREE
@@ -31,6 +31,22 @@ class ResourceResult:
     @classmethod
     def fail(cls, message: str) -> ResourceResult:
         return cls(False, message)
+
+
+# 选项文本中 LLM 可能自造的括号技术标注关键词（攻击/目标/检定/DC/技能/属性）
+_CHOICE_TECH_KEYWORDS = (
+    "攻击|检定|豁免|DC|威吓|欺瞒|欺骗|察觉|潜行|调查|洞悉|表演|运动|体操|生存|隐匿|说服|"
+    "自然|医药|奥术|历史|宗教|驯兽|先攻|力量|敏捷|体质|智力|感知|魅力|难度|判定|AC"
+)
+# 尾部「（攻击 对哥布林）/（魅力威吓）/（魅力检定 DC 15）」类括号技术标注
+_CHOICE_TECH_SUFFIX_RE = re.compile(
+    r"\s*[（(][^（()）]*(?:" + _CHOICE_TECH_KEYWORDS + r")[^（()）]*[）)]\s*$"
+)
+
+
+def strip_choice_annotation(label: str) -> str:
+    """剥离选项文本尾部自带的括号技术标注（系统会另行渲染检定类型/目标/DC）。"""
+    return _CHOICE_TECH_SUFFIX_RE.sub("", label or "").strip()
 
 
 class ResourceManager:
@@ -196,6 +212,9 @@ class ResourceManager:
         label = str(fields.get("label", "")).strip()
         if not label:
             return ResourceResult.fail("create_choice 缺少 label（选项文本）")
+        label = strip_choice_annotation(label)
+        if not label:
+            return ResourceResult.fail("create_choice 缺少 label（选项文本）")
         ability = str(fields.get("ability", "")).strip()
         dc = int(fields.get("dc") or 0)
         target = str(fields.get("target", "")).strip()
@@ -282,8 +301,14 @@ class ResourceManager:
         item_def = item_db.get(guid)
         if not item_def:
             return ResourceResult.fail(f"物品 {guid} 不存在于物品库中")
+        before = self.inv.count(guid)
         instance_ids = self.inv.add_item(guid, quantity)
-        return ResourceResult.ok(f"+{quantity}x {item_def.name}", {"instance_ids": instance_ids})
+        after = self.inv.count(guid)
+        owner = self._owner_name()
+        return ResourceResult.ok(
+            f"{owner} 物品 +{quantity}x {item_def.name} ({before} >>> {after})",
+            {"instance_ids": instance_ids},
+        )
 
     def remove_item(self, guid: str, quantity: int = 1) -> ResourceResult:
         item_def = item_db.get(guid)
@@ -293,6 +318,7 @@ class ResourceManager:
         total_have = bag_have + len(eq_slots)
         if total_have < quantity:
             return ResourceResult.fail(f"没有足够的 {name} (需要 {quantity}, 持有 {total_have})")
+        before = total_have
         removed = self.inv.remove_by_guid(guid, quantity)
         from_equip = 0
         for slot in eq_slots:
@@ -301,7 +327,10 @@ class ResourceManager:
             self.inv.unequip(slot)
             from_equip += 1
             removed += self.inv.remove_by_guid(guid, quantity - removed)
-        msg = f"-{removed}x {name}"
+        after = self.inv.count(guid) + sum(
+            1 for slot, g in self.inv.equipped.items() if g == guid)
+        owner = self._owner_name()
+        msg = f"{owner} 物品 -{removed}x {name} ({before} >>> {after})"
         if from_equip:
             msg += "（从装备卸下）"
         return ResourceResult.ok(msg)
@@ -327,6 +356,10 @@ class ResourceManager:
                 f"背包中没有足够的 {item.name} (需要 {quantity}, 持有 {bag_have})"
             )
         heal_total = 0
+        hp_before = hp_after = None
+        actor = self._resolve_actor(target)
+        if actor is not None:
+            hp_before = getattr(actor, "hp", None)
         for _ in range(quantity):
             effect = item.roll_effect()
             heal = int(effect.get("heal") or 0)
@@ -338,12 +371,17 @@ class ResourceManager:
             removed = self.inv.remove_by_guid(item.guid, 1)
             if removed != 1:
                 return ResourceResult.fail(f"扣除 {item.name} 失败")
-        parts = [f"已使用 {quantity}x {item.name}"]
-        if heal_total:
-            parts.append(f"{target} HP +{heal_total}")
-        if item.effect and str(item.effect).strip().lower() != "heal":
-            parts.append(item.effect)
-        return ResourceResult.ok("，".join(parts))
+        owner = self._owner_name()
+        bag_before = bag_have
+        bag_after = self.inv.count(item.guid)
+        if actor is not None:
+            hp_after = getattr(actor, "hp", None)
+        msg = f"{owner} 使用 {quantity}x {item.name}"
+        if heal_total and hp_before is not None and hp_after is not None:
+            msg += f" (HP {hp_before} >>> {hp_after})"
+        else:
+            msg += f" (背包 {bag_before} >>> {bag_after})"
+        return ResourceResult.ok(msg)
 
     def equip(self, slot: str, guid: str) -> ResourceResult:
         item_def = item_db.get(guid)
@@ -351,10 +389,14 @@ class ResourceManager:
             return ResourceResult.fail(f"物品 {guid} 不存在于物品库中")
         if not self.inv.count(guid):
             return ResourceResult.fail(f"背包中没有 {item_def.name}")
+        before = self.inv.count(guid)
         success = self.inv.equip(slot, guid)
         if not success:
             return ResourceResult.fail(f"{item_def.name} 无法装备到 {slot} 槽位")
-        return ResourceResult.ok(f"已装备 {item_def.name} 到 {slot}")
+        after = self.inv.count(guid)
+        owner = self._owner_name()
+        return ResourceResult.ok(
+            f"{owner} 装备 {item_def.name} → {slot} (背包 {before} >>> {after})")
 
     def unequip(self, slot: str) -> ResourceResult:
         from loc import tr
@@ -364,28 +406,44 @@ class ResourceManager:
             return ResourceResult.fail(f"{slot_name} 槽位为空")
         item_def = item_db.get(eq.guid)
         name = item_def.name if item_def else eq.guid
+        before = self.inv.count(eq.guid)
         self.inv.unequip(slot)
-        return ResourceResult.ok(f"已从 {slot} 卸下 {name}")
+        after = self.inv.count(eq.guid)
+        owner = self._owner_name()
+        return ResourceResult.ok(
+            f"{owner} 装备 {name} → 背包 (背包 {before} >>> {after})")
 
     def add_currency(self, cp: int) -> ResourceResult:
+        before = self.inv.currency.copper
         self.inv.currency.add(cp)
-        return ResourceResult.ok(f"+{self._format_cp(cp)}")
+        after = self.inv.currency.copper
+        owner = self._owner_name()
+        return ResourceResult.ok(
+            format_cp_change(owner, cp, before, after),
+            data={"change": {
+                "kind": "money", "actor": owner,
+                "delta_cp": cp, "before_cp": before, "after_cp": after,
+            }},
+        )
 
     def remove_currency(self, cp: int) -> ResourceResult:
         if self.inv.currency.copper < cp:
-            return ResourceResult.fail(f"金钱不足 (需要 {self._format_cp(cp)}, 持有 {self.inv.currency})")
+            return ResourceResult.fail(
+                f"金钱不足 (需要 {format_cp(cp)}, 持有 {self.inv.currency})")
+        before = self.inv.currency.copper
         self.inv.currency.remove(cp)
-        return ResourceResult.ok(f"-{self._format_cp(cp)}")
+        after = self.inv.currency.copper
+        owner = self._owner_name()
+        return ResourceResult.ok(
+            format_cp_change(owner, -cp, before, after),
+            data={"change": {
+                "kind": "money", "actor": owner,
+                "delta_cp": -cp, "before_cp": before, "after_cp": after,
+            }},
+        )
 
     def _format_cp(self, cp: int) -> str:
-        g = cp // 10000
-        s = (cp % 10000) // 100
-        c = cp % 100
-        parts = []
-        if g: parts.append(f"{g}金")
-        if s: parts.append(f"{s}银")
-        if c or not parts: parts.append(f"{c}铜")
-        return "".join(parts)
+        return format_cp(cp)
 
     @staticmethod
     def _hp_change_display(amount: int) -> str:
@@ -414,7 +472,7 @@ class ResourceManager:
         c.stable = True
         c.death_fails = 0
         c.death_successes = 0
-        return ResourceResult.ok(f"{c.name} 已稳定（停止死亡豁免，仍昏迷）")
+        return ResourceResult.ok(f"{c.name} 状态 稳定 (死亡豁免 >>> 已稳定)")
 
     def roll_death_save(self) -> ResourceResult:
         """系统自动死亡豁免（T17，玩家回合起手 0 HP 时调用）。
@@ -440,29 +498,32 @@ class ResourceManager:
             c.death_fails = 0
             c.death_successes = 0
             return ResourceResult.ok(
-                f"{line} 天然20：恢复 1 点生命，{c.name} 苏醒！",
+                f"{line} 天然20：{c.name} 苏醒 (HP 0 >>> {c.hp})",
                 {"outcome": "awake", "roll": roll},
             )
         if roll == 1:
+            f_before = c.death_fails
             c.death_fails += 2
-            msg = f"{line} 天然1：死亡豁免失败 2 次（失败 {c.death_fails}/3）"
+            msg = f"{line} 天然1：{c.name} 死亡豁免失败 2 次 (失败 {f_before}/3 >>> {c.death_fails}/3)"
             if c.death_fails >= 3:
                 c.dead = True
                 msg += "，第 3 次失败，死亡！"
                 return ResourceResult.ok(msg, {"outcome": "dead", "roll": roll})
             return ResourceResult.ok(msg, {"outcome": "fail", "roll": roll})
         if roll >= 10:
+            s_before = c.death_successes
             c.death_successes += 1
-            msg = f"{line} 成功（≥10）：死亡豁免成功 {c.death_successes}/3"
+            msg = f"{line} 成功（≥10）：{c.name} 死亡豁免成功 (成功 {s_before}/3 >>> {c.death_successes}/3)"
             if c.death_successes >= 3:
                 c.stable = True
                 c.death_fails = 0
                 c.death_successes = 0
-                msg += "，第 3 次成功，转为稳定（停止豁免，仍昏迷）"
+                msg += "，第 3 次成功，转为稳定"
                 return ResourceResult.ok(msg, {"outcome": "stable", "roll": roll})
             return ResourceResult.ok(msg, {"outcome": "success", "roll": roll})
+        f_before = c.death_fails
         c.death_fails += 1
-        msg = f"{line} 失败（<10）：死亡豁免失败 {c.death_fails}/3"
+        msg = f"{line} 失败（<10）：{c.name} 死亡豁免失败 (失败 {f_before}/3 >>> {c.death_fails}/3)"
         if c.death_fails >= 3:
             c.dead = True
             msg += "，第 3 次失败，死亡！"
@@ -698,4 +759,4 @@ class ResourceManager:
         if errs:
             return ResourceResult.fail("；".join(errs))
         item_db.add_runtime(item_def)
-        return ResourceResult.ok(f"新物品定义: {item_def.name}")
+        return ResourceResult.ok(f"新物品定义: {item_def.name}", visible=False)

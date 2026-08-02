@@ -4,6 +4,7 @@ import re
 from core.config import Config
 from core.prompt_lib import build_prompt_suffix
 from resource.regulator import _ITEM_BLOCK_RE, _STATUS_CHANGE_BLOCK_RE
+from resource.manager import strip_choice_annotation
 
 
 def _insert_reminder(text: str, reminder: str) -> str:
@@ -38,11 +39,16 @@ _NARR_KIND_FIELD = {
 
 
 class AuditResult:
-    """监督者方向B 一轮审核的结果：最终文本 + 可见变更消息 + 是否修复过。"""
+    """监督者方向B 一轮审核的结果。
+
+    - messages：结构化变更记录（工具落账/状态同步），只进 [变更] 块；
+    - notices：监督者诊断（修复提示/系统提醒），不进终端，仅落日志与 LLM 历史。
+    """
 
     def __init__(self):
         self.text: str = ""
         self.messages: list[str] = []
+        self.notices: list[str] = []
         self.repaired: bool = False
         self.changed_npcs: set[str] = set()
 
@@ -138,11 +144,11 @@ class Supervisor:
                 break
             retries += 1
             if retries > self.max_retries:
-                result.messages.append(
+                result.notices.append(
                     f"状态名称格式异常: {'；'.join(status_issues)}，已保留原状"
                 )
                 break
-            result.messages.append(f"状态格式需修正: {'；'.join(status_issues)}，DM 正在调整…")
+            result.notices.append(f"状态格式需修正: {'；'.join(status_issues)}，DM 正在调整…")
             new_text = self.repair(text, hint="；".join(status_issues))
             result.repaired = True
             if new_text == text:
@@ -165,7 +171,7 @@ class Supervisor:
                 "[系统提醒] 你叙事中的数值与真实数据不符：" + "；".join(narr_issues)
                 + "。请按真实数据调整措辞（不得修改真实数值，只能改写叙事）。"
             )
-            result.messages.append(reminder)
+            result.notices.append(reminder)
             text = _insert_reminder(text, reminder)
             self._record_reminder(reminder)
 
@@ -173,6 +179,12 @@ class Supervisor:
         if self.needs_repair(text):
             text = self.repair(text)
             result.repaired = True
+
+        # 4. 兜底：剥离本轮选项中残留的括号技术标注（提示词已要求 LLM 不输出，
+        #    这里再兜一层，保证玩家看到的选择项只含纯描述文本）
+        m = getattr(self.regulator, "manager", None)
+        for c in getattr(m, "choices", None) or []:
+            c["label"] = strip_choice_annotation(c.get("label", ""))
 
         result.text = text
         self.gm.last_changed_npcs = result.changed_npcs

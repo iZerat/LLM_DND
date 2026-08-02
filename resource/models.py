@@ -316,6 +316,32 @@ class Currency:
         return f"{self.gold}金 {self.silver}银 {self.copper_display}铜"
 
 
+def format_cp(cp: int) -> str:
+    """把铜币数换算成 金银铜 显示（1金=10000铜，1银=100铜）。"""
+    cp = int(cp or 0)
+    neg = cp < 0
+    cp = abs(cp)
+    g, cp = divmod(cp, 10000)
+    s, c = divmod(cp, 100)
+    parts = []
+    if g:
+        parts.append(f"{g}金")
+    if s:
+        parts.append(f"{s}银")
+    if c or not parts:
+        parts.append(f"{c}铜")
+    return ("-" if neg else "") + "".join(parts)
+
+
+def format_cp_change(actor: str, delta_cp: int, before_cp: int, after_cp: int) -> str:
+    """结构化金钱变更行：Actor 金钱 变更 (旧值 >>> 新值)，金银铜换算。"""
+    sign = "+" if delta_cp >= 0 else "-"
+    return (
+        f"{actor} 金钱 {sign}{format_cp(abs(int(delta_cp or 0)))} "
+        f"({format_cp(before_cp)} >>> {format_cp(after_cp)})"
+    )
+
+
 @dataclass
 class Inventory:
     # bag: instance_id -> ItemInstance (each instance distinct, no quantity merging)
