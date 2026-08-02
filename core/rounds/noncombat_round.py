@@ -18,7 +18,8 @@ class NonCombatRound(BaseRound):
     def run(self, player_input: str, on_prompt):
         if self.start_of_turn_death_save() == "dead":
             return RoundResult(action="menu")
-        audit, elapsed = self.dm_call(player_input, tag="nc")
+        audit, elapsed = self.dm_call(player_input, tag="nc", require_event=True,
+                                      require_choices=True)
         sections = parse_sections(audit.text)
         self.rendered_blocks = []
 
@@ -42,9 +43,6 @@ class NonCombatRound(BaseRound):
             ActionBlock.from_check(carried_check).render()
             self.rendered_blocks.append("行动")
             self.gm.last_check_block = None
-            if "副事件" in sections:
-                render_narration_block(sections["副事件"])
-                self.rendered_blocks.append("副事件")
             if getattr(self.gm, "last_check_changes", None):
                 render_change_block(self.gm.last_check_changes)
                 self.rendered_blocks.append("变更")
@@ -52,6 +50,11 @@ class NonCombatRound(BaseRound):
         for cb in (getattr(self.toolbox, "check_results", None) or []):
             ActionBlock.from_check(cb.get("text", "")).render()
             self.rendered_blocks.append("行动")
+
+        # [副事件] — DM 本轮检定后的叙事（与 carried 解耦：d20_roll 工具路径也有副事件）
+        if "副事件" in sections:
+            render_narration_block(sections["副事件"])
+            self.rendered_blocks.append("副事件")
 
         # [变更]
         m2 = getattr(self.regulator, "manager", None)

@@ -167,13 +167,17 @@ class BaseRound:
     # ── DM 调用 ──
 
     def dm_call(self, user_text, tools=None, status="DM 思考中...",
-                protected_npcs=None, mode="full", tag="", settle_scope="dm"):
+                protected_npcs=None, mode="full", tag="", settle_scope="dm",
+                require_event: bool = False, require_choices: bool = False):
         """单次 DM 调用：流式收集 → 监督者审计/落账。返回 (audit, elapsed)。
 
         tools：传 None 用工具箱 schemas；传 [] 表示不给工具（段内纯叙事调用）。
         mode：'full' 完整落账；'light' 仅剥离变更区块、不落账（段内叙事用，防止双重结算）。
         settle_scope：工具落账范围——'player'=玩家回合段（禁止落账非玩家发起伤害，
         防止双重结算）；其他=全权。
+        require_event：True 时审计阶段强制 [事件] 区块非空，缺失即打回 DM 补写。
+        require_choices：True 时本轮必须已调 create_choice（choices 非空），
+        缺失则打回 DM 补调一次（只重试一轮，防死循环）。
         """
         if tools is None:
             tools = self.toolbox.schemas()
@@ -224,7 +228,21 @@ class BaseRound:
         elapsed = _time.time() - t0
         raw = "".join(parts)
         self.gm.last_tool_results = list(self.toolbox.results)
-        audit = self.supervisor.audit(raw, protected_npcs=protected_npcs, mode=mode)
+        audit = self.supervisor.audit(raw, protected_npcs=protected_npcs, mode=mode,
+                                      require_event=require_event)
+        if require_choices and (getattr(self.toolbox, "manager", None) is None
+                                or not self.toolbox.manager.choices):
+            console.print("[indian_red]缺少选择块，正在要求 DM 补调 create_choice…[/indian_red]")
+            audit, _ = self.dm_call(
+                "[系统要求] 你上一轮回复没有为玩家创建选择选项。"
+                "请立即调用 create_choice 工具创建 3 个选择选项"
+                "（choice_type=attack/ability_check/narrative，选项文本用纯描述语言），"
+                "然后输出 [事件] 区块收尾。不要重复调用其他工具（伤害/态度等已结算，勿重复落账）。",
+                tools=tools, status="DM 补充选择...",
+                protected_npcs=protected_npcs, mode=mode, tag=tag,
+                settle_scope=settle_scope,
+                require_event=require_event, require_choices=False,
+            )
         if not self.gm.history:
             self.gm.set_history([])
         console.print(f"[grey50]思考耗时: {format_elapsed(elapsed)}{self.gm.usage_summary()}[/grey50]")

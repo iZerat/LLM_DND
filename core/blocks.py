@@ -107,8 +107,9 @@ class ChangeBlock(RoundBlock):
     title = "变更"
     border_color = "#d4a0a0"
 
-    # 结构化变更行：行尾必须是 (旧值 >>> 新值)，括号内不含半角括号
-    _STRUCTURED_RE = re.compile(r"\([^()]*?>>>[^()]*\)\s*$")
+    # 结构化变更行：必须含 (旧值 >>> 新值) 形态；允许后跟状态注解
+    # （如 HP 归零时的「，倒地昏迷」），仅以此形态判定是否属于变更记录
+    _STRUCTURED_RE = re.compile(r"\([^()]*?>>>[^()]*\)")
 
     @classmethod
     def from_messages(cls, messages: list[str]):

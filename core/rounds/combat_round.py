@@ -19,7 +19,7 @@ class CombatRound(BaseRound):
     def run(self, player_input: str, on_prompt):
         audit, elapsed = self.dm_call(
             self._prelude_prompt(player_input),
-            tools=None, mode="full", tag="pre",
+            tools=None, mode="full", tag="pre", require_event=True,
         )
         sections = parse_sections(audit.text)
         self.rendered_blocks = []
@@ -43,13 +43,13 @@ class CombatRound(BaseRound):
             ActionBlock.from_check(carried_check).render()
             self.rendered_blocks.append("行动")
             self.gm.last_check_block = None
-            if "副事件" in sections:
-                SubEventBlock.from_text(sections["副事件"]).render()
-                self.rendered_blocks.append("副事件")
             if getattr(self.gm, "last_check_changes", None):
                 render_change_block(self.gm.last_check_changes)
                 self.rendered_blocks.append("变更")
                 self.gm.last_check_changes = None
+        if "副事件" in sections:
+            SubEventBlock.from_text(sections["副事件"]).render()
+            self.rendered_blocks.append("副事件")
         if audit.messages:
             render_change_block(audit.messages)
             self.rendered_blocks.append("变更")
@@ -87,12 +87,25 @@ class CombatRound(BaseRound):
                     return res
                 if res is not None:
                     next_input = res.player_input
-            elif isinstance(entity, NPC) and getattr(entity, "hp", 0) > 0:
+            elif isinstance(entity, NPC) and not getattr(entity, "dead", False):
+                if getattr(entity, "unconscious", False):
+                    if getattr(entity, "is_character", False):
+                        self._npc_death_save(entity)
+                    continue
                 NPCSegment(self.ctx, entity, player_input).run()
 
         if not self._hostile_alive():
             initiative.order = []
         return RoundResult(player_input=next_input)
+
+    def _npc_death_save(self, npc):
+        """重要 NPC（is_character）回合起手 0 HP → 系统自动死亡豁免（同玩家，RAW L1229）。"""
+        from core.ui import render_death_save_block
+        res = self.regulator.manager.roll_death_save(npc)
+        if res and res.success:
+            render_death_save_block(res.message)
+            self.rendered_blocks.append("死亡豁免")
+        return getattr(npc, "dead", False)
 
     def _prelude_prompt(self, player_input: str) -> str:
         prefix = "战斗已经开始！请总结上一回合战况、铺垫本轮战场局势。只输出 [事件] 区块。"
@@ -111,6 +124,8 @@ class CombatRound(BaseRound):
     def _hostile_alive(self) -> bool:
         from resource.attitude import level
         for e in self.world.active.values():
-            if isinstance(e, NPC) and level(getattr(e, "attitude", 0)) == "hostile" and getattr(e, "hp", 0) > 0:
+            if (isinstance(e, NPC) and level(getattr(e, "attitude", 0)) == "hostile"
+                    and not getattr(e, "dead", False)
+                    and not getattr(e, "unconscious", False)):
                 return True
         return False

@@ -131,6 +131,7 @@ class NPCCatalog:
                 tmpl.get("attitude", "neutral") if attitude in (None, "") else attitude
             ),
             tags=list(tmpl.get("tags", [])),
+            is_character=bool(tmpl.get("is_character", False)),
         )
         from resource.models import Currency
         npc.currency = Currency(copper=tmpl.get("currency_cp", 0))

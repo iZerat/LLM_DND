@@ -50,9 +50,6 @@ class Character(Actor):
     race: str = ""
     lineage: str = ""
     background: str = ""
-    stable: bool = False
-    death_fails: int = 0
-    death_successes: int = 0
     feats: list[Feat] = field(default_factory=list)
     gender: str = "male"
     age: int = 20
@@ -68,7 +65,7 @@ class Character(Actor):
 
     @property
     def unconscious(self) -> bool:
-        return not self.dead and self.hp <= 0
+        return self.knocked_out or (not self.dead and self.hp <= 0)
 
     @property
     def condition_cn(self) -> str:
@@ -202,7 +199,7 @@ class Character(Actor):
             f"{tr('general:desc')}: {self.description}"
         )
 
-    def apply_hp(self, delta: int, crit: bool = False) -> tuple[int, int, list[str]]:
+    def apply_hp(self, delta: int, crit: bool = False, non_lethal: bool = False) -> tuple[int, int, list[str]]:
         before = self.hp
         if self.dead:
             return before, self.hp, [f"{self.name} 已死亡，无法变更 HP"]
@@ -210,13 +207,21 @@ class Character(Actor):
             new = min(self.hp + int(delta or 0), self.max_hp)
             self.hp = new
             notes: list[str] = []
-            if before <= 0 < new:
+            if before <= 0 < new or self.knocked_out:
                 self.stable = False
                 self.death_fails = 0
                 self.death_successes = 0
+                self.knocked_out = False
                 notes.append("苏醒")
             return before, new, notes
         amount = -int(delta or 0)
+        if non_lethal and amount > 0 and before > 0:
+            self.hp = max(self.hp - amount, 1)
+            self.knocked_out = True
+            self.stable = False
+            self.death_fails = 0
+            self.death_successes = 0
+            return before, self.hp, ["非致命击昏（保留 1 点生命，昏迷）"]
         self.hp = max(self.hp - amount, 0)
         notes: list[str] = []
         if self.hp == 0 and amount > 0:

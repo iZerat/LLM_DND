@@ -41,8 +41,8 @@ class NPCController:
         - injected：注入主 DM 短调用的叙事行（空串=该 NPC 本轮无需行动/已倒下）
         - change_msg：变更块的落账消息（空串=无 HP 变更）
         """
-        if not npc or getattr(npc, "dead", False) or getattr(npc, "hp", 1) <= 0:
-            self.log_lines.append(f"{npc.name} 已倒下/死亡，跳过行动")
+        if not npc or getattr(npc, "dead", False) or getattr(npc, "unconscious", False):
+            self.log_lines.append(f"{npc.name} 已倒下/昏迷/死亡，跳过行动")
             return "", "", ""
         decision = self._ask_npc(npc, player_input)
         line, injected, check_text, change_msg = self._resolve(npc, decision)

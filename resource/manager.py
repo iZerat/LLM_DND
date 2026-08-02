@@ -461,9 +461,9 @@ class ResourceManager:
         """玩家治疗（委托给统一落账）。"""
         return self.change_status("玩家", hp=int(amount or 0))
 
-    def remove_hp(self, amount: int, crit: bool = False) -> ResourceResult:
+    def remove_hp(self, amount: int, crit: bool = False, non_lethal: bool = False) -> ResourceResult:
         """玩家伤害（委托给统一落账）。"""
-        return self.change_status("玩家", hp=-int(amount or 0), crit=crit)
+        return self.change_status("玩家", hp=-int(amount or 0), crit=crit, non_lethal=non_lethal)
 
     def set_stable(self) -> ResourceResult:
         """稳定：停止死亡豁免（仍昏迷），计数清零。医药检定/治疗行为的结果。"""
@@ -479,16 +479,17 @@ class ResourceManager:
         c.death_successes = 0
         return ResourceResult.ok(f"{c.name} 状态 稳定 (死亡豁免 >>> 已稳定)")
 
-    def roll_death_save(self) -> ResourceResult:
-        """系统自动死亡豁免（T17，玩家回合起手 0 HP 时调用）。
+    def roll_death_save(self, actor=None) -> ResourceResult:
+        """系统自动死亡豁免（T17）：角色回合起手 0 HP 时调用；玩家段用玩家，
+        重要 NPC（is_character）0 HP 时传入该 NPC。
 
         d20：≥10 成功 / <10 失败；天然1=2 失败；天然20=恢复 1 HP 苏醒；
         3 次成功→稳定，3 次失败→死亡。
         """
         import random
-        if not self.character:
+        c = actor if actor is not None else self.character
+        if c is None:
             return ResourceResult.fail("无法进行死亡豁免：未传入角色对象")
-        c = self.character
         if c.dead:
             return ResourceResult.fail(f"{c.name} 已死亡")
         if c.hp > 0:
@@ -625,7 +626,7 @@ class ResourceManager:
         return bool(self.character) and t in ("玩家", "player", "PC", "pc", self.character.name)
 
     def change_status(self, target: str, hp: int = 0, max_hp: int = 0,
-                      crit: bool = False) -> ResourceResult:
+                      crit: bool = False, non_lethal: bool = False) -> ResourceResult:
         actor = self._resolve_actor(target)
         if actor is None:
             return ResourceResult.fail(f"未找到目标「{target}」")
@@ -633,7 +634,7 @@ class ResourceManager:
         if hp:
             if actor.dead:
                 return ResourceResult.fail(f"{actor.name} 已死亡，无法变更 HP")
-            before, new, notes = actor.apply_hp(hp, crit=crit)
+            before, new, notes = actor.apply_hp(hp, crit=crit, non_lethal=non_lethal)
             delta = new - before
             hp_color = "#6CB77A" if delta >= 0 else "#E08E8E"
             parts.append(
@@ -648,8 +649,9 @@ class ResourceManager:
             parts.extend(mnotes)
         return ResourceResult.ok("，".join(parts) if parts else "无变化")
 
-    def npc_change_status(self, name: str, hp: int = 0, max_hp: int = 0) -> ResourceResult:
-        return self.change_status(name, hp=hp, max_hp=max_hp)
+    def npc_change_status(self, name: str, hp: int = 0, max_hp: int = 0,
+                          non_lethal: bool = False) -> ResourceResult:
+        return self.change_status(name, hp=hp, max_hp=max_hp, non_lethal=non_lethal)
 
     def change_attitude(self, name: str, delta: int = 0, reason: str = "",
                         event: str = "") -> ResourceResult:

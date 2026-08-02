@@ -36,6 +36,19 @@ _TARGET_STRIP_VERBS = (
 )
 
 
+# 非致命打击意图关键词（L1205：攻击者选择留手 → 目标 1 HP + 昏迷，不杀死）
+_NON_LETHAL_KEYWORDS = (
+    "非致命", "不致命", "留活口", "留条命", "留性命", "手下留情",
+    "击晕", "打晕", "击昏", "打昏", "敲晕", "活捉", "生擒",
+    "点到为止", "不要杀", "别杀", "不杀", "下死手", "留手",
+)
+
+
+def _non_lethal_intent(text: str) -> bool:
+    """从攻击文本/选项/工具备注检测非致命意图。"""
+    return bool(text) and any(kw in text for kw in _NON_LETHAL_KEYWORDS)
+
+
 def _tool(name: str, description: str, parameters: dict) -> dict:
     return {
         "type": "function",
@@ -213,7 +226,8 @@ class Checker:
 
     # ══════════════════════ 玩家侧检定（本地入口：base_round 选项路径） ══════════════════════
 
-    def _player_attack_core(self, target_name: str, apply: bool = True) -> dict | None:
+    def _player_attack_core(self, target_name: str, apply: bool = True,
+                            non_lethal: bool = False) -> dict | None:
         """玩家攻击结算核心（本地/工具两入口共用，一逻辑两入口）。
 
         掷骰 → 命中判定 → 计算目标态度基线（未敌对时 -8）与武器伤害。
@@ -221,6 +235,8 @@ class Checker:
         apply=True（本地选项路径）：由系统直接经 manager 落账伤害与态度基线；
         apply=False（d20_roll 工具路径）：只掷骰判定并登记 pending_attacks，
         由 LLM 再经调节器工具 change_status / change_attitude 落账（调节器校验数值）。
+
+        non_lethal=True：命中伤害按非致命打击结算（目标 1 HP + 昏迷，不杀死，L1205）。
 
         返回 {tgt, ac, roll, total, atk_bonus, hit, word, color, line, dmg,
         attitude_applied, attitude_delta, baseline, changes}；无法结算时返回 None。
@@ -260,7 +276,8 @@ class Checker:
                     if att_res.message:
                         changes.append(att_res.message)
             if hit and dmg:
-                hp_res = manager.npc_change_status(tgt.name, hp=-dmg)
+                hp_res = manager.npc_change_status(
+                    tgt.name, hp=-dmg, non_lethal=non_lethal)
                 if hp_res.success and hp_res.message:
                     changes.append(hp_res.message)
             manager.record_attack_outcome(tgt.name, damage=dmg, baseline=baseline,
@@ -285,7 +302,7 @@ class Checker:
 
         返回 (check_text, transformed, changes) 或 None。
         """
-        r = self._player_attack_core(target_name)
+        r = self._player_attack_core(target_name, non_lethal=_non_lethal_intent(label))
         if r is None:
             return None
         char = self.character
@@ -543,7 +560,8 @@ class Checker:
                 return ResourceResult.fail(
                     "未找到被攻击的 NPC 目标（请确认 target 名称与在场 NPC 一致，或先调用 set_target）"
                 )
-            r = self._player_attack_core(tgt.name, apply=True)
+            r = self._player_attack_core(
+                tgt.name, apply=True, non_lethal=_non_lethal_intent(note))
             if r is None:
                 return ResourceResult.fail(f"目标「{tgt.name}」的 AC 不可用")
             ac, roll, atk_bonus, total, hit = r["ac"], r["roll"], r["atk_bonus"], r["total"], r["hit"]
@@ -609,6 +627,8 @@ class Checker:
         }
         if hit:
             hint = f"对「{target_label}」造成 {dmg} 点伤害"
+            if _non_lethal_intent(note) and is_player:
+                hint += "（非致命，目标被击昏而未死）"
             if dmg and dmg not in changes:
                 hint += "（系统已结算，无需再调用 change_status）"
         else:

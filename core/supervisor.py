@@ -132,7 +132,7 @@ class Supervisor:
     # ── 方向B：LLM 输出 → 审核 ──
 
     def audit(self, raw_text: str, protected_npcs: set | None = None,
-              mode: str = "full") -> AuditResult:
+              mode: str = "full", require_event: bool = False) -> AuditResult:
         result = AuditResult()
 
         # 0. 工具通道：已通过工具落账的变更直接展示
@@ -194,6 +194,16 @@ class Supervisor:
             text = self.repair(text)
             result.repaired = True
 
+        # 3.5 [事件] 缺块 → 修复对话：事件块是面向玩家的叙事核心，
+        # 缺失时打回让 DM 补写（而非让玩家只看到"缺少块"的裸错误）。
+        # 修复失败则保留原文，由回合层 check_round_integrity 红字报错兜底。
+        if require_event and not self._has_event(text):
+            result.notices.append("缺少 [事件] 区块，正在要求 DM 补写…")
+            new_text = self._repair_event(text)
+            if new_text != text:
+                text = new_text
+                result.repaired = True
+
         # 4. 兜底：剥离本轮选项中残留的括号技术标注（提示词已要求 LLM 不输出，
         #    这里再兜一层，保证玩家看到的选择项只含纯描述文本）
         m = getattr(self.regulator, "manager", None)
@@ -251,14 +261,25 @@ class Supervisor:
         if last.get("role") == "assistant":
             last["content"] = (last.get("content") or "") + "\n\n" + reminder
 
-    def needs_repair(self, response_text: str) -> bool:
-        """检测 [状态] 是否缺少目标行，且 [事件] 疑似发生了战斗/冲突。"""
+    def _split_sections(self, response_text: str) -> dict:
+        """按区块标题切分 LLM 输出（与 REPAIR_SECTION_NAMES 对齐）。"""
         sections = {}
         for name, content in re.findall(
             rf"\[({self.REPAIR_SECTION_NAMES})\]\s*(.*?)(?=\[(?:{self.REPAIR_SECTION_NAMES})\]|\Z)",
             response_text, re.DOTALL,
         ):
             sections[name] = content.strip()
+        return sections
+
+    def needs_repair(self, response_text: str) -> bool:
+        """检测 [状态] 是否缺少目标行，且 [事件] 疑似发生了战斗/冲突。
+
+        LLM 不再被要求输出 [状态]（数据由系统渲染），因此 [状态] 缺失属正常，
+        仅在 LLM 仍输出残缺 [状态] 且叙事疑似发生冲突时才打回补全。
+        """
+        sections = self._split_sections(response_text)
+        if "状态" not in sections:
+            return False
         status_text = sections.get("状态", "")
         event_text = sections.get("事件", "")
         has_target = bool(re.search(r"目标\s*:", status_text))
@@ -266,6 +287,36 @@ class Supervisor:
             w in event_text for w in ["攻击", "敌人", "敌对", "战斗", "拔刀", "挥剑", "追", "冲突"]
         )
         return not has_target and has_enemy
+
+    def _has_event(self, response_text: str) -> bool:
+        """[事件] 区块是否非空（面向玩家展示的叙事核心）。"""
+        return bool(self._split_sections(response_text).get("事件", "").strip())
+
+    def _repair_event(self, response_text: str) -> str:
+        """反问 DM 补写缺失的 [事件] 区块；返回含 [事件] 的新文本，失败返回原文本。"""
+        if not self.gm.client:
+            return response_text
+        follow_up = (
+            "你上一轮回复没有输出 [事件] 区块。请重新输出，只输出 [事件] 区块："
+            "用 3-5 句画面感语言描述当前正在发生的事情（内容直接展示给玩家，不要写后台独白）。"
+        )
+        try:
+            r = self.gm.client.chat.completions.create(
+                model=Config.MODEL_NAME,
+                messages=[{"role": "user", "content": follow_up}],
+                stream=False,
+                temperature=0.4,
+                max_tokens=600,
+            )
+        except Exception:
+            return response_text
+        repair_text = (r.choices[0].message.content or "").strip()
+        if not repair_text:
+            return response_text
+        m = re.search(r"\[事件\]\s*(.*)", repair_text, re.DOTALL)
+        if m and m.group(1).strip():
+            return "[事件]\n" + m.group(1).strip()
+        return "[事件]\n" + repair_text
 
     def repair(self, response_text: str, hint: str = "") -> str:
         """反问 DM 修正 [状态] 区块，返回修补后的完整文本。

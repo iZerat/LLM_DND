@@ -53,8 +53,23 @@ def _game_info(gm, args):
 
 
 def _game_scene(gm, args):
-    from core.ui import _filter_env_fields
-    if gm.last_scene:
+    from core.ui import current_scene, _filter_env_fields
+    scene = current_scene(gm)
+    if scene is not None and (scene.environment or scene.location or scene.name):
+        env = scene.environment or {}
+        parts = [f"{k}：{v}" for k, v in env.items() if v]
+        if scene.location and "地点" not in env:
+            parts.append(f"地点：{scene.location}")
+        if not parts:
+            parts.append(scene.name or "未知场景")
+        scene_text = "\n".join(parts)
+        console.print(Panel(
+            scene_text,
+            title="[grey58]完整环境信息[/grey58]",
+            border_style="grey58",
+            box=box.SQUARE,
+        ))
+    elif gm.last_scene:
         scene_text = _filter_env_fields(gm.last_scene, basic_only=False)
         console.print(Panel(
             scene_text,

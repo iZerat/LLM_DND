@@ -114,6 +114,14 @@ def _filter_env_fields(text: str, basic_only: bool = True) -> str:
     return "\n".join(lines)
 
 
+def current_scene(gm):
+    """当前场景实例（权威本地数据源）。无场景时返回 None，不为此查询创建场景。"""
+    ws = getattr(gm, "world", None) or getattr(gm, "world_state", None)
+    if ws is not None and getattr(ws, "current_scene_id", ""):
+        return ws.get_scene(ws.current_scene_id)
+    return None
+
+
 def render_round_header(round_num: int, kind: str = ""):
     """回合头：=== 第 n 轮 · 战斗/非战斗 ===。由 GameRound 每轮调用一次，段内共享同一轮号。"""
     console.print()
@@ -229,7 +237,7 @@ def render_status_row(character, world_state=None, targets=None):
             continue
         attitude = getattr(e, "attitude", 0)
         dead = bool(getattr(e, "dead", False))
-        downed = not dead and getattr(e, "hp", 0) <= 0
+        downed = not dead and bool(getattr(e, "unconscious", False))
         if dead:
             tag, color = "死亡", "grey50"
         elif downed:
@@ -731,7 +739,12 @@ def render_character_sheet(char: Character, roll_log: str = ""):
 
 
 def show_time(gm):
-    text = gm.last_time if gm.last_time else "时间不详"
+    text = gm.last_time if gm.last_time else ""
+    if not text:
+        scene = current_scene(gm)
+        if scene is not None:
+            text = (scene.environment or {}).get("时间", "") or ""
+    text = text or "时间不详"
     console.print(Panel(
         text,
         title="[grey58]当前时间[/grey58]",

@@ -194,10 +194,12 @@ class World(Object):
     # ── status rendering for LLM prompt ──
 
     def _status_mark(self, e: Object) -> str:
-        """NPC 倒地/死亡标记（LLM 上下文用）。"""
+        """NPC 击昏/倒地/死亡标记（LLM 上下文用）。"""
         if getattr(e, "dead", False):
             return "（已死亡）"
-        if getattr(e, "hp", 0) <= 0:
+        if getattr(e, "knocked_out", False):
+            return "（击昏昏迷）"
+        if getattr(e, "unconscious", False):
             return "（倒地昏迷）"
         return ""
 
