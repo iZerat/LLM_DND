@@ -54,7 +54,8 @@ def _print_update_status(thread, result):
         console.print("[grey50]可 git pull 更新，不自动拉取[/grey50]")
     else:
         console.print(
-            f"[grey50]游戏版本已是最新版本 ({value.get('remote_url', '')})[/grey50]")
+            f"** 游戏版本已是最新版本 **  ({value.get('remote_url', '')})",
+            highlight=False)
     console.print()
 
 
@@ -78,15 +79,21 @@ def _test_api_connection(model: str) -> bool:
         console.print()
         return True
     except Exception as e:
-        console.print(f"[grey50]连接失败: {e}[/grey50]")
+        msg = str(e)
+        if "401" in msg or "authentication" in msg.lower():
+            console.print("[indian_red]API 密钥无效，请检查密钥是否正确或是否已过期[/indian_red]")
+        elif "400" in msg or "invalid" in msg.lower() or "not support" in msg.lower():
+            console.print(f"[indian_red]请求格式有误：{e}[/indian_red]")
+        else:
+            console.print(f"[grey50]连接失败: {e}[/grey50]")
         return False
 
 
 # ---------- 配置 ----------
 
 def _setup_interactive():
-    console.print("\n[steel_blue]配置 API[/steel_blue]")
-    console.print("输入你的 LLM API 信息（支持 OpenAI / DeepSeek / 任何兼容服务）\n")
+    console.print("\n[white]配置 API[/white]")
+    console.print("输入你的 LLM API 信息（支持 OpenAI、DeepSeek 或任何兼容服务）\n")
 
     while True:
         base_url = Prompt.ask("API 地址")
@@ -102,13 +109,8 @@ def _setup_interactive():
 
     model = Config._detect_model(base_url)
 
-    save_key = Prompt.ask(
-        "是否将 API 密钥保存到 .env 文件？\n"
-        "[grey50]选择否将只在本次会话生效，重启需重新输入；保存为明文，请注意保管[/grey50]",
-        choices=["y", "n"],
-        default="n",
-    )
-    save_key = save_key in ("y", "yes", "是", "")
+    save_key = Prompt.ask("是否将 API 密钥保存到 .env 文件？y/n（选否则仅在本次会话有效，保存为明文请注意保管）")
+    save_key = save_key.strip().lower() in ("y", "yes", "是")
 
     lines = [
         f"API_BASE_URL={base_url}",
@@ -120,10 +122,7 @@ def _setup_interactive():
     Config.load()
     if not save_key:
         Config.API_KEY = api_key
-
-    if not _test_api_connection(model):
-        console.print("[indian_red]API 连接测试失败，可稍后通过菜单重新配置[/indian_red]")
-        return
+    # 不在此处测试连接——由 main() 统一作为唯一测试入口，避免双重"测试 API 连接..."提示
 
 
 def check_config():
@@ -963,12 +962,26 @@ def main(skip_api_test=False):
 
     if not skip_api_test and Config.is_ready() and not _test_api_connection(Config.MODEL_NAME):
         console.print("[indian_red]API 连接失败，游戏需要 API 才能运行[/indian_red]")
-        if Prompt.ask("重新配置 API？y/n") in ("y", "yes", ""):
-            _setup_interactive()
-            main()
+        ans = Prompt.ask("要重试连接吗？y/n").strip().lower()
+        if ans in ("y", "yes", "是", ""):
+            if _test_api_connection(Config.MODEL_NAME):
+                pass
+            else:
+                ans2 = Prompt.ask("要重新配置 API 吗？y/n").strip().lower()
+                if ans2 in ("y", "yes", "是", ""):
+                    _setup_interactive()
+                    main()
+                else:
+                    sys.exit(1)
+                return
         else:
-            sys.exit(1)
-        return
+            ans2 = Prompt.ask("要重新配置 API 吗？y/n").strip().lower()
+            if ans2 in ("y", "yes", "是", ""):
+                _setup_interactive()
+                main()
+            else:
+                sys.exit(1)
+            return
 
     if update_thread is not None:
         _print_update_status(update_thread, update_result)

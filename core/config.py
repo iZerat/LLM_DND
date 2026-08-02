@@ -50,6 +50,8 @@ class Config:
     def _detect_model(cls, base_url: str) -> str:
         url = base_url.lower()
         if "deepseek" in url:
+            return "deepseek-v4-pro"
+        if "openai" in url:
             return "gpt-4o"
         if "anthropic" in url or "claude" in url:
             return "claude"
