@@ -19,6 +19,7 @@ class Preset:
     opening: str = ""             # 开场模板 stem（可空=随机）
     resource_pack: str = ""       # 资源包 id
     resource_strategy: str = ""   # 资源策略 mode
+    world_type: str = "free"      # free=宽松(大模型创建) / structured=严谨(完整世界/程序化)
     components: dict = field(default_factory=dict)  # 原始 components
 
 
@@ -40,6 +41,7 @@ def load_preset(preset_id: str) -> Optional[Preset]:
         opening=comp.get("opening", ""),
         resource_pack=comp.get("resource_pack", ""),
         resource_strategy=comp.get("resource_strategy", ""),
+        world_type=comp.get("world_type", "free"),
         components=comp,
     )
 

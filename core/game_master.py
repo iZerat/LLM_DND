@@ -169,7 +169,8 @@ def _load_rules() -> str:
 
 class GameMaster:
     def __init__(self, character: Character, template: str = "", setting_content: str = "", setting_stem: str = "", resource_mode: str = "pack",
-                 story_pack_id: str = "", story_pack_content: str = "", world_source: str = "llm", resource_pack: str = ""):
+                 story_pack_id: str = "", story_pack_content: str = "", world_source: str = "llm", resource_pack: str = "",
+                 world=None):
         self.character = character
         self.client: Optional[OpenAI] = None
         self.history: list = []
@@ -188,6 +189,8 @@ class GameMaster:
         self.story_pack_id = story_pack_id
         self.story_pack_content = story_pack_content
         self.world_source = world_source
+        if world is not None:
+            self.world_state = world
         # 当前游戏会话绑定的存档槽位（空串=尚未存档）；载入存档时由 load_game 绑定
         self.save_slot: str = ""
         # 角色创建时的完整快照（角色模板），随存档保存，不随游戏进程变化

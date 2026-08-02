@@ -1,4 +1,4 @@
-import re
+﻿import re
 import sys
 import threading
 import time as _time
@@ -22,6 +22,7 @@ from core.game_loop import (
 )
 from core.world_bg import list_world_backgrounds, load_world_background
 from core.opening_templates import list_opening_templates
+from world.world import FreeWorld, StructuredWorld
 
 
 # ---------- 版本更新检查 ----------
@@ -368,6 +369,8 @@ def _create_world() -> GameMaster:
                 if role and role.opening:
                     opening_stem = role.opening
 
+                world_cls = StructuredWorld if preset.world_type == "structured" else FreeWorld
+                world_type = preset.world_type
                 return GameMaster(
                     char, opening_stem,
                     setting_content=setting_content, setting_stem=setting_stem,
@@ -376,6 +379,15 @@ def _create_world() -> GameMaster:
                     story_pack_id=story_pack.pack_id if story_pack else "",
                     story_pack_content=story_pack.content if story_pack else "",
                     world_source="preset",
+                    world=world_cls(
+                        world_composition={
+                            "type": world_type, "mode": "preset",
+                            "background": setting_stem,
+                            "story_pack": story_pack.pack_id if story_pack else "",
+                            "opening": opening_stem,
+                            "resource_mode": "pack",
+                            "resource_pack": preset.resource_pack or "default-dnd",
+                        }),
                 )
             except _BackSignal:
                 continue
@@ -423,6 +435,7 @@ def _create_world() -> GameMaster:
             continue
 
         # 对象资源策略（查表创建会再选资源包；填表创建不使用资源包）
+        resource_pack = ""
         try:
             console.print("\n[steel_blue]选择对象资源策略[/steel_blue]")
             console.print("  1. 查表创建（从资源包检索，所有对象来自资源库）")
@@ -434,7 +447,8 @@ def _create_world() -> GameMaster:
                 console.print("[grey50]已启用填表创建：不使用任何资源包，对象将按表单创建并随存档保存。[/grey50]")
             else:
                 resource_mode = RESOURCE_MODE_PACK
-                configure_resource_catalogs(resource_mode, _choose_resource_pack())
+                resource_pack = _choose_resource_pack()
+                configure_resource_catalogs(resource_mode, resource_pack)
         except _BackSignal:
             continue
 
@@ -475,6 +489,15 @@ def _create_world() -> GameMaster:
             story_pack_id=story_pack.pack_id if story_pack else "",
             story_pack_content=story_pack.content if story_pack else "",
             world_source="llm",
+            world=FreeWorld(
+                world_composition={
+                    "type": "free", "mode": "llm",
+                    "background": setting_stem,
+                    "story_pack": story_pack.pack_id if story_pack else "",
+                    "opening": opening_stem,
+                    "resource_mode": "free" if resource_mode == RESOURCE_MODE_FREE else "pack",
+                    "resource_pack": resource_pack,
+                }),
         )
 
 
@@ -986,6 +1009,15 @@ def _quickstart():
         resource_mode=resource_mode,
         story_pack_id=story_pack_id, story_pack_content=story_pack_content,
         world_source="preset",
+        world=(StructuredWorld if (preset and preset.world_type == "structured") else FreeWorld)(
+            world_composition={
+                "type": (preset.world_type if preset else "free"), "mode": "preset",
+                "background": setting_stem,
+                "story_pack": story_pack_id,
+                "opening": "",
+                "resource_mode": "pack",
+                "resource_pack": preset.resource_pack if preset else "default-dnd",
+            }),
     )
     _start_adventure(gm)
 

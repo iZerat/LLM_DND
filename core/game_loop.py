@@ -411,11 +411,11 @@ def load_game(save_path: str) -> GameMaster:
             gm.story_pack_id = meta.get("story_pack_id", "")
             gm.story_pack_content = meta.get("story_pack_content", "")
             gm.world_source = meta.get("world_source", "llm")
-        from world.state import WorldState
+        from world.world import world_from_dict, World
         world_path = path / "world.json"
-        gm.world_state = WorldState.from_dict(
+        gm.world_state = world_from_dict(
             json.loads(world_path.read_text(encoding="utf-8"))
-        ) if world_path.exists() else WorldState()
+        ) if world_path.exists() else World()
         from core.rounds.initiative import Initiative
         init_meta = (history_data.get("meta", {}) if history_data else {}).get("initiative")
         gm.initiative = Initiative.from_dict(init_meta, gm.character)
@@ -458,19 +458,74 @@ def format_elapsed(seconds: float) -> str:
 
 def log_dm_response(round_num: int, player_input: str, response_text: str,
                     raw_text: str = "", change_messages: str = "",
-                    tool_log: str = "", tag: str = ""):
+                    tool_log: str = "", tag: str = "",
+                    system_prompt: str = "", tools_summary: str = ""):
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     ts = _time.strftime("%Y%m%d_%H%M%S")
     tag_part = f"_{tag}" if tag else ""
     path = LOG_DIR / f"round_{round_num:03d}{tag_part}_{ts}.txt"
-    parts = [f">>> 玩家: {player_input}"]
-    if raw_text:
-        parts.append("\n\n--- 原始回复（LLM 未处理）---\n" + raw_text)
-    parts.append("\n\n--- 处理后文本 ---\n" + response_text)
-    if change_messages:
-        parts.append("\n\n--- 变更消息（调节器落账）---\n" + change_messages)
+    sep = "\n" + "-" * 70 + "\n"
+
+    parts = [f"========== 第 {round_num} 轮 {tag} | {ts} =========="]
+
+    # -------------- 上行：请求 --------------
+    parts.append(sep + "[ ↑ 请求 ]" + sep)
+    if system_prompt:
+        prompt_short = "\n".join(system_prompt.splitlines()[:120])
+        parts.append(f"系统提示词 ({len(system_prompt)} chars, 截取前120行):\n{prompt_short}")
+    if tools_summary:
+        parts.append(f"\n可用工具: {tools_summary}")
+    parts.append(f"\n玩家输入: {player_input}")
+
+    # -------------- 下行：LLM 原始返回 --------------
+    parts.append(sep + "[ ↓ LLM 返回 ]" + sep)
+    parts.append(raw_text if raw_text else "(空)")
+
+    # -------------- 下行：工具调用 --------------
     if tool_log:
-        parts.append("\n\n--- 工具调用日志（含 reason）---\n" + tool_log)
+        parts.append(sep + "[ ↓ 工具调用 ]" + sep)
+        for line in tool_log.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                import json as _json
+                entry = _json.loads(line)
+                tool_name = entry.get("tool", "?")
+                params = entry.get("args", {})
+                ok = entry.get("ok", False)
+                reply = entry.get("reply", "")
+                if reply:
+                    try:
+                        reply_data = _json.loads(reply)
+                        reply = reply_data.get("message", reply[:80])
+                    except Exception:
+                        reply = reply[:80]
+                status = "✓" if ok else "✗"
+                params_short = ", ".join(
+                    f"{k}={v}" for k, v in params.items()
+                    if k not in ("reason", "note") and v
+                )
+                reason = params.get("reason", "")
+                parts.append(f"  {status} {tool_name}({params_short})")
+                if reason:
+                    parts.append(f"         理由: {reason}")
+                if reply:
+                    parts.append(f"         结果: {reply}")
+            except Exception:
+                parts.append(f"  {line}")
+    else:
+        parts.append(sep + "[ ↓ 工具调用 ]" + sep + "(无)")
+
+    # -------------- 下行：处理后文本 --------------
+    parts.append(sep + "[ ↓ 处理后 ]" + sep)
+    parts.append(response_text)
+
+    # -------------- 结算日志 --------------
+    if change_messages:
+        parts.append(sep + "[ 结算 ]" + sep)
+        parts.append(change_messages)
+
     path.write_text("\n".join(parts), encoding="utf-8")
 
 

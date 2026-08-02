@@ -23,6 +23,8 @@ class World(Object):
     scenes: dict[str, Scene] = field(default_factory=dict)
     location: str = ""
     time: str = ""
+    # 创建配方：记录世界是用什么组合造出来的（世界背景 + 故事包 + 开场模板 + 资源包/填表）
+    world_composition: dict = field(default_factory=dict)
 
     WEIGHT_ACTIVE = 100
     WEIGHT_NEARBY_INIT = 60
@@ -251,6 +253,8 @@ class World(Object):
             "nearby": list(self.nearby.keys()),
             "distant": list(self.distant.keys()),
         }
+        if self.world_composition:
+            d["composition"] = dict(self.world_composition)
         return d
 
     @classmethod
@@ -261,10 +265,12 @@ class World(Object):
         legacy = not d.get("scenes")
         scenes = d.pop("scenes", {}) or {}
         layers = d.pop("layers", None) or {}
+        composition = d.pop("composition", None) or {}
+        d.pop("world_composition", None)  # 避免与显式传参冲突
         active = d.pop("active", []) or []
         nearby = d.pop("nearby", []) or []
         distant = d.pop("distant", []) or []
-        world = cls(**d)
+        world = cls(world_composition=composition, **d)
         for sid, sd in scenes.items():
             scene = Scene.from_dict(sd)
             scene.id = scene.id or sid
@@ -290,3 +296,23 @@ class World(Object):
                     if obj is not None:
                         pool[eid] = obj
         return world
+
+
+@dataclass
+class FreeWorld(World):
+    """宽松世界：由大模型生成，世界背景和叙事由 LLM 主导发挥，世界实例较少结构化约束。"""
+
+
+@dataclass
+class StructuredWorld(World):
+    """严谨世界：由预设组合、故事包或程序化生成，数据完整、规则约束强。"""
+
+
+def world_from_dict(d: dict):
+    """World 反序列化工厂：根据 composition.type 分派到对应子类。"""
+    comp = d.get("composition") or {}
+    if comp.get("type") == "free":
+        return FreeWorld.from_dict(d)
+    if comp.get("type") == "structured":
+        return StructuredWorld.from_dict(d)
+    return World.from_dict(d)

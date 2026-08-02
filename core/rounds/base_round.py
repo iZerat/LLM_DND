@@ -233,11 +233,17 @@ class BaseRound:
         console.print(f"[grey50]思考耗时: {format_elapsed(elapsed)}{self.gm.usage_summary()}[/grey50]")
         console.print()
         if tag:
+            tools_label = ""
+            if tools:
+                names = [t.get("function", {}).get("name", "?") for t in tools]
+                tools_label = ", ".join(names) if names else "[]"
             log_dm_response(
                 self.ctx.round_num, user_text, audit.text,
                 raw_text=raw, tag=tag,
                 change_messages="\n".join(audit.messages) if audit.messages else "",
                 tool_log="\n".join(self.toolbox.tool_call_log) if self.toolbox.tool_call_log else "",
+                system_prompt=self.gm._build_system_prompt() if mode == "full" else "[light mode]",
+                tools_summary=f"[{len(tools or [])} tools] {tools_label}" if tools else "",
             )
         if self.toolbox is not None:
             self.toolbox._settle_scope = "dm"
