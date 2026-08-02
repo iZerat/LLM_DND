@@ -92,37 +92,74 @@ def _test_api_connection(model: str) -> bool:
 # ---------- 配置 ----------
 
 def _setup_interactive():
-    console.print("\n[white]配置 API[/white]")
-    console.print("输入你的 LLM API 信息（支持 OpenAI、DeepSeek 或任何兼容服务）\n")
-
     while True:
-        base_url = Prompt.ask("API 地址")
-        if base_url.strip():
-            break
-        console.print("[grey50]API 地址不能为空，请重新输入[/grey50]")
+        console.print("\n[white]配置 API[/white]")
+        console.print("输入你的 LLM API 信息（支持 OpenAI、DeepSeek 或任何兼容服务）\n")
 
-    while True:
-        api_key = Prompt.ask("API 密钥")
-        if api_key.strip():
-            break
-        console.print("[grey50]API 密钥不能为空，请重新输入[/grey50]")
+        while True:
+            base_url = Prompt.ask("API 地址")
+            if base_url.strip():
+                break
+            console.print("[grey50]API 地址不能为空，请重新输入[/grey50]")
 
-    model = Config._detect_model(base_url)
+        while True:
+            api_key = Prompt.ask("API 密钥")
+            if api_key.strip():
+                break
+            console.print("[grey50]API 密钥不能为空，请重新输入[/grey50]")
 
-    save_key = Prompt.ask("是否将 API 密钥保存到 .env 文件？y/n（选否则仅在本次会话有效，保存为明文请注意保管）")
-    save_key = save_key.strip().lower() in ("y", "yes", "是")
+        model = Config._detect_model(base_url)
 
-    lines = [
-        f"API_BASE_URL={base_url}",
-        f"MODEL_NAME={model}",
-    ]
+        save_key = Prompt.ask("是否将 API 密钥保存到 .env 文件？y/n（选否则仅在本次会话有效，保存为明文请注意保管）")
+        save_key = save_key.strip().lower() in ("y", "yes", "是")
+
+        # 先用内存值测试，通了才写 .env
+        Config.API_BASE_URL = base_url
+        Config.API_KEY = api_key
+        Config.MODEL_NAME = model
+
+        if _test_api_connection(model):
+            _write_env(base_url, api_key, model, save_key)
+            Config.load()
+            if not save_key:
+                Config.API_KEY = api_key
+            Config._just_configured = True
+            return
+
+        # 没通 → 不写文件，回退，让用户重试
+        Config.API_BASE_URL = ""
+        Config.API_KEY = ""
+        ans = Prompt.ask("连接失败，要重新输入吗？y/n").strip().lower()
+        if ans not in ("y", "yes", "是", ""):
+            sys.exit(1)
+
+
+def _write_env(base_url: str, api_key: str, model: str, save_key: bool):
+    lines = [f"API_BASE_URL={base_url}", f"MODEL_NAME={model}"]
     if save_key:
         lines.append(f"API_KEY={api_key}")
     Path(".env").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    Config.load()
-    if not save_key:
-        Config.API_KEY = api_key
-    # 不在此处测试连接——由 main() 统一作为唯一测试入口，避免双重"测试 API 连接..."提示
+
+
+def _delete_api_config():
+    env_path = Path(".env")
+    if env_path.exists():
+        env_path.unlink()
+    Config.API_BASE_URL = ""
+    Config.API_KEY = ""
+    Config.MODEL_NAME = ""
+    console.print("[grey50]本地 API 配置已删除[/grey50]")
+
+
+def _api_settings_menu():
+    console.print("\n[steel_blue]本地 API 设置[/steel_blue]")
+    console.print("  1. 修改本地 API 设置")
+    console.print("  2. 删除本地 API 设置")
+    ans = _pre_game_ask(escape("选择 [1/2]")).strip()
+    if ans in ("1", ""):
+        _setup_interactive()
+    elif ans == "2":
+        _delete_api_config()
 
 
 def check_config():
@@ -960,7 +997,11 @@ def main(skip_api_test=False):
         update_thread, update_result = _start_update_check()
         check_config()
 
-    if not skip_api_test and Config.is_ready() and not _test_api_connection(Config.MODEL_NAME):
+    just_configured = getattr(Config, '_just_configured', False)
+    Config._just_configured = False
+
+    if (not skip_api_test and not just_configured
+            and Config.is_ready() and not _test_api_connection(Config.MODEL_NAME)):
         console.print("[indian_red]API 连接失败，游戏需要 API 才能运行[/indian_red]")
         ans = Prompt.ask("要重试连接吗？y/n").strip().lower()
         if ans in ("y", "yes", "是", ""):
@@ -970,7 +1011,7 @@ def main(skip_api_test=False):
                 ans2 = Prompt.ask("要重新配置 API 吗？y/n").strip().lower()
                 if ans2 in ("y", "yes", "是", ""):
                     _setup_interactive()
-                    main()
+                    main(skip_api_test=True)
                 else:
                     sys.exit(1)
                 return
@@ -978,7 +1019,7 @@ def main(skip_api_test=False):
             ans2 = Prompt.ask("要重新配置 API 吗？y/n").strip().lower()
             if ans2 in ("y", "yes", "是", ""):
                 _setup_interactive()
-                main()
+                main(skip_api_test=True)
             else:
                 sys.exit(1)
             return
@@ -1013,19 +1054,19 @@ def main(skip_api_test=False):
             console.print("[grey62]检测到存档[/grey62]")
             console.print("  1. 继续游戏")
             console.print("  2. 新游戏")
-            console.print("  3. 修改 API 配置")
+            console.print("  3. 本地 API 设置")
             choice = _pre_game_ask(escape("选择 [1/2/3]"))
         else:
             console.print("  1. 新游戏")
             if Config.is_ready():
-                console.print("  2. 修改 API 配置")
+                console.print("  2. 本地 API 设置")
                 choice = _pre_game_ask(escape("选择 [1/2]"))
             else:
                 choice = "1"
 
         if (saves and choice == "3") or (not saves and choice == "2" and Config.is_ready()):
-            _setup_interactive()
-            main()
+            _api_settings_menu()
+            main(skip_api_test=True)
             return
 
         if saves and (not choice or choice == "1"):
