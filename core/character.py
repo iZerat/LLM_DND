@@ -10,6 +10,7 @@ from rules.srd_data import (
 from resource.models import Inventory, ItemInstance
 from resource.item_db import item_db
 from world.actor import Actor
+from world.ability import Feat, coerce_feat
 
 RACES = [s.name for s in SPECIES_LIST]
 CLASSES = [c.name for c in CLASS_LIST]
@@ -52,10 +53,14 @@ class Character(Actor):
     stable: bool = False
     death_fails: int = 0
     death_successes: int = 0
-    feats: list = field(default_factory=list)
+    feats: list[Feat] = field(default_factory=list)
     gender: str = "male"
     age: int = 20
     inventory: Inventory = field(default_factory=Inventory)
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.feats = [ft for ft in (coerce_feat(f) for f in (self.feats or [])) if ft]
 
     @classmethod
     def create(cls, name: str = "", **kwargs) -> "Character":
@@ -170,7 +175,7 @@ class Character(Actor):
         lineage_str = f"({self.lineage_cn})" if self.lineage else ""
         traits = "；".join(self.species_trait_lines())
         save_str = "、".join(self.saving_throws) if self.saving_throws else tr("general:none")
-        feat_str = "、".join(strip_en_parens(f) for f in self.feats) if self.feats else tr("general:none")
+        feat_str = "、".join(strip_en_parens(f.name) for f in self.feats) if self.feats else tr("general:none")
         bag_list = []
         for inst in self.inventory.all_instances():
             item_def = item_db.get(inst.guid)

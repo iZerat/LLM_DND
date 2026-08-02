@@ -1,4 +1,5 @@
 from __future__ import annotations
+import os
 import re
 from typing import Optional
 from uuid import uuid4
@@ -7,6 +8,13 @@ from resource.item_db import item_db
 from resource.objects import NPCTemplate
 from resource.packs import RESOURCE_MODE_PACK, RESOURCE_MODE_FREE
 from world.actor import Actor
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int((os.getenv(name, "") or str(default)).strip())
+    except (TypeError, ValueError):
+        return default
 
 
 class ResourceResult:
@@ -41,6 +49,12 @@ class ResourceManager:
         # 工具层段内防重复日志：同一目标同一类型同一数值的变更只允许一次，
         # 配合 pending_attacks 防止 LLM 重复调用工具造成数据多次修改（C1/C3）。
         self.change_log: dict[str, list[tuple[str, int]]] = {}
+        # 资源创建管线：查表失败计数（每回合重置）+ 回退开关
+        self.lookup_fail_count: int = 0
+        self.resource_lookup_retries: int = _env_int("RESOURCE_LOOKUP_RETRIES", 2)
+        self.allow_free_create: bool = (
+            os.getenv("ALLOW_FREE_CREATE", "").strip().lower() in ("1", "true", "yes", "on")
+        )
 
     def set_target(self, name: str) -> ResourceResult:
         if not self.world:
@@ -50,14 +64,10 @@ class ResourceManager:
             self._target_npc = npc
             self.world.touch(npc.id)
             return ResourceResult.ok(f"目标设定: {npc.name}", visible=False)
-        # Try to find by template
-        from world.npc_templates import spawn
-        npc = spawn("npc_commoner", name=name)
-        if npc:
-            self.world.add_active(npc)
-            self._target_npc = npc
-            return ResourceResult.ok(f"目标创建: {npc.name}", visible=False)
-        return ResourceResult.fail(f"未找到目标: {name}")
+        return ResourceResult.fail(
+            f"目标「{name}」不在场。若要创建新 NPC，请先调用 create_npc 工具"
+            "（pack 模式需目录中存在的名称，可先调用 search_resource 查询）。"
+        )
 
     def resolve_item(self, query: str) -> Optional[ItemDef]:
         item = item_db.find_by_name(query)
@@ -67,6 +77,25 @@ class ResourceManager:
         if item:
             return item
         return item_db.find_best(query)
+
+    def grant_item_not_found(self, name: str) -> ResourceResult:
+        """grant_item 查表未命中：计数并返回建议（search_resource 或 create_item 回退）。"""
+        self.lookup_fail_count += 1
+        remain = max(0, self.resource_lookup_retries - self.lookup_fail_count)
+        if remain > 0:
+            return ResourceResult.fail(
+                f"物品「{name}」不在库中。请换表述重试（{self.lookup_fail_count}/{self.resource_lookup_retries}）"
+                f"或调用 search_resource 查询可用的物品。"
+            )
+        if self.allow_free_create:
+            return ResourceResult.fail(
+                f"物品「{name}」不在库中（已达 {self.resource_lookup_retries} 次重试上限）。"
+                f"由于已开启自由创建回退，可调用 create_item 工具先定义该物品，再调用 grant_item 加入背包。"
+            )
+        return ResourceResult.fail(
+            f"物品「{name}」不在库中（已达 {self.resource_lookup_retries} 次重试上限且未开启自由创建），"
+            f"请改用库中存在的物品名或调整叙事。"
+        )
 
     # ── 攻击检定待落账登记（检定器 → 调节器 校验落账） ──
 
@@ -93,6 +122,62 @@ class ResourceManager:
     def reset_pending_attacks(self) -> None:
         self.pending_attacks.clear()
         self.change_log.clear()
+        self.lookup_fail_count = 0
+
+    def _bump_lookup_fail(self, hint: str) -> str:
+        """查表失败计数 + 1；返回面向 LLM 的提示语（含当前次数/上限/回退状态）。"""
+        self.lookup_fail_count += 1
+        remain = max(0, self.resource_lookup_retries - self.lookup_fail_count)
+        note = f"「{hint}」未命中本地目录（第 {self.lookup_fail_count}/{self.resource_lookup_retries} 次）。"
+        if remain > 0:
+            note += f" 请换一种表述重新尝试，或调用 search_resource 查询库里存在的名称。"
+        elif self.allow_free_create:
+            note += " 已达到重试上限且已开启自由创建回退——你可以通过 create_npc 填表创建（无需再匹配目录名称）。"
+        else:
+            note += " 已达到重试上限且未开启自由创建回退——请改用库中真实存在的名称，或调整叙事。"
+        return note
+
+    def _lookup_fallback_allowed(self) -> bool:
+        return (self.allow_free_create
+                and self.lookup_fail_count > self.resource_lookup_retries)
+
+    def search_resource(self, query: str, kind: str = "") -> ResourceResult:
+        """查询本地目录（不倾倒全表），返回 NPC/物品的简短摘要列表。"""
+        q = (query or "").strip()
+        if not q:
+            return ResourceResult.fail("search_resource 缺少查询关键词")
+        items = item_db.search(q, threshold=0.3)[:8]
+        item_summary = [
+            {
+                "name": it.name,
+                "kind": "物品",
+                "type": it.type.value if hasattr(it.type, "value") else str(it.type),
+                "desc": (it.damage_dice or it.effect or it.description or "")[:40],
+            }
+            for it, _ in items
+        ]
+        from world.npc_templates import npc_catalog
+        npcs = npc_catalog.search(q, limit=6)
+        npc_summary = [
+            {
+                "name": n["name"],
+                "kind": "NPC",
+                "type": f"{n.get('species','')} {n.get('char_class','')} Lv.{n.get('level',1)}".strip(),
+                "desc": "/".join(n.get("tags", [])),
+            }
+            for n in npcs
+        ]
+        results = item_summary + npc_summary
+        if kind and kind in ("npc", "item"):
+            results = [r for r in results if (
+                (kind == "npc" and r["kind"] == "NPC")
+                or (kind == "item" and r["kind"] == "物品")
+            )]
+        if not results:
+            return ResourceResult.fail(f"未找到与「{q}」匹配的目录条目，请换个关键词重试")
+        return ResourceResult.ok(
+            f"找到 {len(results)} 条匹配", {"matches": results}, visible=False,
+        )
 
     def check_change_repeat(self, target: str, kind: str, value: int) -> Optional[ResourceResult]:
         """工具层段内防重复校验：同一目标同一类型同一数值的变更只允许一次。
@@ -185,6 +270,45 @@ class ResourceManager:
         if from_equip:
             msg += "（从装备卸下）"
         return ResourceResult.ok(msg)
+
+    def use_item(self, item_name: str, target: str = "玩家", quantity: int = 1) -> ResourceResult:
+        """使用消耗品：掷出效果 → 应用到目标 → 从背包扣除（闭环）。
+
+        消耗品有真实扣除成本，不经过 check_change_repeat（那是针对无成本刷值的门禁）；
+        效果落账仍走统一 change_status，保证数据只经调节器变更。
+        """
+        from resource.models import ConsumableDef, ItemType
+        quantity = int(quantity or 1)
+        if quantity < 1:
+            return ResourceResult.fail("quantity 必须 ≥ 1")
+        item = self.resolve_item(str(item_name or "").strip())
+        if not item:
+            return ResourceResult.fail(f"物品「{item_name}」不在资源库中")
+        if not isinstance(item, ConsumableDef) and item.type != ItemType.CONSUMABLE:
+            return ResourceResult.fail(f"「{item.name}」不是消耗品，无法使用")
+        bag_have = self.inv.count(item.guid)
+        if bag_have < quantity:
+            return ResourceResult.fail(
+                f"背包中没有足够的 {item.name} (需要 {quantity}, 持有 {bag_have})"
+            )
+        heal_total = 0
+        for _ in range(quantity):
+            effect = item.roll_effect()
+            heal = int(effect.get("heal") or 0)
+            if heal:
+                r = self.change_status(target, hp=heal)
+                if not r.success:
+                    return r
+                heal_total += heal
+            removed = self.inv.remove_by_guid(item.guid, 1)
+            if removed != 1:
+                return ResourceResult.fail(f"扣除 {item.name} 失败")
+        parts = [f"已使用 {quantity}x {item.name}"]
+        if heal_total:
+            parts.append(f"{target} HP +{heal_total}")
+        if item.effect and str(item.effect).strip().lower() != "heal":
+            parts.append(item.effect)
+        return ResourceResult.ok("，".join(parts))
 
     def equip(self, slot: str, guid: str) -> ResourceResult:
         item_def = item_db.get(guid)
@@ -316,6 +440,58 @@ class ResourceManager:
     def remove_maxhp(self, amount: int) -> ResourceResult:
         return self.change_status("玩家", max_hp=-int(amount or 0))
 
+    # ── 世界/场景创建（受控，防 C8 类滥用）──
+
+    def create_scene(self, name: str, location: str = "", description: str = "",
+                     tags: list = None) -> ResourceResult:
+        """LLM 创建场景：位置粒度容器。创建后成为当前场景，后续实体归入其中。
+
+        受控性：source="llm" 标记来源、memory_weight=30 低权重（生命周期回收候选）；
+        场景是结构容器，不提供任何攻击/交易能力，杜绝 C8 类「凭空造可战斗实体」。
+        """
+        from world.scene import Scene
+        if not self.world:
+            return ResourceResult.fail("世界状态未初始化")
+        name = str(name or "").strip()
+        if not name:
+            return ResourceResult.fail("场景缺少名称")
+        scene = Scene.create(
+            name=name,
+            location=str(location or "").strip() or name,
+            description=str(description or "").strip(),
+            tags=list(tags or []),
+            source="llm",
+            memory_weight=30,
+        )
+        self.world.add_scene(scene)
+        self.world.current_scene_id = scene.id
+        self.world.location = scene.location
+        return ResourceResult.ok(f"场景已建立: {scene.name}", visible=False)
+
+    def create_object(self, name: str, description: str = "", tags: list = None) -> ResourceResult:
+        """LLM 创建非角色对象（物品/道具/机关等）：加入当前场景。
+
+        受控性：source="llm"、memory_weight=30、persistent=False（次要对象可回收）；
+        只进场景不进入层池（不影响目标列表与 LLM 上下文），不可攻击/交易。
+        """
+        from world.object import Object
+        if not self.world:
+            return ResourceResult.fail("世界状态未初始化")
+        name = str(name or "").strip()
+        if not name:
+            return ResourceResult.fail("对象缺少名称")
+        obj = Object.create(
+            name=name,
+            description=str(description or "").strip(),
+            tags=list(tags or []),
+            source="llm",
+            memory_weight=30,
+            persistent=False,
+        )
+        scene = self.world._ensure_scene()
+        scene.add_object(obj)
+        return ResourceResult.ok(f"对象已加入场景: {obj.name}", visible=False)
+
     # ── NPC operations ──
 
     def _resolve_actor(self, target: str) -> Optional[Actor]:
@@ -401,6 +577,8 @@ class ResourceManager:
 
         pack（查表创建）: 按名称查 statblocks/templates，命中即按库生成。
         free（填表创建）: 按 NPCTemplate 表单校验，创建运行时模板并生成实例。
+        查表回退：如果启用 ALLOW_FREE_CREATE 且 lookup_fail_count 已达到上限，
+        则即使在 pack 模式下也回退为 form 校验（允许凭空创建）。
         """
         from world.npc_templates import npc_catalog
         from resource.attitude import label_to_int
@@ -418,13 +596,24 @@ class ResourceManager:
         else:
             found = npc_catalog.find_by_name(name)
             if not found:
-                return ResourceResult.fail(f"NPC「{name}」不在资源库中")
-            npc = npc_catalog.spawn(found["id"], name=name)
-            attitude_cn = str(fields.get("attitude", "")).strip()
-            if attitude_cn:
-                v = label_to_int(attitude_cn)
-                if v is not None:
-                    npc.attitude = v
+                note = self._bump_lookup_fail(name)
+                if self._lookup_fallback_allowed():
+                    tmpl, errs = NPCTemplate.from_form(fields)
+                    if errs:
+                        return ResourceResult.fail(f"{note}（回退填表失败：{'；'.join(errs)}）")
+                    tid = npc_catalog.add_runtime(
+                        f"npc_runtime_{uuid4().hex[:8]}", tmpl.to_template_dict()
+                    )
+                    npc = npc_catalog.spawn(tid, name=name)
+                else:
+                    return ResourceResult.fail(note)
+            else:
+                npc = npc_catalog.spawn(found["id"], name=name)
+                attitude_cn = str(fields.get("attitude", "")).strip()
+                if attitude_cn:
+                    v = label_to_int(attitude_cn)
+                    if v is not None:
+                        npc.attitude = v
         if not npc:
             return ResourceResult.fail(f"NPC「{name}」创建失败")
         if self.world:
@@ -436,7 +625,7 @@ class ResourceManager:
 
     def item_add_issue(self, req: dict) -> Optional[str]:
         """校验 item_add 请求是否可执行（原子拒绝前置检查）。"""
-        if self.resource_mode != RESOURCE_MODE_FREE:
+        if self.resource_mode != RESOURCE_MODE_FREE and not self._lookup_fallback_allowed():
             return "item_add 仅适用于填表创建模式"
         fields = req.get("fields") or {}
         _, errs = ItemDef.from_form(fields, guid="runtime_")
@@ -446,8 +635,9 @@ class ResourceManager:
         """填表创建物品：校验 → 运行时 ItemDef。
 
         只定义不发放；如需进入背包，调用 grant_item 工具 + 名称引用。
+        查表回退开启时，pack 模式也放行。
         """
-        if self.resource_mode != RESOURCE_MODE_FREE:
+        if self.resource_mode != RESOURCE_MODE_FREE and not self._lookup_fallback_allowed():
             return ResourceResult.fail("item_add 仅适用于填表创建模式")
         item_def, errs = ItemDef.from_form(fields, guid=f"runtime_{uuid4().hex[:8]}")
         if errs:

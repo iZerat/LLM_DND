@@ -47,14 +47,17 @@ def configure_resource_catalogs(resource_mode: str, pack_id: str = DEFAULT_PACK_
     free（填表创建）: 不带入任何资源包，对象全部由大模型填表创建。
     """
     from resource.item_db import item_db
+    from resource.spell_db import spell_db
     from world.npc_templates import npc_catalog
     if resource_mode == RESOURCE_MODE_FREE:
         set_active_pack(DEFAULT_PACK_ID)
         item_db.set_items_dir(None)
+        spell_db.set_spells_dir(None)
         npc_catalog.set_base_dir(None)
     else:
         set_active_pack(pack_id)
         item_db.set_items_dir(pack_dir(_ACTIVE_PACK_ID) / "items")
+        spell_db.set_spells_dir(pack_dir(_ACTIVE_PACK_ID) / "spells")
         npc_catalog.set_base_dir(pack_dir(_ACTIVE_PACK_ID) / "npcs")
     # 按当前资源包重载 SRD（原地替换，保持既有引用）
     from rules.srd_data import reload as srd_reload

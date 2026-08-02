@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from resource.attitude import clamp, coerce_legacy
 from world.object import Object
+from world.ability import Skill, coerce_skill
 
 
 @dataclass
@@ -29,7 +30,7 @@ class Actor(Entity):
     charisma: int = 10
 
     proficiency_bonus: int = 2
-    skills: list[str] = field(default_factory=list)
+    skills: list[Skill] = field(default_factory=list)
     saving_throws: list[str] = field(default_factory=list)
 
     attitude: int = 0
@@ -46,6 +47,7 @@ class Actor(Entity):
             setattr(self, ability, min(max(value, 1), 30))
         self.proficiency_bonus = max(int(self.proficiency_bonus or 0), 0)
         self.attitude = coerce_legacy(self.attitude)
+        self.skills = [sk for sk in (coerce_skill(s) for s in (self.skills or [])) if sk]
 
     @property
     def ac(self) -> int:

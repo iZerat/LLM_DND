@@ -94,6 +94,7 @@ class Checker:
         self.character = character
         self.world = world
         self.manager = manager
+        self.settle_scope = "dm"  # "player"=玩家段（NPC 发起的伤害不在此结算）
 
     # ══════════════════════ 基础掷骰（纯函数，供各入口复用） ══════════════════════
 
@@ -529,29 +530,30 @@ class Checker:
         return ResourceResult(True, "", {"test": data}, visible=False)
 
     def _attack_roll(self, is_player: bool, actor: str, target: str, note: str) -> ResourceResult:
-        """攻击检定（检定器：只掷骰判定，不做任何数据落账）。
+        """攻击检定：掷骰判定 → 系统自动结算伤害（D5：机械数值系统算）。
 
-        判定结果（命中伤害、态度基线）登记到 manager.pending_attacks，
-        由 LLM 经调节器工具 change_status / change_attitude 落账（调节器校验数值，
-        拒绝随意数值与重复结算）。消息仅作落账指引，非「禁止」提示词。
+        玩家攻击：直接本地结算（伤害 + 态度基线）。
+        NPC 攻击：DM 段直接结算；玩家段只登记 pending 不结算
+        （避免与 NPC 行动段重复结算），告诉 LLM 系统将在对应段结算。
+        结算后 LLM 无需再调用 change_status/change_attitude 重复执行。
         """
+        changes = []
         if is_player:
-            name = self.character.name
             tgt_name = target or self.resolve_target("", current_target=None)
             tgt = self._get_npc(tgt_name) if tgt_name else None
             if tgt is None:
                 return ResourceResult.fail(
                     "未找到被攻击的 NPC 目标（请确认 target 名称与在场 NPC 一致，或先调用 set_target）"
                 )
-            r = self._player_attack_core(tgt.name, apply=False)
+            r = self._player_attack_core(tgt.name, apply=True)
             if r is None:
                 return ResourceResult.fail(f"目标「{tgt.name}」的 AC 不可用")
-            ac, roll, atk_bonus, total, hit = (
-                r["ac"], r["roll"], r["atk_bonus"], r["total"], r["hit"],
-            )
+            ac, roll, atk_bonus, total, hit = r["ac"], r["roll"], r["atk_bonus"], r["total"], r["hit"]
             line, dmg = r["line"], r["dmg"]
             baseline = r["baseline"]
+            changes = r["changes"]
             target_label = tgt.name
+            name = self.character.name
         else:
             npc = self._get_npc(actor)
             if npc is None:
@@ -573,12 +575,25 @@ class Checker:
             atk_bonus = bonus
             op = "≥" if total == ac else (">" if hit else "<")
             line = f"d20({roll}) + ({bonus:+d}) = {total} {op} {ac}"
-            dmg = 0
+            dmg = self.roll_npc_damage(npc, crit=(roll == 20)) if hit else 0
             baseline = 0
-            if hit:
-                dmg = self.roll_npc_damage(npc, crit=(roll == 20))
-            self.manager.record_attack_outcome(target_label, damage=dmg, baseline=0,
-                                               applied=False, actor=npc.name)
+            if self.settle_scope == "player":
+                self.manager.record_attack_outcome(
+                    target_label, damage=dmg, baseline=0,
+                    applied=False, actor=npc.name,
+                )
+            else:
+                if hit and dmg:
+                    if target_label == "玩家":
+                        self.manager.change_status("玩家", hp=-dmg)
+                    else:
+                        self.manager.npc_change_status(target_label, hp=-dmg)
+                self.manager.record_attack_outcome(
+                    target_label, damage=dmg, baseline=0,
+                    applied=True, actor=npc.name,
+                )
+                if hit and dmg:
+                    changes.append(f"{name} 对 {target_label} 造成 {dmg} 点伤害（系统已结算）")
 
         word, color = _attack_display(roll, hit)
         text = build_action_text(
@@ -592,17 +607,26 @@ class Checker:
             "roll": roll, "modifier": atk_bonus, "total": total,
             "success": hit, "natural_20": roll == 20, "natural_1": roll == 1,
             "damage": dmg, "attitude_delta": baseline,
-            "note": note, "display": text, "changes": [],
+            "note": note, "display": text, "changes": changes,
         }
-        hint = f"对「{target_label}」造成 {dmg} 点伤害" if hit else f"未命中「{target_label}」，不产生伤害"
+        if hit:
+            hint = f"对「{target_label}」造成 {dmg} 点伤害"
+            if dmg and dmg not in changes:
+                hint += "（系统已结算，无需再调用 change_status）"
+        else:
+            hint = f"未命中「{target_label}」，不产生伤害"
         baseline_hint = (
-            f"目标「{target_label}」尚未敌对，态度基线需落账 {baseline:+d}（请调用 change_attitude）。"
-            if baseline else ""
+            f"目标「{target_label}」尚未敌对，态度基线已由系统结算 {baseline:+d}。"
+            if baseline and is_player
+            else ""
         )
-        message = (
-            f"攻击检定结果：{'命中' if hit else '未命中'}。{hint}。{baseline_hint}"
-            "请调用 change_status 落账伤害，再在[副事件]中叙事。"
-        )
+        if self.settle_scope == "player" and not is_player:
+            message = (
+                f"NPC 攻击检定结果：{'命中' if hit else '未命中'}。{hint}。"
+                "该 NPC 的伤害将在其行动段由系统自动结算，玩家段内请勿调用 change_status 重复结算。"
+            )
+        else:
+            message = f"攻击检定结果：{'命中' if hit else '未命中'}。{hint}。{baseline_hint}"
         return ResourceResult(True, message, {"test": data}, visible=False)
 
     # ══════════════════════ 辅助 ══════════════════════

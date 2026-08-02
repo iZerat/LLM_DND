@@ -20,7 +20,8 @@ _SLOTS = ["weapon", "body", "off_hand", "head", "back", "neck", "ring1", "ring2"
 # 数据变更工具：必须携带 reason（叙事理由），缺失 → 拒绝执行（D5/T5/T7）
 _REASON_REQUIRED_TOOLS = {
     "change_status", "grant_item", "remove_item", "change_currency",
-    "change_attitude", "create_npc", "create_item",
+    "change_attitude", "create_npc", "create_item", "use_item",
+    "create_scene", "create_object",
 }
 _REASON_DESC = "本次数据变更的叙事理由（必填，用于审计与结算日志）"
 
@@ -61,11 +62,44 @@ class ResourceToolbox:
         npc_params = _with_reason(NPCTemplate.schema().to_json_schema())
         item_params = _with_reason(ItemDef.schema().to_json_schema())
         npc_desc = (
-            "创建 NPC。查表创建模式：按 name 在资源库查询生成，name 必须真实存在；"
-            "填表创建模式：按表单字段创建，属性需贴合世界背景设定。创建后会自动设为目标。"
+            "创建 NPC。查表创建模式：请先调用 search_resource 查询目录中存在的名称；"
+            "确认 name 存在后调用本工具创建。未命中的名称会被拒绝，可换表述重试。"
+            "若系统告知已达到重试上限且已开启自由创建回退，则允许填表直接创建。"
+            "创建后自动设为目标。"
         )
         return [
+            _tool("search_resource",
+                  "查询本地资源目录（NPC/物品）。传入关键词进行模糊匹配，"
+                  "返回匹配条目的名称、类型、简要信息，**不会倾倒全表**。"
+                  "查不到时可换表述重试，或检查 kind 是否匹配。"
+                  "创建 NPC 前请先在此确认名称是否存在于目录中。",
+                  {"type": "object", "properties": {
+                      "query": {"type": "string", "description": "搜索关键词（名称/种族/职业/类型等）"},
+                      "kind": {"type": "string", "enum": ["npc", "item"],
+                               "description": "限定类型，不传则搜全部"},
+                  }, "required": ["query"]}),
             _tool("create_npc", npc_desc, npc_params),
+            _tool("create_scene",
+                  "建立新场景（位置粒度容器，如城镇/地牢/酒馆）。创建后该场景成为当前场景，"
+                  "后续创建的对象/登记的目标归入其中。场景只用于承载与定位，不具备攻击/交易能力。",
+                  _with_reason({
+                      "type": "object", "properties": {
+                          "name": {"type": "string", "description": "场景名称（稳定地名）"},
+                          "location": {"type": "string", "description": "位置描述，缺省用名称"},
+                          "description": {"type": "string", "description": "场景描述"},
+                          "tags": {"type": "array", "items": {"type": "string"},
+                                   "description": "标签"},
+                      }, "required": ["name"]})),
+            _tool("create_object",
+                  "在当前场景创建非角色对象（物品/道具/机关等，非 NPC 非战斗单位）。"
+                  "对象只存在于场景中，不影响目标列表，不可攻击/交易。",
+                  _with_reason({
+                      "type": "object", "properties": {
+                          "name": {"type": "string", "description": "对象名称"},
+                          "description": {"type": "string", "description": "对象描述"},
+                          "tags": {"type": "array", "items": {"type": "string"},
+                                   "description": "标签"},
+                      }, "required": ["name"]})),
             _tool("create_item",
                   "填表创建新物品（仅填表创建模式可用）。创建后如需放进背包，再调用 grant_item。",
                   item_params),
@@ -92,6 +126,16 @@ class ResourceToolbox:
                           "amount_cp": {"type": "integer",
                                         "description": "增减量（铜币），正数加钱，负数扣钱"},
                       }, "required": ["amount_cp"]})),
+            _tool("use_item",
+                  "使用背包中的消耗品（治疗药水等）。自动掷骰计算效果并应用到目标（默认玩家），"
+                  "同时从背包扣除对应数量。",
+                  _with_reason({
+                      "type": "object", "properties": {
+                          "item": {"type": "string", "description": "消耗品名称"},
+                          "target": {"type": "string",
+                                     "description": "作用目标，默认「玩家」"},
+                          "quantity": {"type": "integer", "minimum": 1, "default": 1},
+                      }, "required": ["item"]})),
             _tool("set_target",
                   "指定当前战斗/交互目标 NPC。对目标改动前请先调用。",
                   {"type": "object", "properties": {
@@ -134,6 +178,24 @@ class ResourceToolbox:
                 return reply
             if name == "create_npc":
                 result = m.npc_add(arguments)
+            elif name == "create_scene":
+                result = m.create_scene(
+                    str(arguments.get("name", "")).strip(),
+                    location=str(arguments.get("location", "")).strip(),
+                    description=str(arguments.get("description", "")).strip(),
+                    tags=arguments.get("tags") or [],
+                )
+            elif name == "create_object":
+                result = m.create_object(
+                    str(arguments.get("name", "")).strip(),
+                    description=str(arguments.get("description", "")).strip(),
+                    tags=arguments.get("tags") or [],
+                )
+            elif name == "search_resource":
+                result = m.search_resource(
+                    query=str(arguments.get("query", "")).strip(),
+                    kind=str(arguments.get("kind", "")).strip().lower(),
+                )
             elif name == "create_item":
                 result = m.item_add(arguments)
             elif name == "grant_item":
@@ -142,6 +204,12 @@ class ResourceToolbox:
                 result = self._remove_item(arguments)
             elif name == "change_currency":
                 result = self._change_currency(arguments)
+            elif name == "use_item":
+                result = m.use_item(
+                    str(arguments.get("item", "")).strip(),
+                    target=str(arguments.get("target", "") or "玩家").strip(),
+                    quantity=int(arguments.get("quantity") or 1),
+                )
             elif name == "set_target":
                 result = m.set_target(str(arguments.get("name", "")).strip())
             elif name == "change_status":
@@ -162,6 +230,8 @@ class ResourceToolbox:
                             reason=str(arguments.get("reason", "") or ""),
                         )
             elif name == "d20_roll":
+                if self.checker is not None:
+                    self.checker.settle_scope = self._settle_scope
                 result = self.checker._d20_roll(arguments)
                 if result.success and result.data:
                     test = (result.data.get("test") or {})
@@ -201,7 +271,7 @@ class ResourceToolbox:
         qty = int(arguments.get("quantity") or 1)
         item = self.manager.resolve_item(name)
         if not item:
-            return ResourceResult.fail(f"物品「{name}」不在资源库中")
+            return self.manager.grant_item_not_found(name)
         result = self.manager.add_item(item.guid, qty)
         slot = arguments.get("slot")
         if slot and result.success:

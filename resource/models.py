@@ -5,6 +5,8 @@ from enum import Enum
 from typing import Optional
 from uuid import uuid4
 
+from world.object import Object
+
 
 class ItemType(str, Enum):
     WEAPON = "weapon"
@@ -44,9 +46,15 @@ ALL_SLOTS = list(EquipmentSlot)
 
 
 @dataclass
-class ItemDef:
-    guid: str
-    name: str
+class ItemDef(Object):
+    """物品定义基类（继承 Object，纳入世界对象体系）。
+
+    武器/护甲/消耗品等字段平铺在基类以保持存档兼容；
+    具体子类（WeaponDef/ArmorDef/ConsumableDef）为类型提供语义化行为。
+    guid 为物品身份标识（资源库主键）。
+    """
+    guid: str = ""
+    name: str = ""
     name_en: str = ""
     type: ItemType = ItemType.MISC
     tags: list[str] = field(default_factory=list)
@@ -66,6 +74,14 @@ class ItemDef:
     heal_dice: str = ""
     heal_bonus: int = 0
     effect: str = ""
+
+    def __post_init__(self):
+        super().__post_init__()
+        if isinstance(self.type, str):
+            try:
+                self.type = ItemType(self.type)
+            except ValueError:
+                self.type = ItemType.MISC
 
     def matches_name(self, query: str) -> bool:
         q = query.strip().lower()
@@ -159,34 +175,90 @@ class ItemDef:
         except ValueError:
             return None, [f"type 无效的类型: {type_cn}"]
 
-        item = cls(
-            guid=guid,
-            name=str(vals.get("name", "")).strip(),
-            name_en=str(vals.get("name_en", "")).strip(),
-            type=item_type,
-            tags=split_list(vals.get("tags")),
-            aliases=split_list(vals.get("aliases")),
-            description=str(vals.get("description", "")).strip(),
-            value_cp=to_int(vals.get("value_cp"), 0),
-            damage_dice=str(vals.get("damage_dice", "")).strip(),
-            damage_type=str(vals.get("damage_type", "")).strip(),
-            weapon_category=WEAPON_CAT_CN_TO_EN.get(str(vals.get("weapon_category", "")).strip(), str(vals.get("weapon_category", "")).strip()),
-            weapon_range=str(vals.get("weapon_range", "")).strip(),
-            properties=split_list(vals.get("properties")),
-            base_ac=to_int(vals.get("base_ac"), 0),
-            dex_cap=to_int(vals.get("dex_cap"), 99),
-            strength_req=to_int(vals.get("strength_req"), 0),
-            armor_category=ARMOR_CAT_CN_TO_EN.get(str(vals.get("armor_category", "")).strip(), str(vals.get("armor_category", "")).strip()),
-            heal_dice=str(vals.get("heal_dice", "")).strip(),
-            heal_bonus=to_int(vals.get("heal_bonus"), 0),
-            effect=str(vals.get("effect", "")).strip(),
-        )
+        item = item_def_from_dict({
+            "guid": guid,
+            "name": str(vals.get("name", "")).strip(),
+            "name_en": str(vals.get("name_en", "")).strip(),
+            "type": item_type,
+            "tags": split_list(vals.get("tags")),
+            "aliases": split_list(vals.get("aliases")),
+            "description": str(vals.get("description", "")).strip(),
+            "value_cp": to_int(vals.get("value_cp"), 0),
+            "damage_dice": str(vals.get("damage_dice", "")).strip(),
+            "damage_type": str(vals.get("damage_type", "")).strip(),
+            "weapon_category": WEAPON_CAT_CN_TO_EN.get(str(vals.get("weapon_category", "")).strip(), str(vals.get("weapon_category", "")).strip()),
+            "weapon_range": str(vals.get("weapon_range", "")).strip(),
+            "properties": split_list(vals.get("properties")),
+            "base_ac": to_int(vals.get("base_ac"), 0),
+            "dex_cap": to_int(vals.get("dex_cap"), 99),
+            "strength_req": to_int(vals.get("strength_req"), 0),
+            "armor_category": ARMOR_CAT_CN_TO_EN.get(str(vals.get("armor_category", "")).strip(), str(vals.get("armor_category", "")).strip()),
+            "heal_dice": str(vals.get("heal_dice", "")).strip(),
+            "heal_bonus": to_int(vals.get("heal_bonus"), 0),
+            "effect": str(vals.get("effect", "")).strip(),
+        })
         return item, []
 
     def to_dict(self) -> dict:
         d = asdict(self)
         d["type"] = self.type.value
         return d
+
+
+@dataclass
+class WeaponDef(ItemDef):
+    """武器：伤害骰/类型/特性语义化。"""
+
+    def roll_damage(self) -> int:
+        import re as _re
+        d = _re.match(r"(\d+)d(\d+)", self.damage_dice)
+        if not d:
+            return 0
+        from random import randint
+        return sum(randint(1, int(d.group(2))) for _ in range(int(d.group(1))))
+
+
+@dataclass
+class ArmorDef(ItemDef):
+    """护甲/盾牌：AC 相关语义化。"""
+
+    @property
+    def is_shield(self) -> bool:
+        return self.type == ItemType.SHIELD
+
+
+@dataclass
+class ConsumableDef(ItemDef):
+    """消耗品：heal_dice/heal_bonus/effect 语义化。"""
+
+    def roll_effect(self) -> dict:
+        """掷出治疗效果，返回落地字典（heal 字段）+ 附带 effect 说明。"""
+        import re as _re
+        from random import randint
+        heal = 0
+        d = _re.match(r"(\d+)d(\d+)", self.heal_dice)
+        if d:
+            heal = sum(randint(1, int(d.group(2))) for _ in range(int(d.group(1)))) + self.heal_bonus
+        else:
+            heal = self.heal_bonus
+        return {"heal": heal, "effect": self.effect}
+
+
+def item_def_from_dict(entry: dict) -> ItemDef:
+    """按 type 分派构建多态物品定义；无法识别时回退基类（兼容旧存档）。"""
+    t = entry.get("type")
+    if isinstance(t, str):
+        try:
+            t = ItemType(t)
+        except ValueError:
+            t = None
+    if t == ItemType.WEAPON:
+        return WeaponDef(**entry)
+    if t in (ItemType.ARMOR, ItemType.SHIELD):
+        return ArmorDef(**entry)
+    if t == ItemType.CONSUMABLE:
+        return ConsumableDef(**entry)
+    return ItemDef(**entry)
 
 
 @dataclass

@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 from typing import Optional
-from resource.models import ItemDef, ItemType
+from resource.models import ItemDef, item_def_from_dict
 from resource.packs import default_pack_dir
 
 
@@ -38,9 +38,7 @@ class ItemDatabase:
             data = json.loads(fpath.read_text(encoding="utf-8"))
             for guid, entry in data.items():
                 entry["guid"] = guid
-                if "type" in entry and isinstance(entry["type"], str):
-                    entry["type"] = ItemType(entry["type"])
-                item = ItemDef(**entry)
+                item = item_def_from_dict(entry)
                 self._items[guid] = item
                 self._by_name[item.name.lower()] = guid
                 if item.name_en:

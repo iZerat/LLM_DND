@@ -48,6 +48,46 @@ def skills_from_srd() -> list[Skill]:
     return [s for s in (Skill.from_cn(cn) for cn in SKILLS) if s]
 
 
+def coerce_skill(value) -> Optional[Skill]:
+    """把存档/模板中的技能条目规范化为 Skill 对象。
+
+    兼容三种形态：Skill 对象 / dict（to_dict 结果）/ 字符串。
+    字符串优先按英文 key（SKILLS_EN）反查，再按中文名反查，兜底构造纯名称 Skill。
+    """
+    if value is None:
+        return None
+    if isinstance(value, Skill):
+        return value
+    if isinstance(value, dict):
+        return Skill.from_dict(value)
+    s = str(value).strip()
+    if not s:
+        return None
+    sk = Skill.from_rules(s)
+    if sk is None:
+        sk = Skill.from_cn(s)
+    if sk is None:
+        sk = Skill(name=s)
+    return sk
+
+
+def coerce_feat(value) -> Optional[Feat]:
+    """把存档/模板中的专长条目规范化为 Feat 对象。
+
+    兼容三种形态：Feat 对象 / dict / 字符串（专长名，如背景授予的专长）。
+    """
+    if value is None:
+        return None
+    if isinstance(value, Feat):
+        return value
+    if isinstance(value, dict):
+        return Feat.from_dict(value)
+    s = str(value).strip()
+    if not s:
+        return None
+    return Feat(name=s)
+
+
 @dataclass
 class Feat(Object):
     """专长基类（参照 rules：背景 Background.feat 授予专长名）。
@@ -76,6 +116,7 @@ class Spell(Object):
 
     level: int = 0
     school: str = ""
+    name_en: str = ""
     casting_time: str = ""
     range: str = ""
     components: list[str] = field(default_factory=list)

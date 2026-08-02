@@ -119,8 +119,12 @@ def save_game(gm: GameMaster, name: str = None) -> bool:
     money_data = {"copper": gm.character.inventory.currency.copper}
     _atomic_write(char_dir / "money.json", json.dumps(money_data, ensure_ascii=False, indent=2))
 
-    # skill.json — skills
-    _atomic_write(char_dir / "skill.json", json.dumps(gm.character.skills, ensure_ascii=False, indent=2))
+    # skill.json — skills（主存储为 info.json，此文件保留英文 key 可读副本）
+    _skills_json = [
+        (s.name_en or s.name) if hasattr(s, "name_en") else s
+        for s in (gm.character.skills or [])
+    ]
+    _atomic_write(char_dir / "skill.json", json.dumps(_skills_json, ensure_ascii=False, indent=2))
 
     # history.json — game history
     initiative_data = []
@@ -189,7 +193,7 @@ def _save_runtime_defs(char_dir: Path):
 def _restore_runtime_defs(char_dir: Path):
     """从存档恢复运行时目录（先于背包迁移，保证运行时 guid 可解析）。"""
     from resource.item_db import item_db
-    from resource.models import ItemType, ItemDef
+    from resource.models import ItemDef, item_def_from_dict
     from world.npc_templates import npc_catalog
     runtime_dir = char_dir / "runtime_defs"
     if not runtime_dir.exists():
@@ -200,9 +204,7 @@ def _restore_runtime_defs(char_dir: Path):
         for fpath in items_dir.glob("*.json"):
             entry = json.loads(fpath.read_text(encoding="utf-8"))
             entry["guid"] = fpath.stem
-            if "type" in entry and isinstance(entry["type"], str):
-                entry["type"] = ItemType(entry["type"])
-            defs[entry["guid"]] = ItemDef(**entry)
+            defs[entry["guid"]] = item_def_from_dict(entry)
         item_db.replace_runtime(defs)
     npcs_dir = runtime_dir / "npcs"
     if npcs_dir.exists():
@@ -276,13 +278,16 @@ def _migrate_char_data(info: dict) -> dict:
     if info.get("background") in _BG_CN_TO_EN:
         info["background"] = _BG_CN_TO_EN[info["background"]]
 
-    # skills
+    # skills / saving_throws — 旧格式为字符串名；新格式已结构化（dict），直接保留
+    def _migrate_skill_entry(s):
+        return s if isinstance(s, dict) else _cn_to_en(s, _SKILL_CN_TO_EN)
+
     if "skills" in info and isinstance(info["skills"], list):
-        info["skills"] = [_cn_to_en(s, _SKILL_CN_TO_EN) for s in info["skills"]]
+        info["skills"] = [_migrate_skill_entry(s) for s in info["skills"]]
 
     # saving_throws
     if "saving_throws" in info and isinstance(info["saving_throws"], list):
-        info["saving_throws"] = [_cn_to_en(s, _SKILL_CN_TO_EN) for s in info["saving_throws"]]
+        info["saving_throws"] = [_migrate_skill_entry(s) for s in info["saving_throws"]]
 
     return info
 

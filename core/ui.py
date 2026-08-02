@@ -528,7 +528,10 @@ def show_skills(char: Character):
         return
     skill_lines = []
     for s in char.skills:
-        cn = tr(f"skill:{s}")
+        if hasattr(s, "name_en") and s.name_en:
+            cn = s.name
+        else:
+            cn = tr(f"skill:{s}")
         skill_lines.append(f"  • {cn}")
     console.print(Panel(
         "\n".join(skill_lines),
@@ -632,12 +635,17 @@ def render_character_sheet(char: Character, roll_log: str = ""):
         val = getattr(char, en)
         stat_rows.append(f"[{_MUTED}]{cn}[/{_MUTED}]  [bold]{val:>2}[/bold]  ({mod_str(val)})")
 
-    skill_rows = [f"• {tr(f'skill:{s}')}" for s in char.skills]
+    skill_rows = []
+    for s in char.skills:
+        if hasattr(s, "name_en") and s.name_en:
+            skill_rows.append(f"• {s.name}")
+        else:
+            skill_rows.append(f"• {tr(f'skill:{s}')}")
     if not skill_rows:
         skill_rows = [f"[{_MUTED}]{tr('general:none')}[/{_MUTED}]"]
 
     save_str = "、".join(tr(f"skill:{s}") for s in char.saving_throws) or tr("general:none")
-    feat_str = "、".join(strip_en_parens(f) for f in char.feats) if char.feats else tr("general:none")
+    feat_str = "、".join(strip_en_parens(f.name if hasattr(f, "name") else f) for f in char.feats) if char.feats else tr("general:none")
     bonus_rows = [
         f"[{_MUTED}]{tr('general:save')}[/{_MUTED}]  {save_str}",
         f"[{_MUTED}]{tr('general:feats')}[/{_MUTED}]  {feat_str}",

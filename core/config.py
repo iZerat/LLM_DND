@@ -9,11 +9,21 @@ def reload_dotenv():
     load_dotenv(override=True)
 
 
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, "").strip() or default)
+    except (TypeError, ValueError):
+        return default
+
+
 class Config:
     API_BASE_URL: str = ""
     API_KEY: str = ""
     MODEL_NAME: str = ""
     SAVE_DIR: str = "./saves"
+    # 资源创建管线（DM 查表 → 重试 n 次 → 是否允许回退填表创建）：
+    RESOURCE_LOOKUP_RETRIES: int = 2   # 本地目录未命中时允许重试的次数
+    ALLOW_FREE_CREATE: bool = False    # 重试 n 次仍未命中后，是否允许凭空填表创建
 
     @classmethod
     def load(cls):
@@ -22,6 +32,10 @@ class Config:
         cls.API_KEY = os.getenv("API_KEY", "")
         cls.MODEL_NAME = os.getenv("MODEL_NAME", "")
         cls.SAVE_DIR = os.getenv("SAVE_DIR", "./saves")
+        cls.RESOURCE_LOOKUP_RETRIES = _env_int("RESOURCE_LOOKUP_RETRIES", 2)
+        cls.ALLOW_FREE_CREATE = os.getenv("ALLOW_FREE_CREATE", "").strip().lower() in (
+            "1", "true", "yes", "on",
+        )
 
         if cls.API_BASE_URL:
             if "/chat/completions" in cls.API_BASE_URL:
@@ -36,8 +50,6 @@ class Config:
     def _detect_model(cls, base_url: str) -> str:
         url = base_url.lower()
         if "deepseek" in url:
-            return "deepseek-chat"
-        if "openai" in url:
             return "gpt-4o"
         if "anthropic" in url or "claude" in url:
             return "claude"

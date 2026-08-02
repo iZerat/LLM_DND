@@ -63,6 +63,37 @@ class NPCCatalog:
                     return tmpl
         return None
 
+    def search(self, query: str, limit: int = 8) -> list[dict]:
+        """模糊搜索模板（按名称/别名/种族/职业子串匹配），返回简短摘要。"""
+        q = query.strip().lower()
+        if not q:
+            return []
+        results = []
+        for tmpl in self._all().values():
+            fields = [
+                tmpl.get("name", ""),
+                tmpl.get("name_en", ""),
+                *tmpl.get("aliases", []),
+                tmpl.get("species", ""),
+                tmpl.get("char_class", ""),
+            ]
+            score = max((len(q) / max(len(f.strip()), 1) if q in f.strip().lower() else 0)
+                        for f in fields)
+            if score > 0:
+                results.append((score, tmpl))
+        results.sort(key=lambda x: -x[0])
+        return [
+            {
+                "id": t["id"],
+                "name": t.get("name", t["id"]),
+                "species": t.get("species", ""),
+                "char_class": t.get("char_class", ""),
+                "level": t.get("level", 1),
+                "tags": t.get("tags", [])[:3],
+            }
+            for _, t in results[:limit]
+        ]
+
     @staticmethod
     def _resolve_item_ref(entry: str) -> str:
         from resource.item_db import item_db

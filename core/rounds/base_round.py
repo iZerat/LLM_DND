@@ -182,6 +182,8 @@ class BaseRound:
             tools = self.toolbox.schemas()
         if self.toolbox is not None:
             self.toolbox._settle_scope = settle_scope
+            if getattr(self.toolbox, "checker", None) is not None:
+                self.toolbox.checker.settle_scope = settle_scope
         system_override = None
         if mode == "light":
             from core.game_master import NARRATION_SYSTEM_PROMPT
