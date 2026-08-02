@@ -15,6 +15,7 @@ class Scene(Object):
     """
 
     location: str = ""
+    environment: dict = field(default_factory=dict)
     objects: dict[str, Object] = field(default_factory=dict)
 
     def __post_init__(self):
@@ -53,6 +54,7 @@ class Scene(Object):
     def to_dict(self) -> dict:
         d = super().to_dict()
         d["objects"] = {oid: o.to_dict() for oid, o in self.objects.items()}
+        d["environment"] = dict(self.environment)
         return d
 
     @classmethod
@@ -71,7 +73,9 @@ class Scene(Object):
     def from_dict(cls, d: dict) -> Scene:
         d = dict(d)
         objs = d.pop("objects", {}) or {}
+        env = d.pop("environment", None) or {}
         scene = cls(**d)
+        scene.environment = dict(env)
         for oid, od in objs.items():
             restored = cls._restore_object(od)
             restored.id = restored.id or oid

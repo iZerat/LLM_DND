@@ -283,10 +283,7 @@ class Checker:
     def settle_player_attack(self, target_name: str, label: str = ""):
         """机械结算一次玩家攻击（非战斗/战斗统一路径，D5：机械数值系统算）。
 
-        掷骰 → 命中 → 武器伤害经 manager 落账；目标若尚未敌对，按 EVENT_TABLE['attack'](-8)
-        基线落账态度（仅一次/目标）。
-
-        返回 (check_text, 注入玩家输入的「系统已结算」标注)；无法结算时返回 None。
+        返回 (check_text, transformed, changes) 或 None。
         """
         r = self._player_attack_core(target_name)
         if r is None:
@@ -298,6 +295,7 @@ class Checker:
         )
         raw_word, line, dmg = r["word"], r["line"], r["dmg"]
         attitude_applied, attitude_delta = r["attitude_applied"], r["attitude_delta"]
+        changes = r.get("changes", [])
 
         word, color = _attack_display(roll, hit)
         check_text = build_action_text(
@@ -317,10 +315,10 @@ class Checker:
             parts.append(f"{tgt.name} 态度 {attitude_delta:+d}")
         note = "，".join(parts)
         label_part = f"{label} | " if label else ""
-        return check_text, (
-            f"{label_part}{fragment} | 系统已结算：{note}"
-            "（伤害/态度已由系统落账，你只需叙事）"
-        )
+        return (check_text,
+                f"{label_part}{fragment} | 系统已结算：{note}"
+                "（伤害/态度已由系统落账，你只需叙事）",
+                changes)
 
     def roll_player_damage(self, char: Character, crit: bool = False) -> int:
         """玩家武器伤害掷骰（武器骰 + 力量调整值；暴击翻倍骰），最低 1 点。"""

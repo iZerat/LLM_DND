@@ -3,7 +3,7 @@ from core.rounds.base_round import RoundResult, update_choices_map
 from core.rounds.segments.base import Segment
 from core.ui import (
     render_choice_block, render_action_block, render_narration_block,
-    render_change_block, render_status_row, parse_sections,
+    render_change_block, render_status_row, parse_sections, console,
 )
 
 
@@ -14,19 +14,29 @@ class PlayerSegment(Segment):
     自由文本/命令输入：交由 DM 全权处理（含工具落账）。
     """
 
-    def __init__(self, ctx, choices_text: str, on_prompt):
+    def __init__(self, ctx, choices_text: str, on_prompt,
+                 supervisor=None, round_num: int = 0):
         super().__init__(ctx)
         self.choices_text = choices_text
         self.on_prompt = on_prompt
+        self.supervisor = supervisor
+        self.round_num = round_num
+        self._blocks: list[str] = []
 
     def run(self):
+        self._blocks = []
         outcome = self.start_of_turn_death_save()
         if outcome == "dead":
             return RoundResult(action="menu")
 
-        if self.choices_text:
-            update_choices_map(self.gm, self.choices_text)
-            render_choice_block(self.choices_text)
+        choices = getattr(
+            getattr(self.regulator, "manager", None), "choices", None
+        ) or []
+        if choices:
+            update_choices_map(self.gm, "")
+            from core.blocks import ChoiceBlock
+            ChoiceBlock.from_choices(choices).render()
+            self._blocks.append("选择")
 
         pr = self.on_prompt()
         if pr.action != "continue":
@@ -48,8 +58,6 @@ class PlayerSegment(Segment):
                 tools=[], mode="light", tag="seg",
             )
         else:
-            # 玩家回合段：限制工具落账范围——非玩家发起的伤害不得在此结算
-            # （由对应 NPC 行动段系统结算），防止 LLM 抢先落账造成双重结算。
             audit, _ = self.dm_call(transformed, tag="seg", settle_scope="player")
 
         sections = parse_sections(audit.text)
@@ -57,7 +65,16 @@ class PlayerSegment(Segment):
             render_action_block(self.toolbox.check_results)
         if "副事件" in sections:
             render_narration_block(sections["副事件"])
+            self._blocks.append("副事件")
         if audit.messages:
             render_change_block(audit.messages)
         render_status_row(self.character, self.world)
+        self._blocks.append("状态")
+
+        if self.supervisor:
+            errs = self.supervisor.check_round_integrity(
+                self._blocks, "战斗", self.round_num, node="player")
+            for err in errs:
+                console.print(f"[indian_red]{err}[/indian_red]")
+
         return RoundResult(player_input=transformed)

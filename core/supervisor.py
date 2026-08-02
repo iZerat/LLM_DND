@@ -88,19 +88,25 @@ class Supervisor:
 
     # ── 回合完整性检查 ──
 
-    def check_round_integrity(self, sections: dict, round_kind: str,
-                               round_num: int) -> list[str]:
-        """检查 DM 输出是否包含必需的区块；返回错误信息列表（空=无问题）。"""
+    def check_round_integrity(self, rendered: list[str], round_kind: str,
+                               round_num: int, node: str = "") -> list[str]:
         errors = []
-        required = {"环境", "事件"}
-        optional = {"时间", "状态", "选择", "副事件", "历史"}
         if round_kind == "非战斗":
-            required.update({"状态", "选择"})
-        missing = required - set(sections.keys())
-        if missing:
-            errors.append(
-                f"第 {round_num} 轮（{round_kind}）缺少必需区块：{'、'.join(sorted(missing))}"
-            )
+            required = ["环境", "事件", "状态", "选择"]
+        elif node == "prelude":
+            required = ["环境", "事件"]  # prelude 只输出这两个
+        elif node == "segment":
+            required = ["副事件", "状态"]  # 每个 segment 必须输出副事件+状态
+        elif node == "player":
+            required = ["选择", "状态"]  # 玩家段必须输出选择+状态
+        else:
+            required = []
+        for block in required:
+            if block not in rendered:
+                label = f"{node} " if node else ""
+                errors.append(
+                    f"第 {round_num} 轮（{round_kind}）{label}缺少块：{block}"
+                )
         return errors
 
     # ── 方向B：LLM 输出 → 审核 ──

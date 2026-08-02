@@ -52,6 +52,7 @@ class ResourceManager:
         # 结构化选择（DM 通过 create_choice 工具创建，替代正则解析）
         self.choices: list = []
         self.next_choice_index: int = 1
+        self.pending_changes: list[str] = []
 
     def reset_choices(self) -> None:
         self.choices.clear()
@@ -130,6 +131,7 @@ class ResourceManager:
         self.pending_attacks.clear()
         self.change_log.clear()
         self.lookup_fail_count = 0
+        self.pending_changes.clear()
         self.reset_choices()
 
     def _bump_lookup_fail(self, hint: str) -> str:
@@ -500,6 +502,20 @@ class ResourceManager:
         self.world.current_scene_id = scene.id
         self.world.location = scene.location
         return ResourceResult.ok(f"场景已建立: {scene.name}", visible=False)
+
+    def set_environment(self, fields: dict) -> ResourceResult:
+        if not self.world:
+            return ResourceResult.fail("世界状态未初始化")
+        scene = self.world._ensure_scene()
+        scene.environment.update({k: v for k, v in (fields or {}).items() if v})
+        loc = fields.get("地点", "") or fields.get("location", "")
+        time_val = fields.get("时间", "") or fields.get("time", "")
+        if loc:
+            scene.location = loc
+            self.world.location = loc
+        if time_val:
+            self.world.time = time_val
+        return ResourceResult.ok("环境已更新", visible=False)
 
     def create_object(self, name: str, description: str = "", tags: list = None) -> ResourceResult:
         """LLM 创建非角色对象（物品/道具/机关等）：加入当前场景。

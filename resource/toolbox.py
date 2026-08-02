@@ -90,6 +90,13 @@ class ResourceToolbox:
                           "tags": {"type": "array", "items": {"type": "string"},
                                    "description": "标签"},
                       }, "required": ["name"]})),
+            _tool("set_environment",
+                  "更新当前场景的环境信息（地点、时间、温度、天气、氛围等），用于 [环境] 块渲染。"
+                  "把 DM 输出 [环境] 文字中的字段转为键值对传入，没有的字段不用传。",
+                  {"type": "object", "properties": {
+                      "fields": {"type": "object",
+                                 "description": "环境字段，如 {'地点':'微风港','时间':'黄昏','温度':'15℃（凉爽）'}"},
+                  }, "required": ["fields"]}),
             _tool("create_object",
                   "在当前场景创建非角色对象（物品/道具/机关等，非 NPC 非战斗单位）。"
                   "对象只存在于场景中，不影响目标列表，不可攻击/交易。",
@@ -202,6 +209,8 @@ class ResourceToolbox:
                     description=str(arguments.get("description", "")).strip(),
                     tags=arguments.get("tags") or [],
                 )
+            elif name == "set_environment":
+                result = m.set_environment(arguments.get("fields", {}))
             elif name == "create_object":
                 result = m.create_object(
                     str(arguments.get("name", "")).strip(),

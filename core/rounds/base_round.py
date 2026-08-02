@@ -135,55 +135,6 @@ def resolve_player_input(gm, character, raw: str, from_command: bool = False,
                 transformed = f"[选择选项{selected_num}] {label} | [检定] d20({roll})+({ability_mod:+d})={total} {word}"
             else:
                 transformed = f"[选择选项{selected_num}] {label}"
-        else:
-            # 旧式文本选项回退（保留兼容性）
-            option_text = gm.last_choices_map.get(selected_num, "")
-            check_info = parse_check_from_text(option_text) if option_text else None
-            is_attack_opt = bool(re.search(r'[（(][^)]*攻击', option_text))
-            if character.unconscious and (check_info or is_attack_opt):
-                if manager and checker:
-                    med = checker.medicine_self_check(option_text)
-                    if med:
-                        check_text, transformed = med
-                        return transformed, record_to_display(record, is_option), check_text
-                check_text = f"[red]{character.name} 已昏迷，无法执行该行动[/red]"
-                transformed = f"[选择选项{selected_num}] {option_text}（昏迷无法行动）"
-            elif check_info:
-                ability_cn, ability_key, dc = check_info
-                ability_mod = modifier(getattr(character, ability_key))
-                roll = dice_random.randint(1, 20)
-                total, success, word, color, line = checker.resolve_check(roll, ability_mod, dc)
-                check_text = build_action_text(
-                    character.name, f"{ability_cn}检定", "DC", dc, "调整值", ability_mod,
-                    line, word, color,
-                )
-                transformed = f"[选择选项{selected_num}] {option_text} | [检定] d20({roll})+({ability_mod:+d})={total} {word}"
-            elif is_attack_opt:
-                target_name = checker.resolve_target(option_text, current_target) if checker else None
-                if target_name and manager and checker:
-                    settled = checker.settle_player_attack(
-                        target_name,
-                        label=f"[选择选项{selected_num}] {option_text}",
-                    )
-                    if settled:
-                        check_text, transformed = settled
-                        return transformed, record_to_display(record, is_option), check_text
-                roll = dice_random.randint(1, 20)
-                target_ac = checker.find_target_ac() if checker else None
-                total, atk_bonus, hit, word, color, line = checker.resolve_attack(roll, character, target_ac)
-                ac_label = target_ac if target_ac is not None else "?"
-                if target_ac is not None:
-                    word, color = _attack_display(roll, hit)
-                check_text = build_action_text(
-                    character.name, "攻击检定", "AC", ac_label, "加值", atk_bonus,
-                    line, word, color,
-                )
-                transformed = (
-                    f"[选择选项{selected_num}] {option_text} | [攻击] d20({roll})+({atk_bonus:+d})={total}"
-                    + (f" {word}" if word else "")
-                )
-            else:
-                transformed = f"[选择选项{selected_num}] {option_text or selected_num}"
     else:
         if world and manager and checker and character.unconscious:
             med = checker.medicine_self_check(raw)
@@ -204,6 +155,7 @@ class BaseRound:
         self.supervisor = ctx.supervisor
         self.world = ctx.regulator.world
         self.toolbox = ctx.toolbox
+        self.rendered_blocks: list[str] = []  # 本轮已渲染的块标题列表，供监督者检查
 
     # ── DM 调用 ──
 
