@@ -96,8 +96,9 @@ class ResourceToolbox:
             _tool("change_status",
                   "只修改生命值（HP / max_hp），绝不改变态度（态度请用 change_attitude）。"
                   "target 传「玩家」或 NPC 名称；hp 正数=治疗、负数=伤害。"
-                  "伤害的数值必须与攻击检定的判定结果一致（不能随意填），"
-                  "检定后的伤害只允许落账一次。",
+                  "伤害必须先经 d20_roll 攻击检定，数值必须与判定结果一致，"
+                  "且一次攻击只允许落账一次（无检定/数值不符/重复落账都会被拒绝）；"
+                  "治疗同一数值在同一轮内也只允许一次。",
                   _with_reason({
                       "type": "object", "properties": {
                           "target": {"type": "string", "description": "玩家 或 NPC 名称"},
@@ -107,7 +108,8 @@ class ResourceToolbox:
             _tool("change_attitude",
                   "只修改态度（-100..+100，负数=更敌对，正数=更友好），绝不改变生命值"
                   "（HP 请用 change_status）。攻击、威胁、偷窃、侮辱等敌对行为应传负数；"
-                  "帮助、赠送、治疗应传正数。每次调用的 delta 为本次净变化量，累积超出 ±100 会被截断。",
+                  "帮助、赠送、治疗应传正数。每次调用的 delta 为本次净变化量，累积超出 ±100 会被截断；"
+                  "同一目标同一数值在一轮内重复调用会被拒绝。",
                   _with_reason({
                       "type": "object", "properties": {
                           "target": {"type": "string", "description": "NPC 名称"},
@@ -147,10 +149,14 @@ class ResourceToolbox:
                 if err:
                     result = err
                 else:
-                    result = m.change_attitude(
-                        tgt_name, delta,
-                        reason=str(arguments.get("reason", "") or ""),
-                    )
+                    err = m.check_change_repeat(tgt_name, "态度", delta)
+                    if err:
+                        result = err
+                    else:
+                        result = m.change_attitude(
+                            tgt_name, delta,
+                            reason=str(arguments.get("reason", "") or ""),
+                        )
             elif name == "d20_roll":
                 result = self.checker._d20_roll(arguments)
                 if result.success and result.data:
@@ -223,6 +229,14 @@ class ResourceToolbox:
         m = self.manager
         if hp < 0:
             err = m.consume_pending_damage(target, hp)
+            if err:
+                return err
+        elif hp > 0:
+            err = m.check_change_repeat(target, "治疗", hp)
+            if err:
+                return err
+        if max_hp:
+            err = m.check_change_repeat(target, "最大HP", max_hp)
             if err:
                 return err
         return m.change_status(target, hp=hp, max_hp=max_hp)

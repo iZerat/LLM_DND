@@ -18,9 +18,11 @@ class CombatRound(BaseRound):
 
     def run(self, player_input: str, on_prompt):
         self.gm.last_check_block = None
+        # 预调用只做叙事（tools=[] + mode=light）：战场环境/主事件/行动倾向均由
+        # 后续玩家段/NPC 段机械结算，防止预调中 LLM 抢先落账造成双重结算（C7）。
         audit, elapsed = self.dm_call(
             self._prelude_prompt(player_input),
-            tools=None, tag="pre",
+            tools=[], mode="light", tag="pre",
         )
         sections = parse_sections(audit.text)
         render_round_header(self.ctx.round_num, kind="战斗")

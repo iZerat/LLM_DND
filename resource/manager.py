@@ -48,6 +48,9 @@ class ResourceManager:
         # 攻击检定待落账登记（检定器掷骰判定后，交由 LLM 经调节器工具落账；
         # 调节器据此校验数值一致性，拒绝随意/重复结算——游戏数据只经调节器变更）。
         self.pending_attacks: dict[str, dict] = {}
+        # 工具层段内防重复日志：同一目标同一类型同一数值的变更只允许一次，
+        # 配合 pending_attacks 防止 LLM 重复调用工具造成数据多次修改（C1/C3）。
+        self.change_log: dict[str, list[tuple[str, int]]] = {}
 
     def set_target(self, name: str) -> ResourceResult:
         if not self.world:
@@ -95,15 +98,37 @@ class ResourceManager:
 
     def reset_pending_attacks(self) -> None:
         self.pending_attacks.clear()
+        self.change_log.clear()
+
+    def check_change_repeat(self, target: str, kind: str, value: int) -> Optional[ResourceResult]:
+        """工具层段内防重复校验：同一目标同一类型同一数值的变更只允许一次。
+
+        返回错误 ResourceResult 表示重复应拒绝（中止本次变更）；None 表示首次放行并登记。
+        适用于治疗/最大HP/态度等「剧情数值」——避免 LLM 重复调用同一工具刷值。
+        """
+        entries = self.change_log.setdefault(str(target or ""), [])
+        if (kind, value) in entries:
+            return ResourceResult.fail(
+                f"「{target}」的「{kind} {value:+d}」已在本轮应用过，"
+                f"请勿重复调用工具结算同一变更"
+            )
+        entries.append((kind, value))
+        return None
 
     def consume_pending_damage(self, target: str, hp: int) -> Optional[ResourceResult]:
-        """工具层落账前校验：待落账攻击的伤害必须与判定一致；已落账的攻击禁止重复结算。
+        """工具层落账前校验：伤害必须先经 d20_roll 攻击检定登记，且只能落账一次。
 
         返回错误 ResourceResult 表示拒绝（应中止本次变更）；None 表示放行。
         """
+        if hp >= 0:
+            return None
         pending = self.pending_attacks.get(target)
         if not pending or not pending["damage"]:
-            return None
+            return ResourceResult.fail(
+                f"「{target}」当前没有待结算的攻击检定，伤害不能直接扣减。"
+                f"请先用 d20_roll（attack_roll）对「{target}」发起攻击检定，"
+                f"再按判定结果用 change_status 落账"
+            )
         expected = -pending["damage"]
         if not pending["damage_applied"]:
             if hp != expected:
@@ -113,9 +138,7 @@ class ResourceManager:
                 )
             pending["damage_applied"] = True
             return None
-        if hp == expected:
-            return ResourceResult.fail(f"「{target}」本次攻击伤害已落账，请勿重复结算")
-        return None
+        return ResourceResult.fail(f"「{target}」本次攻击伤害已落账，禁止再次结算")
 
     def consume_pending_baseline(self, target: str, delta: int) -> Optional[ResourceResult]:
         """工具层态度基线校验：基线必须按判定值落账；已落账的基线禁止重复结算。"""
