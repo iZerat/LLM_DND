@@ -69,6 +69,12 @@ class ResourceManager:
         self.choices: list = []
         self.next_choice_index: int = 1
         self.pending_changes: list[str] = []
+        # 资源创建管线：查表失败计数（每回合由 reset_choices 重置）+ 回退开关
+        self.lookup_fail_count: int = 0
+        self.resource_lookup_retries: int = _env_int("RESOURCE_LOOKUP_RETRIES", 2)
+        self.allow_free_create: bool = (
+            os.getenv("ALLOW_FREE_CREATE", "").strip().lower() in ("1", "true", "yes", "on")
+        )
 
     def reset_choices(self) -> None:
         self.choices.clear()
@@ -687,6 +693,26 @@ class ResourceManager:
             return None
         return f"NPC「{name}」不在资源库中"
 
+    def spawn_npc_by_name(self, name: str, attitude_cn: str = "") -> tuple[Optional[NPC], str]:
+        """按名称查表生成 NPC 实例——Actor 创建的唯一 spawn 入口。
+
+        create_npc 工具与 [状态] 同步登记都经此创建实例（不 add_active、不设 target）。
+        查表命中 → 返回 (npc, "")；未命中/生成失败 → (None, 提示)。绝不自造默认属性。
+        """
+        from world.npc_templates import npc_catalog
+        from resource.attitude import label_to_int
+        tmpl = npc_catalog.find_by_name(name)
+        if not tmpl:
+            return None, f"「{name}」不在资源库中"
+        npc = npc_catalog.spawn(tmpl["id"], name=name)
+        if not npc:
+            return None, f"NPC「{name}」模板生成失败"
+        if attitude_cn:
+            v = label_to_int(attitude_cn)
+            if v is not None:
+                npc.attitude = v
+        return npc, ""
+
     def npc_add(self, fields: dict) -> ResourceResult:
         """按当前资源策略创建 NPC 并设为目标。
 
@@ -696,7 +722,6 @@ class ResourceManager:
         则即使在 pack 模式下也回退为 form 校验（允许凭空创建）。
         """
         from world.npc_templates import npc_catalog
-        from resource.attitude import label_to_int
         name = str(fields.get("name", "")).strip()
         if not name:
             return ResourceResult.fail("npc_add 缺少名称")
@@ -709,8 +734,10 @@ class ResourceManager:
             )
             npc = npc_catalog.spawn(tid, name=name)
         else:
-            found = npc_catalog.find_by_name(name)
-            if not found:
+            npc, _err = self.spawn_npc_by_name(
+                name, attitude_cn=str(fields.get("attitude", "")).strip()
+            )
+            if not npc:
                 note = self._bump_lookup_fail(name)
                 if self._lookup_fallback_allowed():
                     tmpl, errs = NPCTemplate.from_form(fields)
@@ -722,13 +749,6 @@ class ResourceManager:
                     npc = npc_catalog.spawn(tid, name=name)
                 else:
                     return ResourceResult.fail(note)
-            else:
-                npc = npc_catalog.spawn(found["id"], name=name)
-                attitude_cn = str(fields.get("attitude", "")).strip()
-                if attitude_cn:
-                    v = label_to_int(attitude_cn)
-                    if v is not None:
-                        npc.attitude = v
         if not npc:
             return ResourceResult.fail(f"NPC「{name}」创建失败")
         if self.world:

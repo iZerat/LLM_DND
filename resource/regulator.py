@@ -11,10 +11,12 @@ _STATUS_SYNC_RE = re.compile(
     re.DOTALL,
 )
 _NPC_LINE_RE = re.compile(
-    r"(?:目标|其他)\s*:\s*(?:\[(.+?)\])?\s*(.+?),\s*AC:\s*(\d+),\s*HP:\s*(\d+)/(\d+)"
+    r"(?:目标|其他)\s*:\s*(?:\[(.+?)\])?\s*(.+?)(?:\s*\[(.+?)\]\s*)?,\s*AC:\s*(\d+),\s*HP:\s*(\d+)/(\d+)"
 )
-# 名称内禁止出现括号：叙事性描述（如「(已逃窜)」）不得混入目标名称
-_STATUS_NAME_BAD_RE = re.compile(r"[（）()]")
+# 名称内禁止出现括号（含方括号）：叙事性描述/技术标注（如「(已逃窜)」「哥布林[敌对]」）不得混入目标名称
+_STATUS_NAME_BAD_RE = re.compile(r"[（）()\[\]]")
+# 剥离 [状态] 目标名前缀处的技术标注（「[敌对]哥布林」→「哥布林」）
+_TAG_SUFFIX_STRIP_RE = re.compile(r"\[[^\]]*\]\s*$")
 
 
 class ChangeReport:
@@ -84,9 +86,15 @@ class Regulator:
             npc = self.world.get_by_name(name)
             if npc is None:
                 npc = self._fuzzy_match_npc(name, set())
+            # 剥离 [状态] 目标名旁的技术标注（前缀/后缀式，如 [敌对] / 哥布林[敌对]），
+            # [状态] 是玩家可见文本，敌对/友好由渲染层色彩表达，标注不得漏给玩家
+            prefix = _TAG_SUFFIX_STRIP_RE.sub("", line[:m.start(2)])
+            tail = line[m.end(2):]
+            comma = tail.find(", AC:")
+            if comma != -1:
+                tail = tail[comma:]
             if not npc:
-                return line
-            prefix = line[:m.start(2)]
+                return f"{prefix}{name}{tail}"
             # 名称回显世界实体的规范名（npc.name），拒绝 LLM 的别名/省略称呼覆盖世界事实
             return f"{prefix}{npc.name}, AC:{npc.ac}, HP:{npc.hp}/{npc.max_hp}"
 
@@ -154,7 +162,7 @@ class Regulator:
             npc_m = _NPC_LINE_RE.match(line)
             if not npc_m:
                 continue
-            tag = npc_m.group(1) or ""
+            tag = npc_m.group(1) or npc_m.group(3) or ""
             name = npc_m.group(2).strip()
             # AC/HP 是 LLM 叙事快照，只用于格式校验，登记时一律拒绝（T4）
 
@@ -173,7 +181,12 @@ class Regulator:
                         self.world.touch(existing.id)
                     else:
                         new_npc = self._sync_create_npc(ind_name, base, tag)
-                        self.world.add_active(new_npc)
+                        if new_npc:
+                            self.world.add_active(new_npc)
+                        else:
+                            report.messages.append(
+                                f"目标「{base}」不在场且不在资源库，请先经 create_npc 工具创建后再写入 [状态]"
+                            )
                 continue
 
             existing = self.world.get_by_name(name)
@@ -185,7 +198,12 @@ class Regulator:
                 self.world.touch(existing.id)
             else:
                 new_npc = self._sync_create_npc(name, name, tag)
-                self.world.add_active(new_npc)
+                if new_npc:
+                    self.world.add_active(new_npc)
+                else:
+                    report.messages.append(
+                        f"目标「{name}」不在场且不在资源库，请先经 create_npc 工具创建后再写入 [状态]"
+                    )
 
         # GC：衰减权重，驱逐过期实体
         pruned = self.world.tick()
@@ -210,26 +228,18 @@ class Regulator:
         ]
         return candidates[0] if len(candidates) == 1 else None
 
-    def _sync_create_npc(self, name: str, lookup_name: str, tag: str) -> NPC:
+    def _sync_create_npc(self, name: str, lookup_name: str, tag: str) -> Optional[NPC]:
         """按资源策略登记 [状态] 中新出现的未登记 NPC（只登记名字，数值一律拒绝）。
 
-        pack（查表创建）: 命中 statblocks/templates 则按库生成真实属性。
-        free（填表创建）: 目录为空时以库默认属性兜底。
-        两种模式都绝不用 LLM 在 [状态] 里填写的 AC/HP——[状态] 是叙事快照，
-        数值不得成为世界事实（D4/T4）。自定义 NPC 只能经 create_npc 工具（表单校验）。
+        Actor 创建的唯一入口是 manager.spawn_npc_by_name（与 create_npc 工具共用）：
+        查表命中 → 按库生成真实属性；未命中 → 返回 None，绝不硬造默认属性。
+        [状态] 是叙事快照，数值不得成为世界事实（D4/T4），资源库中不存在的实体
+        须先经 create_npc 工具创建，禁止通过 [状态] 文本凭空登记。
         """
-        from world.npc_templates import npc_catalog
-        from resource.attitude import label_to_int
-        attitude = label_to_int(tag)
-        if attitude is None:
-            attitude = 0
-        tmpl = npc_catalog.find_by_name(lookup_name)
-        if tmpl:
-            npc = npc_catalog.spawn(tmpl["id"], name=name, attitude=attitude)
-            if npc:
-                return npc
-        return NPC(
-            id=f"npc_{abs(hash(name)) % 1000000:x}",
-            name=name, base_ac=10, hp=8, max_hp=8,
-            attitude=attitude,
-        )
+        # 纵深防御：无论解析路径如何，登记名绝不允许夹带技术标注（哥布林[敌对]→哥布林）
+        name = _STATUS_NAME_BAD_RE.sub("", name).strip()
+        if not name:
+            name = "未知实体"
+        lookup_name = _STATUS_NAME_BAD_RE.sub("", lookup_name).strip() or name
+        npc, _ = self.manager.spawn_npc_by_name(lookup_name, attitude_cn=tag)
+        return npc

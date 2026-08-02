@@ -142,6 +142,7 @@ class NPCCatalog:
         return [{"id": tid, "name": t.get("name", tid)} for tid, t in self._all().items()]
 
     def add_runtime(self, template_id: str, data: dict) -> str:
+        data.setdefault("id", template_id)
         self._runtime_templates[template_id] = data
         return template_id
 
