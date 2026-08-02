@@ -49,7 +49,8 @@ SYSTEM_PROMPT_TEMPLATE = """你是基于 D&D 5e 规则的
 1. 语言精炼，描述生动
 2. 每轮必须输出 [事件]，有检定结果时输出 [副事件]
 3. 对话框用「」包裹，特殊名词用【】包裹
-4. 保持冒险节奏紧凑"""
+4. 保持冒险节奏紧凑
+5. 不要在 [事件] 中列出编号选项——选项由系统根据你调用的 create_choice 工具自动渲染"""
 
 CORE_RULES = """- 属性调整值 = (属性值-10)//2
 - 熟练加值: 1级+2
@@ -268,6 +269,28 @@ class GameMaster:
     def send_message_stream(self, player_input: str, tools=None, tool_executor=None, status_cb=None, system_override: str | None = None, round_num: int | None = None):
         """流式对话。round_num 传入时覆盖内部自增计数，使同一回合内多个段共享同一轮号。"""
         messages = self._build_messages(player_input, system_override=system_override)
+
+        # ---- debug: 让我（opencode）当 DM ----
+        if Config.DEBUG_DM:
+            import json as _json, time as _t
+            req = {
+                "messages": messages,
+                "tools": [t["function"]["name"] for t in (tools or [])],
+                "player_input": player_input,
+            }
+            req_file = Path("logs/debug_request.json")
+            req_file.parent.mkdir(parents=True, exist_ok=True)
+            req_file.write_text(_json.dumps(req, ensure_ascii=False, indent=2), encoding="utf-8")
+            resp_file = Path("logs/debug_response.txt")
+            while not resp_file.exists():
+                _t.sleep(0.5)
+            _t.sleep(0.3)
+            response = resp_file.read_text(encoding="utf-8").strip()
+            resp_file.unlink()
+            yield response
+            return
+        # ---- debug end ----
+
         self.last_tool_results = []
         self._used_tools = False
 

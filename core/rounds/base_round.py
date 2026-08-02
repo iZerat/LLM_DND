@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from core.character import modifier
 from core.game_master import parse_check_from_text
 from core.game_loop import log_dm_response, format_elapsed
-from resource.checker import Checker, build_action_text, _attack_display
+from resource.checker import Checker, build_action_text, _attack_display, _ABILITY_CN
 from core.ui import console, render_decision_block
 
 
@@ -118,7 +118,9 @@ def resolve_player_input(gm, character, raw: str, from_command: bool = False,
                         label=f"[选择选项{selected_num}] {label}",
                     )
                     if settled:
-                        check_text, transformed = settled
+                        check_text, transformed, changes = settled
+                        if manager:
+                            gm.last_check_changes = changes
                         return transformed, record_to_display(record, is_option), check_text
                 transformed = f"[选择选项{selected_num}] {label}"
             elif ct == "ability_check" and checker:

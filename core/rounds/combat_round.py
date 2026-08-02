@@ -19,7 +19,7 @@ class CombatRound(BaseRound):
     def run(self, player_input: str, on_prompt):
         audit, elapsed = self.dm_call(
             self._prelude_prompt(player_input),
-            tools=[], mode="full", tag="pre",
+            tools=None, mode="full", tag="pre",
         )
         sections = parse_sections(audit.text)
         self.rendered_blocks = []
@@ -46,11 +46,10 @@ class CombatRound(BaseRound):
             if "副事件" in sections:
                 SubEventBlock.from_text(sections["副事件"]).render()
                 self.rendered_blocks.append("副事件")
-            m = getattr(self.regulator, "manager", None)
-            if m and getattr(m, "pending_changes", None):
-                render_change_block(m.pending_changes)
-                m.pending_changes.clear()
+            if getattr(self.gm, "last_check_changes", None):
+                render_change_block(self.gm.last_check_changes)
                 self.rendered_blocks.append("变更")
+                self.gm.last_check_changes = None
         if audit.messages:
             render_change_block(audit.messages)
             self.rendered_blocks.append("变更")

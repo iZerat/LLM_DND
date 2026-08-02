@@ -45,6 +45,10 @@ class NonCombatRound(BaseRound):
             if "副事件" in sections:
                 render_narration_block(sections["副事件"])
                 self.rendered_blocks.append("副事件")
+            if getattr(self.gm, "last_check_changes", None):
+                render_change_block(self.gm.last_check_changes)
+                self.rendered_blocks.append("变更")
+                self.gm.last_check_changes = None
         for cb in (getattr(self.toolbox, "check_results", None) or []):
             ActionBlock.from_check(cb.get("text", "")).render()
             self.rendered_blocks.append("行动")
@@ -64,11 +68,26 @@ class NonCombatRound(BaseRound):
         StatusBlock.from_world(self.character, self.world)
         self.rendered_blocks.append("状态")
 
-        # [选择]
+        # [选择] — DM 通过 create_choice 工具创建
+        m2 = getattr(self.regulator, "manager", None)
         choices = getattr(m2, "choices", None) if m2 else None
         if choices:
             ChoiceBlock.from_choices(choices).render()
             self.rendered_blocks.append("选择")
+            for c in choices:
+                idx, label, ct = c["index"], c["label"], c.get("choice_type","narrative")
+                tag = ""
+                ab_cn = {"strength":"力量","dexterity":"敏捷","constitution":"体质",
+                         "intelligence":"智力","wisdom":"感知","charisma":"魅力"}
+                if ct == "attack":
+                    ab = ab_cn.get(c.get("ability",""),"")
+                    tgt = c.get("target","")
+                    tag = f" （{ab}攻击 对{tgt}）" if ab or tgt else ""
+                elif ct == "ability_check":
+                    ab = ab_cn.get(c.get("ability",""),"")
+                    dc = c.get("dc", 0)
+                    tag = f" （{ab}检定 DC {dc}）" if dc else f" （{ab}检定）"
+                self.gm.last_choices_map[str(idx)] = f"{idx}. {label}{tag}"
 
         errs = self.supervisor.check_round_integrity(
             self.rendered_blocks, "非战斗", self.ctx.round_num)

@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 from rich.panel import Panel
+from rich.markdown import Markdown
 from rich import box
 
 from core.ui import console
@@ -47,18 +48,10 @@ class EnvironmentBlock(RoundBlock):
     def from_scene(cls, scene) -> EnvironmentBlock:
         env = getattr(scene, "environment", None) or {}
         fields = []
-        place = env.get("地点", "") or getattr(scene, "location", "")
-        time_val = env.get("时间", "")
-        temp = env.get("温度", "")
-        if place:
-            fields.append(f"地点：{place}")
-        if time_val:
-            fields.append(f"时间：{time_val}")
-        if temp:
-            fields.append(f"温度：{temp}")
-        for k, v in env.items():
-            if k not in ("地点", "时间", "温度") and v:
-                fields.append(f"{k}：{v}")
+        for key in ("地点", "时间", "温度"):
+            v = env.get(key, "")
+            if v:
+                fields.append(f"{key}：{v}")
         return cls(content="    ".join(fields))
 
 
@@ -67,6 +60,15 @@ class EnvironmentBlock(RoundBlock):
 class EventBlock(RoundBlock):
     title = "事件"
     border_color = "#cc6b3e"
+
+    def render(self):
+        if self.content.strip():
+            console.print(Panel(
+                Markdown(self.content.strip()),
+                title=f"[{self.border_color}]{self.title}[/{self.border_color}]",
+                border_style=self.border_color,
+                box=box.SQUARE,
+            ))
 
     @classmethod
     def from_text(cls, text: str) -> EventBlock:
@@ -134,14 +136,13 @@ class ChoiceBlock(RoundBlock):
             if ct == "attack":
                 ab = ab_cn_map.get(c.get("ability",""),"")
                 tgt = c.get("target","")
-                tag = (ab or "") + "攻击" + (f"对{tgt}" if tgt else "")
+                tag = (ab or "") + "攻击" + (f" 对{tgt}" if tgt else "")
             elif ct == "ability_check":
                 ab = ab_cn_map.get(c.get("ability",""),"")
                 dc = c.get("dc", 0)
                 tag = f"{ab}检定" + (f" DC {dc}" if dc else "")
-            if tag:
-                label += f"（{tag}）"
-            lines.append(f"{idx}. {label}")
+            tag_str = f" [#5DCCCC]（{tag}）[/#5DCCCC]" if tag else ""
+            lines.append(f"[white]{idx}.[/white] [#F9F1A5]{label}{tag_str}[/#F9F1A5]")
         return cls(content="\n".join(lines))
 
 

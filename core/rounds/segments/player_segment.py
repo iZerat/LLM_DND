@@ -37,6 +37,20 @@ class PlayerSegment(Segment):
             from core.blocks import ChoiceBlock
             ChoiceBlock.from_choices(choices).render()
             self._blocks.append("选择")
+            ab_cn = {"strength":"力量","dexterity":"敏捷","constitution":"体质",
+                     "intelligence":"智力","wisdom":"感知","charisma":"魅力"}
+            for c in choices:
+                idx, label, ct = c["index"], c["label"], c.get("choice_type","narrative")
+                tag = ""
+                if ct == "attack":
+                    ab = ab_cn.get(c.get("ability",""),"")
+                    tgt = c.get("target","")
+                    tag = f" （{ab}攻击 对{tgt}）" if ab or tgt else ""
+                elif ct == "ability_check":
+                    ab = ab_cn.get(c.get("ability",""),"")
+                    dc = c.get("dc", 0)
+                    tag = f" （{ab}检定 DC {dc}）" if dc else f" （{ab}检定）"
+                self.gm.last_choices_map[str(idx)] = f"{idx}. {label}{tag}"
 
         pr = self.on_prompt()
         if pr.action != "continue":
