@@ -202,7 +202,7 @@ def render_status_row(character, world_state=None, targets=None):
         f"[grey50]AC[/grey50] {character.ac}"
     )
     if character.unconscious or character.dead:
-        player_panel_body += f"\n[grey50]状态[/grey50] [{cond_color}]{cond}[/{cond_color}]"
+        player_panel_body += f"  [grey50]状态[/grey50] [{cond_color}]{cond}[/{cond_color}]"
     panels = [
         Panel(
             player_panel_body,

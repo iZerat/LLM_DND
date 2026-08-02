@@ -1,10 +1,11 @@
 from __future__ import annotations
-from core.rounds.base_round import BaseRound, RoundResult
+from core.rounds.base_round import BaseRound, RoundResult, update_choices_map
 from core.rounds.segments.npc_segment import NPCSegment
 from core.rounds.segments.player_segment import PlayerSegment
 from core.ui import (
     render_round_header, render_env_block, render_event_block,
-    render_action_block, render_change_block, render_choice_block, parse_sections,
+    render_action_block, render_narration_block, render_change_block,
+    parse_sections,
 )
 from world.entity import NPC
 
@@ -12,13 +13,11 @@ from world.entity import NPC
 class CombatRound(BaseRound):
     """战斗回合：DM 预调用（长上下文）→ 环境/主事件 → 按先攻小循环逐段。
 
-    每个 actor 依次执行自己的段；段间状态（HP/AC）由 WorldState 落账，
-    目标块每段后从 WorldState 重新渲染。回合计数由 GameRound 统一维护。
+    每个 actor 依次执行自己的段（NPC段：行动块 → 副事件 → 变更 → 状态块；
+    玩家段：选择块 → 输入 → 决定块 → 行动块 → 副事件 → 变更 → 状态块）。
     """
 
     def run(self, player_input: str, on_prompt):
-        # 预调用只做叙事（tools=[] + mode=full）：战场环境/主事件/行动倾向均由
-        # 后续玩家段/NPC 段机械结算，防止预调中 LLM 抢先结算造成双重结算（C7）。
         audit, elapsed = self.dm_call(
             self._prelude_prompt(player_input),
             tools=[], mode="full", tag="pre",
@@ -32,26 +31,22 @@ class CombatRound(BaseRound):
         if "事件" in sections:
             render_event_block(sections["事件"])
 
+        # 非战斗 → 战斗过渡：带上轮玩家的检定行动块
         carried_check = getattr(self.gm, "last_check_block", None)
-        check_blocks = []
         if carried_check:
-            check_blocks.append({"text": carried_check})
+            render_action_block([{"text": carried_check}])
             self.gm.last_check_block = None
-        check_blocks.extend(getattr(self.toolbox, "check_results", None) or [])
-        if check_blocks:
-            render_action_block(check_blocks)
+            if "副事件" in sections:
+                render_narration_block(sections["副事件"])
         if audit.messages:
             render_change_block(audit.messages)
-
-        choices_text = sections.get("选择", "")
-        if choices_text:
-            update_choices_map(self.gm, choices_text)
-            render_choice_block(choices_text)
 
         initiative = self.ctx.initiative
         if not initiative.order:
             initiative.roll(self.world)
         order = initiative.resolve(self.world)
+
+        choices_text = sections.get("选择", "")
 
         next_input = player_input
         for name, entity in order:
@@ -64,23 +59,30 @@ class CombatRound(BaseRound):
             elif isinstance(entity, NPC) and getattr(entity, "hp", 0) > 0:
                 NPCSegment(self.ctx, entity, player_input).run()
 
-        # 战斗结束判定：无存活敌对 → 清空先攻，下轮回非战斗流程
         if not self._hostile_alive():
             initiative.order = []
         return RoundResult(player_input=next_input)
 
     def _prelude_prompt(self, player_input: str) -> str:
+        pc = self.character
+        cond = ""
+        if pc.hp <= 0:
+            cond = "（注意：玩家当前处于昏迷/倒地状态）"
         if not player_input or player_input == "DM，请开始我的冒险吧！":
             return (
-                "战斗已经开始！请描述当前战场环境与主事件（总结上一回合发生的事、铺垫本轮），"
-                "并先想好在场每个目标的行动倾向。"
+                "战斗已经开始！"
+                "请总结上一回合发生的事、铺垫本轮战场局势，"
+                "并先想好在场每个目标的行动倾向（后续各段会逐个执行）。"
                 "输出 [环境]、[时间]、[事件]、[选择]、[状态]。"
+                + cond
             )
         return (
             f"（上一轮玩家行动：{player_input}）\n"
-            "新一轮战斗开始。请总结上一回合战况、铺垫本回合的开展，"
-            "并先想好在场每个目标的行动倾向。"
-            "输出 [环境]、[时间]、[事件]、[选择]、[状态]。"
+            "新一轮战斗开始。请总结上一回合战况、铺垫本轮战场局势，"
+            "并先想好在场每个目标的行动倾向（后续各段会逐个执行）。"
+            f"请在 [副事件] 中描述玩家上述行动的结果。\n"
+            "输出 [环境]、[时间]、[事件]、[副事件]、[选择]、[状态]。"
+            + cond
         )
 
     def _hostile_alive(self) -> bool:
