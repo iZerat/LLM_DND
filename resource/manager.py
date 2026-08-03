@@ -3,7 +3,7 @@ import os
 import re
 from typing import Optional
 from uuid import uuid4
-from resource.models import Inventory, Currency, ItemInstance, ItemDef, format_cp, format_cp_change
+from resource.models import Inventory, Currency, ItemInstance, ItemDef, format_cp, format_cp_change, format_signed
 from resource.item_db import item_db
 from resource.objects import NPCTemplate
 from resource.packs import RESOURCE_MODE_PACK, RESOURCE_MODE_FREE
@@ -678,7 +678,8 @@ class ResourceManager:
         })
         color = "#E08E8E" if applied < 0 else "#6CB77A"
         return ResourceResult.ok(
-            f"{actor.name} 态度 [{color}]{applied:+d}[/{color}] ({old:+d} >>> {new:+d})")
+            f"{actor.name} 态度 [{color}]{format_signed(applied)}[/{color}] "
+            f"({format_signed(old)} >>> {format_signed(new)})")
 
     def npc_add_issue(self, req: dict) -> Optional[str]:
         """校验 npc_add 请求是否可执行（原子拒绝前置检查）。

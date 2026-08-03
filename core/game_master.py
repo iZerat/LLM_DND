@@ -228,7 +228,7 @@ class GameMaster:
                 template_note = f"\n\n## 开场模板\n{t}\n严格按此模板生成第一轮输出。"
 
         story_note = ""
-        if self.story_pack_content:
+        if self.story_pack_content and not self.history:
             story_note = f"\n\n## 故事包\n{self.story_pack_content}\n故事剧情必须遵循此故事包设定，人物、地名、组织以此为准。"
 
         setting = self.setting_content if self.setting_content else "一个标准的 D&D 奇幻世界。"

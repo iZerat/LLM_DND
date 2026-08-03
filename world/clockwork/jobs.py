@@ -7,6 +7,7 @@ from __future__ import annotations
 - combat：本 tick 是否处于战斗（战斗中暂停与战斗状态冲突的模拟）
 """
 from resource.attitude import decay, level_cn
+from resource.models import format_signed
 from world.clockwork.events import ChangeEvent
 
 
@@ -57,7 +58,8 @@ class AttitudeDriftJob(ClockworkJob):
             })
         return [ChangeEvent(
             target=obj.name,
-            message=f"{obj.name} 态度 缓和 {applied:+d} ({cur:+d} >>> {new:+d})",
+            message=f"{obj.name} 态度 缓和 {format_signed(applied)} "
+                    f"({format_signed(cur)} >>> {format_signed(new)})",
             field=self.field,
             source="clockwork",
         )]

@@ -74,7 +74,7 @@ def build_action_text(
     """统一行动块文本（唯一入口，玩家/NPC 行动共用，禁止各路径自行拼接）。
 
     actor=行动者名，label=检定名（如「攻击检定」「敏捷检定」），
-    dc_kind=DC/AC，mod_label=调整值/加值，line=骰面算式行，
+    dc_kind=DC/AC，mod_label=属性调整值/攻击调整值，line=骰面算式行，
     word 为统一结果词（成功/失败/大成功/大失败），color 为其颜色。
     dmg 命中伤害单独一行、不加色。态度变化与检定说明由[变更]块 / 叙事承担，
     行动块不再重复展示。
@@ -112,7 +112,7 @@ class Checker:
     # ══════════════════════ 基础掷骰（纯函数，供各入口复用） ══════════════════════
 
     def resolve_check(self, roll: int, mod: int, dc: int) -> tuple[int, bool, str, str, str]:
-        """D&D 5e 属性检定/豁免：d20 + 调整值 vs DC。天然20=大成功，天然1=大失败。
+        """D&D 5e 属性检定/豁免：d20 + 属性调整值 vs DC。天然20=大成功，天然1=大失败。
 
         返回 (total, success, 结果词, 颜色, 展示行)。
         """
@@ -130,9 +130,9 @@ class Checker:
         return total, success, word, ("green" if success else "red"), f"d20({roll}) + ({mod:+d}) = {total} {op} {dc}"
 
     def attack_bonus(self, char: Character) -> tuple[int, str]:
-        """攻击加值：近战=力量，远程=敏捷，灵巧=取高，另加熟练加值。
+        """攻击调整值：近战=力量，远程=敏捷，灵巧=取高，另加熟练加值。
 
-        返回 (加值, 所用属性)。"""
+        返回 (攻击调整值, 所用属性)。"""
         from resource.item_db import item_db
         prof = proficiency_bonus(char.level)
         weapon_guid = char.inventory.equipped.get("weapon")
@@ -155,10 +155,10 @@ class Checker:
         return mod + prof, ability
 
     def resolve_attack(self, roll: int, char: Character, target_ac: int | None) -> tuple[int, int, bool, str, str, str]:
-        """D&D 5e 攻击检定：d20 + 攻击加值 vs 目标 AC。
+        """D&D 5e 攻击检定：d20 + 攻击调整值 vs 目标 AC。
 
         天然20=暴击（自动命中），天然1=大失败（自动未命中）。
-        返回 (total, 攻击加值, 是否命中, 结果词, 颜色, 展示行)。
+        返回 (total, 攻击调整值, 是否命中, 结果词, 颜色, 展示行)。
         无目标 AC 时不作命中判定（结果词为空，交由 LLM 圆场）。
         """
         atk_bonus, _ = self.attack_bonus(char)
@@ -316,7 +316,7 @@ class Checker:
 
         word, color = _attack_display(roll, hit)
         check_text = build_action_text(
-            char.name, "攻击检定", "AC", ac, "加值", atk_bonus,
+            char.name, "攻击检定", "AC", ac, "攻击调整值", atk_bonus,
             line, word, color, target=tgt.name, dmg=dmg,
         )
         fragment = f"[攻击] d20({roll})+({atk_bonus:+d})={total}"
@@ -396,7 +396,7 @@ class Checker:
         roll = random.randint(1, 20)
         total, success, word, color, line = self.resolve_check(roll, mod, 10)
         check_text = build_action_text(
-            character.name, "医药自救检定", "DC", 10, "调整值", mod,
+            character.name, "医药自救检定", "DC", 10, "属性调整值", mod,
             line, word, color,
         )
         if success:
@@ -418,7 +418,7 @@ class Checker:
         total, success, word, color, line = self.resolve_check(roll, ability_mod, dc)
         console.print()
         console.print(build_action_text(
-            char.name, f"{ability_cn}检定", "DC", dc, "调整值", ability_mod,
+            char.name, f"{ability_cn}检定", "DC", dc, "属性调整值", ability_mod,
             line, word, color,
         ))
         console.print()
@@ -531,7 +531,7 @@ class Checker:
         kind_cn = _KIND_CN_SHORT[kind]
         ability_cn = _ABILITY_CN.get(ability, ability)
         text = build_action_text(
-            name, f"{ability_cn}检定", "DC", dc_value, "调整值", mod,
+            name, f"{ability_cn}检定", "DC", dc_value, "属性调整值", mod,
             line, word, color,
         )
         data = {
@@ -613,7 +613,7 @@ class Checker:
 
         word, color = _attack_display(roll, hit)
         text = build_action_text(
-            name, "攻击检定", "AC", ac, "加值", atk_bonus,
+            name, "攻击检定", "AC", ac, "攻击调整值", atk_bonus,
             line, word, color, target=target_label, dmg=dmg,
         )
         data = {

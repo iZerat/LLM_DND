@@ -59,7 +59,21 @@ class ResourceToolbox:
 
     def schemas(self) -> list[dict]:
         mode = self.manager.resource_mode
-        npc_params = _with_reason(NPCTemplate.schema().to_json_schema())
+        # pack 查表模式：create_item 不可用、create_npc 只需名称+态度；
+        # 开启查表回退（ALLOW_FREE_CREATE）后两者恢复全字段填表。
+        is_pack = mode == RESOURCE_MODE_PACK
+        fallback = bool(getattr(
+            self.manager, "_lookup_fallback_allowed", lambda: False)())
+        if is_pack and not fallback:
+            npc_params = _with_reason({
+                "type": "object", "properties": {
+                    "name": {"type": "string",
+                             "description": "资源库中存在的 NPC 名称（先 search_resource 确认）"},
+                    "attitude": {"type": "string",
+                                 "description": "初始态度：友好/中立/敌对（可选，默认中立）"},
+                }, "required": ["name"]})
+        else:
+            npc_params = _with_reason(NPCTemplate.schema().to_json_schema())
         item_params = _with_reason(ItemDef.schema().to_json_schema())
         npc_desc = (
             "创建 NPC。查表创建模式：请先调用 search_resource 查询目录中存在的名称；"
@@ -67,7 +81,7 @@ class ResourceToolbox:
             "若系统告知已达到重试上限且已开启自由创建回退，则允许填表直接创建。"
             "创建后自动设为目标。"
         )
-        return [
+        tools = [
             _tool("search_resource",
                   "查询本地资源目录（NPC/物品）。传入关键词进行模糊匹配，"
                   "返回匹配条目的名称、类型、简要信息，**不会倾倒全表**。"
@@ -126,9 +140,13 @@ class ResourceToolbox:
                           "target": {"type": "string", "description": "攻击目标名称（仅 attack 类型填）"},
                           "skill": {"type": "string", "description": "技能名（可选，用于熟练项加成）"},
                       }, "required": ["choice_type", "label"]})),
-            _tool("create_item",
-                  "填表创建新物品（仅填表创建模式可用）。创建后如需放进背包，再调用 grant_item。",
-                  item_params),
+        ]
+        if not (is_pack and not fallback):
+            tools.append(_tool(
+                "create_item",
+                "填表创建新物品（仅填表创建模式可用）。创建后如需放进背包，再调用 grant_item。",
+                item_params))
+        tools.extend([
             _tool("grant_item",
                   "给玩家添加物品（物品名需存在于资源库，或用 create_item 创建过的名称）。",
                   _with_reason({
@@ -191,7 +209,8 @@ class ResourceToolbox:
                                     "description": "态度变化量，负=更敌对，正=更友好"},
                       }, "required": ["target", "delta"]})),
             self.checker.tool_schema(),
-        ]
+        ])
+        return tools
 
     # ── 执行入口 ──
 

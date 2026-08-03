@@ -333,6 +333,16 @@ def format_cp(cp: int) -> str:
     return ("-" if neg else "") + "".join(parts)
 
 
+def format_signed(v: int) -> str:
+    """带符号整数显示：负数「-8」、正数「+8」、零「0」（不写成 +0）。"""
+    v = int(v)
+    if v > 0:
+        return f"+{v}"
+    if v < 0:
+        return f"{v}"
+    return "0"
+
+
 def format_cp_change(actor: str, delta_cp: int, before_cp: int, after_cp: int) -> str:
     """结构化金钱变更行：Actor 金钱 变更 (旧值 >>> 新值)，金银铜换算。"""
     sign = "+" if delta_cp >= 0 else "-"

@@ -10,6 +10,7 @@ from core.game_loop import log_dm_response, format_elapsed
 from core.config import Config
 from resource.checker import Checker, build_action_text, _attack_display, _ABILITY_CN
 from core.ui import console, render_decision_block
+from rich.prompt import Prompt
 
 
 def _usage_total(usage) -> int:
@@ -140,7 +141,7 @@ def resolve_player_input(gm, character, raw: str, from_command: bool = False,
                 total, success, word, color, line = checker.resolve_check(roll, ability_mod, dc)
                 ability_cn = _ABILITY_CN.get(ability_key, ability_key)
                 check_text = build_action_text(
-                    character.name, f"{ability_cn}检定", "DC", dc, "调整值", ability_mod,
+                    character.name, f"{ability_cn}检定", "DC", dc, "属性调整值", ability_mod,
                     line, word, color,
                 )
                 transformed = f"[选择选项{selected_num}] {label} | [检定] d20({roll})+({ability_mod:+d})={total} {word}"
@@ -185,9 +186,9 @@ class BaseRound:
         require_event：True 时审计阶段强制 [事件] 区块非空，缺失即列入缺陷补写。
         require_choices：True 时本轮必须已调 create_choice（choices 非空），
         缺失即列入缺陷补写。
-        补写统一由循环驱动：最多重试 Config.REPAIR_MAX_RETRIES 次，且累计消耗
-        token 超过 Config.REPAIR_TOKEN_BUDGET 即停止；耗尽后由监督者打印错误原因
-        （判定模型不可用），而非无限重试拖垮游戏。
+        补写统一由循环驱动：次数达 Config.REPAIR_MAX_RETRIES 或 token 消耗达
+        Config.REPAIR_TOKEN_BUDGET 时，询问玩家是否继续（两闸门对称，任一触发
+        都先问、同意则重置两个计数）；玩家拒绝后由监督者打印原因。
         _suppress_meta：内部参数——递归补写时不重复打印「思考耗时」，由外层合并输出。
         """
         if tools is None:
@@ -244,17 +245,37 @@ class BaseRound:
                                       require_choices=require_choices)
         # 统一补写循环：缺陷（事件/选择缺失）由监督者 audit 检出后，在此带
         # 次数上限（REPAIR_MAX_RETRIES）与 token 预算（REPAIR_TOKEN_BUDGET）
-        # 反复向 DM 补写，直到补齐或耗尽。递归补写时不再触发新的补写循环，
-        # 由外层循环统一重检缺陷，避免递归失控。
+        # 反复向 DM 补写，直到补齐或玩家决定停止。两个闸门对称：任一触发都
+        # 先询问玩家是否继续（说明有区分），同意则同时重置次数与 token 计数，
+        # 避免某一闸门因重置范围不同而显得"更主"。
         retries = 0
+        token_base = _usage_total(getattr(self.gm, "last_usage", None))
+        declined = False
         while audit.defects:
-            tokens_spent = _usage_total(getattr(self.gm, "last_usage", None))
-            if retries >= Config.REPAIR_MAX_RETRIES or tokens_spent >= Config.REPAIR_TOKEN_BUDGET:
-                break
+            tokens_total = _usage_total(getattr(self.gm, "last_usage", None))
+            tokens_in_repair = max(tokens_total - token_base, 0)
+            gate = None
+            if retries >= Config.REPAIR_MAX_RETRIES:
+                gate = "retries"
+            elif tokens_in_repair >= Config.REPAIR_TOKEN_BUDGET:
+                gate = "tokens"
+            if gate is not None:
+                if gate == "retries":
+                    ask = (f"已连续补写 {Config.REPAIR_MAX_RETRIES} 次仍未补齐"
+                           f"{'、'.join(audit.defects)}块（本次补写已消耗 "
+                           f"{tokens_in_repair} tokens），是否继续尝试？y/n")
+                else:
+                    ask = (f"本次补写已消耗 {tokens_in_repair} tokens（预算 "
+                           f"{Config.REPAIR_TOKEN_BUDGET}），是否继续尝试？y/n")
+                ans = Prompt.ask(ask).strip().lower()
+                if ans not in ("y", "yes", "是", "继续"):
+                    declined = True
+                    break
+                retries = 0
+                token_base = tokens_total
             retries += 1
             console.print(f"[indian_red]缺少{'、'.join(audit.defects)}块，"
                           f"正在要求 DM 补写（第 {retries}/{Config.REPAIR_MAX_RETRIES} 次）…[/indian_red]")
-            usage_before = getattr(self.gm, "last_usage", None) or {}
             repair_audit, _elapsed = self.dm_call(
                 self._build_repair_prompt(audit.defects),
                 tools=tools, status="DM 补写...",
@@ -264,20 +285,18 @@ class BaseRound:
                 _suppress_meta=True,
             )
             elapsed += _elapsed
+            # 补写段的 messages 已包含主段全部输入，prompt_tokens 相加会重复
+            # 计数；只记录补写段最后一次 usage（token 闸门据此推算补写消耗）。
             usage_after = getattr(self.gm, "last_usage", None) or {}
-            merged = {
-                k: (usage_before.get(k) or 0) + (usage_after.get(k) or 0)
-                for k in ("prompt_tokens", "completion_tokens", "total_tokens")
-            }
-            if any(merged.values()):
-                self.gm.last_usage = merged
+            if any(usage_after.values()):
+                self.gm.last_usage = usage_after
             audit = repair_audit
             audit.defects = self.supervisor.detect_defects(
                 audit.text, require_event, require_choices)
         if audit.defects:
             self.supervisor.report_repair_exhausted(
                 audit.defects, retries,
-                _usage_total(getattr(self.gm, "last_usage", None)))
+                _usage_total(getattr(self.gm, "last_usage", None)), declined=declined)
         if not self.gm.history:
             self.gm.set_history([])
         if not _suppress_meta:

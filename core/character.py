@@ -33,7 +33,9 @@ def modifier(score: int) -> int:
 
 def mod_str(score: int) -> str:
     m = modifier(score)
-    return f"{m:+d}"
+    if m > 0:
+        return f"+{m}"
+    return f"{m}"
 
 
 def proficiency_bonus(level: int) -> int:

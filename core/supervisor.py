@@ -289,14 +289,22 @@ class Supervisor:
         return defects
 
     def report_repair_exhausted(self, defects: list[str], retries: int,
-                                tokens_used: int) -> None:
-        """补写重试耗尽后，监督者打印错误原因（玩家/日志双通道）。
+                                tokens_used: int, declined: bool = False) -> None:
+        """补写闸门触发后打印结果（玩家/日志双通道）。
 
-        只有当补写次数超限或累计 token 超过预算时才触发——即判定该模型已无法
-        正常产出关键块，属于「模型确实不可用」的兜底报错，而非普通缺失。
+        declined=True 表示玩家选择停止补写（缺失块保留，可稍后自行处理）；
+        否则为补写次数/预算耗尽，判定该模型已无法正常产出关键块。
         """
+        if declined:
+            msg = (
+                f"监督者：块缺失（{'、'.join(defects)}）——你选择停止补写"
+                f"（已消耗 {tokens_used} tokens），缺失块暂未补齐。"
+            )
+            console.print(f"[indian_red]{msg}[/indian_red]")
+            self._record_reminder("[系统提醒] " + msg)
+            return
         reasons = []
-        if retries > Config.REPAIR_MAX_RETRIES:
+        if retries >= Config.REPAIR_MAX_RETRIES:
             reasons.append(
                 f"经 {Config.REPAIR_MAX_RETRIES} 次补写仍未产出"
             )

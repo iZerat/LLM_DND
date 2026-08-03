@@ -130,7 +130,7 @@ class NPCController:
         word, color = _attack_display(roll, hit)
         line = f"d20({roll}) + ({bonus:+d}) = {total} {op} {target_ac}"
         check_text = build_action_text(
-            npc.name, "攻击检定", "AC", target_ac, "加值", bonus,
+            npc.name, "攻击检定", "AC", target_ac, "攻击调整值", bonus,
             line, word, color, target=target_label,
         )
         self.check_results.append({
@@ -151,7 +151,7 @@ class NPCController:
         weapon = self._npc_weapon(npc)
         dmg = self.checker.roll_npc_damage(npc, crit=(roll == 20))
         check_text = build_action_text(
-            npc.name, "攻击检定", "AC", target_ac, "加值", bonus,
+            npc.name, "攻击检定", "AC", target_ac, "攻击调整值", bonus,
             line, word, color, target=target_label, dmg=dmg,
         )
         self.check_results[-1]["text"] = check_text
