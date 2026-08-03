@@ -557,12 +557,12 @@ def build_character_from_role(role) -> Character:
         name=role.name or char_gen.random_name(),
         race=role.species, lineage=role.lineage, char_class=role.char_class,
         background=role.background, description=role.description or f"一位来自故事包的角色。",
-        level=1, hp=role.hp, max_hp=role.max_hp or role.hp,
+        level=role.level or 1, hp=role.hp, max_hp=role.max_hp or role.hp,
         strength=stats.get("力量", 10), dexterity=stats.get("敏捷", 10),
         constitution=stats.get("体质", 10), intelligence=stats.get("智力", 10),
         wisdom=stats.get("感知", 10), charisma=stats.get("魅力", 10),
         skills=list(role.skills), feats=[],
-        gender="male", age=20,
+        gender="male", age=role.age or 20,
     )
     inv = Inventory()
     cp = [3000]

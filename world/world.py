@@ -5,6 +5,14 @@ from typing import Optional
 from world.object import Object
 from world.scene import Scene
 
+# 时间字段集合：set_environment 收到的这些键归属世界实例（/time 展示），
+# 其余键归属当前场景（/scene 展示）。场景中不应出现时间字段。
+TIME_FIELD_KEYS = {
+    "年月日", "季节", "时分秒", "时分", "时段", "时间",
+    "date", "season", "clock", "period", "time", "year", "month",
+}
+_TIME_DISPLAY_ORDER = ("年月日", "季节", "时分秒", "时段")
+
 
 @dataclass
 class World(Object):
@@ -15,6 +23,10 @@ class World(Object):
     Actor 进入场景即进入当前层池（active/nearby/distant 保持旧语义，
     供 LLM 上下文与 GC 使用），场景给实体提供位置归属。
 
+    数据归属：时间（年月日/季节/时分秒/时段）由世界实例承载（/time 展示，
+    time 字段）；场景信息（地点/温度/天气/氛围等）由场景实例承载（/scene
+    展示，scene.environment）。游戏轮开头环境块从二者摘抄 地点/时间/温度。
+
     WorldState 旧 API（active/nearby/distant 层池 + location/time +
     add/promote/tick/render）全部保留，runtime 层无需改动即可迁移；
     存档以 scenes 结构序列化，旧 WorldState JSON 经 from_dict 自动迁移。
@@ -22,7 +34,7 @@ class World(Object):
 
     scenes: dict[str, Scene] = field(default_factory=dict)
     location: str = ""
-    time: str = ""
+    time: dict = field(default_factory=dict)
     # 创建配方：记录世界是用什么组合造出来的（世界背景 + 故事包 + 开场模板 + 资源包/填表）
     world_composition: dict = field(default_factory=dict)
 
@@ -42,6 +54,37 @@ class World(Object):
         self.nearby: dict[str, Object] = {}
         self.distant: dict[str, Object] = {}
         self.current_scene_id: str = ""
+        if isinstance(self.time, str):
+            self.time = {"时间": self.time} if self.time.strip() else {}
+
+    # ── 时间管理（世界实例承载）──
+
+    def set_time(self, fields: dict) -> None:
+        """合并时间字段到 world.time（键如 年月日/季节/时分秒/时段）。"""
+        t = dict(self.time or {})
+        for k, v in (fields or {}).items():
+            if v:
+                t[str(k)] = str(v).strip()
+        self.time = t
+
+    def time_full(self) -> str:
+        """完整时间展示（/time）：年月日/季节/时分秒/时段，按固定顺序。"""
+        t = self.time or {}
+        if not t:
+            return ""
+        lines = []
+        for key in _TIME_DISPLAY_ORDER:
+            if t.get(key):
+                lines.append(f"{key}：{t[key]}")
+        for k, v in t.items():
+            if k not in _TIME_DISPLAY_ORDER and v:
+                lines.append(f"{k}：{v}")
+        return "\n".join(lines)
+
+    def time_short(self) -> str:
+        """环境块摘抄用的短时间：时段优先，其次时分秒。"""
+        t = self.time or {}
+        return str(t.get("时段") or t.get("时分秒") or t.get("时间") or "")
 
     # ── 场景管理 ──
 

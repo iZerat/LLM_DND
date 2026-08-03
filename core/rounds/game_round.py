@@ -36,7 +36,6 @@ class GameRound:
         self.initiative = getattr(gm, "initiative", None) or Initiative(self.character)
         gm.initiative = self.initiative
         self.clockwork = self._init_clockwork(gm)
-        gm.last_changed_npcs = set()
         hist = getattr(gm, "compressed_history", []) or []
         self.round_num = hist[-1]["round"] if hist else 0
 
@@ -67,7 +66,6 @@ class GameRound:
 
         while True:
             self.round_num += 1
-            self.gm.last_changed_npcs = set()
             # 选择选项每轮重建：由本轮 DM 经 create_choice 创建，跨段保留到玩家输入前
             self.regulator.manager.reset_choices()
             ctx = RoundContext(
@@ -97,18 +95,22 @@ class GameRound:
             self._run_clockwork_tick()
 
     def _run_clockwork_tick(self):
-        """每轮结束：发条推进（态度向 0 漂移），展示可见变更。
+        """每轮结束：发条推进（态度向 0 漂移）+ 世界 GC（权重衰减/驱逐过期实体）。
 
-        写协调：跳过本轮被调节器/玩家改过的 NPC（gm.last_changed_npcs），
-        避免发条立刻抵消刚发生的实时变更。
+        [状态] 文本区块已废除，不再有「文本落账 vs 发条」的写协调；
+        工具/战斗结算落账的实体由各落账点自身标记，发条只漂 nearby/distant 池
+        （active 在场实体由实时叙事/战斗管辖），无冲突路径，lock 置空。
         """
-        locked = set(getattr(self.gm, "last_changed_npcs", None) or ())
         events = self.clockwork.tick(
-            self.world_state, at=f"round {self.round_num}", locked=locked
+            self.world_state, at=f"round {self.round_num}", locked=set()
         )
         if events:
             from core.ui import render_change_block
             render_change_block([f"[grey50]发条[/grey50] {ev.message}" for ev in events])
+        pruned = self.world_state.tick()
+        if pruned:
+            from core.ui import render_change_block
+            render_change_block([f"[grey50]世界[/grey50] 已遗忘 {n} (在场 >>> 离场)" for n in pruned])
 
     def _loaded_prestep(self):
         """读档恢复：回放上轮 → 重建选项映射 → 收集玩家输入（作为本轮 DM 的回应输入）。

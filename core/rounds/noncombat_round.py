@@ -29,7 +29,7 @@ class NonCombatRound(BaseRound):
         m = getattr(self.regulator, "manager", None)
         scene = m.world._ensure_scene() if (m and m.world) else None
         if scene:
-            EnvironmentBlock.from_scene(scene).render()
+            EnvironmentBlock.from_scene(scene, world=m.world).render()
             self.rendered_blocks.append("环境")
 
         # [事件] — DM 文本

@@ -414,7 +414,7 @@ def show_help():
     console.print(f"  [grey82]/roll 属性[/grey82]    属性检定，例：/roll 力量、/roll 敏捷 DC 15")
     console.print(f"  [grey82]/status[/grey82]  角色状态")
     console.print(f"  [grey82]/info[/grey82]    详细角色信息")
-    console.print(f"  [grey82]/scene[/grey82]  详细环境信息")
+    console.print(f"  [grey82]/scene[/grey82]  查看当前场景")
     console.print(f"  [grey82]/equip[/grey82]    查看装备栏")
     console.print(f"  [grey82]/bag[/grey82]      查看背包与金钱")
     console.print(f"  [grey82]/skill[/grey82]    查看技能")
@@ -739,11 +739,10 @@ def render_character_sheet(char: Character, roll_log: str = ""):
 
 
 def show_time(gm):
-    text = gm.last_time if gm.last_time else ""
+    ws = getattr(gm, "world", None) or getattr(gm, "world_state", None)
+    text = ws.time_full() if ws is not None and hasattr(ws, "time_full") else ""
     if not text:
-        scene = current_scene(gm)
-        if scene is not None:
-            text = (scene.environment or {}).get("时间", "") or ""
+        text = gm.last_time if gm.last_time else ""
     text = text or "时间不详"
     console.print(Panel(
         text,

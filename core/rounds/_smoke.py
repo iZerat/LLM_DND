@@ -32,12 +32,30 @@ PLAYER_NARR = "[副事件]\n你的长剑划破空气斩向目标A。"
 
 
 class FakeGM(GameMaster):
-    def __init__(self, char):
+    def __init__(self, char, lazy_choices=False):
         super().__init__(char)
+        self.lazy_choices = lazy_choices
+
+    def _make_choices(self, tool_executor):
+        if tool_executor:
+            for label, ctype in [
+                ("拔剑迎战", "attack"),
+                ("尝试说服", "ability_check"),
+                ("转身逃跑", "narrative"),
+            ]:
+                tool_executor("create_choice", {
+                    "label": label, "choice_type": ctype,
+                    "reason": "为玩家提供本轮的决策选项",
+                })
 
     def send_message_stream(self, user_text, tools=None, tool_executor=None,
                             status_cb=None, system_override=None, round_num=None):
         if "战斗已经开始" in user_text or "新一轮战斗开始" in user_text:
+            if not self.lazy_choices:
+                self._make_choices(tool_executor)
+            yield PRELUDE
+        elif "[系统要求]" in user_text:
+            self._make_choices(tool_executor)
             yield PRELUDE
         elif "玩家本轮行动" in user_text:
             yield PLAYER_NARR
@@ -48,8 +66,8 @@ class FakeGM(GameMaster):
         return "行动: 攻击\n目标: 玩家"
 
 
-def run_combat(seed_quit=True):
-    gm = FakeGM(make_char())
+def run_combat(seed_quit=True, lazy_choices=False):
+    gm = FakeGM(make_char(), lazy_choices=lazy_choices)
     ws = WorldState()
     ws.add_active(NPC(id="t1", name="目标A", char_class="thug", hp=12, max_hp=12,
                       base_ac=15, dexterity=10, strength=14, attitude=-40,
@@ -67,7 +85,7 @@ def run_combat(seed_quit=True):
     return GameRound(gm).run()
 
 
-def run_noncombat():
+def run_noncombat(lazy_choices=False):
     canned = """[环境]
 地点：微风港
 时间：黄昏
@@ -80,10 +98,12 @@ def run_noncombat():
 1. 与酒保交谈（魅力 检定 DC 10）
 2. 离开酒馆
 """
-    gm = FakeGM(make_char())
+    gm = FakeGM(make_char(), lazy_choices=lazy_choices)
 
     def send(self, user_text, tools=None, tool_executor=None,
              status_cb=None, system_override=None, round_num=None):
+        if not self.lazy_choices or "[系统要求]" in user_text:
+            self._make_choices(tool_executor)
         yield canned
 
     gm.send_message_stream = send.__get__(gm, FakeGM)
@@ -104,4 +124,6 @@ if __name__ == "__main__":
     print("noncombat returned:", res1)
     res2 = run_combat()
     print("combat returned:", res2)
+    res3 = run_combat(lazy_choices=True)
+    print("combat+repair returned:", res3)
     print("SMOKE OK")

@@ -24,6 +24,8 @@ class StoryRole:
     stats: dict = field(default_factory=dict)          # 属性
     hp: int = 10
     max_hp: int = 10
+    level: int = 1             # 等级（DND 规则内，默认 1）
+    age: int = 20              # 年龄（岁）
     skills: list = field(default_factory=list)          # 技能（英文 key）
     equipment: list = field(default_factory=list)       # 物品名列表
     opening: str = ""          # 该角色专属开场模板 stem；为空则用预设/手动选择的开场
@@ -55,10 +57,19 @@ def load_role(role_id: str) -> Optional[StoryRole]:
         background=data.get("background", ""),
         stats=stats,
         hp=hp, max_hp=data.get("max_hp", hp),
+        level=_to_int(data.get("level"), 1),
+        age=_to_int(data.get("age"), 20),
         skills=list(data.get("skills", [])),
         equipment=list(data.get("equipment", [])),
         opening=data.get("opening", ""),
     )
+
+
+def _to_int(v, default: int) -> int:
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return default
 
 
 def list_all_roles() -> list[tuple[str, str]]:

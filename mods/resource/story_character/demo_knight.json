@@ -15,6 +15,7 @@
   },
   "hp": 13,
   "max_hp": 13,
+  "age": 28,
   "skills": ["athletics", "intimidation", "religion", "perception"],
   "equipment": ["长剑", "盾牌", "链甲"],
   "description": "一名神情坚毅的女骑士，腰间佩着灰岩镇警备队的徽章，眼中带着失去亲人的怒火。"

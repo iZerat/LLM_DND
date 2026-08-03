@@ -85,7 +85,7 @@ def level_cn(value) -> str:
 
 
 def int_to_label(value) -> str:
-    """分数 → 中文标签（供 UI / [状态] 展示）。"""
+    """分数 → 中文标签（供 UI 展示）。"""
     return level_cn(value)
 
 

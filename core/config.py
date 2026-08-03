@@ -25,6 +25,9 @@ class Config:
     RESOURCE_LOOKUP_RETRIES: int = 2   # 本地目录未命中时允许重试的次数
     ALLOW_FREE_CREATE: bool = False
     DEBUG_DM: bool = False       # true=让我（opencode）当DM，调试用    # 重试 n 次仍未命中后，是否允许凭空填表创建
+    # 块缺失补写（事件/选择等关键块缺失时向 LLM 发起补写请求）：
+    REPAIR_MAX_RETRIES: int = 3          # 一次 dm_call 内最多补写重试次数
+    REPAIR_TOKEN_BUDGET: int = 100000    # 本次 dm_call 累计消耗 token 阈值，超过即停止补写
 
     @classmethod
     def load(cls):
@@ -40,6 +43,8 @@ class Config:
         cls.DEBUG_DM = os.getenv("DEBUG_DM", "").strip().lower() in (
             "1", "true", "yes", "on",
         )
+        cls.REPAIR_MAX_RETRIES = _env_int("REPAIR_MAX_RETRIES", 3)
+        cls.REPAIR_TOKEN_BUDGET = _env_int("REPAIR_TOKEN_BUDGET", 100000)
 
         if cls.API_BASE_URL:
             if "/chat/completions" in cls.API_BASE_URL:

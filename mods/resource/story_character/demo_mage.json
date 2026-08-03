@@ -15,6 +15,7 @@
   },
   "hp": 8,
   "max_hp": 8,
+  "age": 90,
   "skills": ["arcana", "history", "investigation", "insight"],
   "equipment": ["木棍", "法术书"],
   "description": "披着灰蓝色斗篷的年轻精灵，指尖常绕着细碎的银色星屑，对遗迹秘闻如数家珍。"

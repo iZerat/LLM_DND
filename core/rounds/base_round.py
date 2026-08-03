@@ -7,8 +7,14 @@ from dataclasses import dataclass
 from core.character import modifier
 from core.game_master import parse_check_from_text
 from core.game_loop import log_dm_response, format_elapsed
+from core.config import Config
 from resource.checker import Checker, build_action_text, _attack_display, _ABILITY_CN
 from core.ui import console, render_decision_block
+
+
+def _usage_total(usage) -> int:
+    """取一次 usage 记录的总 token 数（无记录返回 0）。"""
+    return int((usage or {}).get("total_tokens") or 0)
 
 
 @dataclass
@@ -167,7 +173,7 @@ class BaseRound:
     # ── DM 调用 ──
 
     def dm_call(self, user_text, tools=None, status="DM 思考中...",
-                protected_npcs=None, mode="full", tag="", settle_scope="dm",
+                mode="full", tag="", settle_scope="dm",
                 require_event: bool = False, require_choices: bool = False,
                 _suppress_meta: bool = False):
         """单次 DM 调用：流式收集 → 监督者审计/落账。返回 (audit, elapsed)。
@@ -176,10 +182,13 @@ class BaseRound:
         mode：'full' 完整落账；'light' 仅剥离变更区块、不落账（段内叙事用，防止双重结算）。
         settle_scope：工具落账范围——'player'=玩家回合段（禁止落账非玩家发起伤害，
         防止双重结算）；其他=全权。
-        require_event：True 时审计阶段强制 [事件] 区块非空，缺失即打回 DM 补写。
+        require_event：True 时审计阶段强制 [事件] 区块非空，缺失即列入缺陷补写。
         require_choices：True 时本轮必须已调 create_choice（choices 非空），
-        缺失则打回 DM 补调一次（只重试一轮，防死循环）。
-        _suppress_meta：内部参数——递归补选时不重复打印「思考耗时」，由外层合并输出。
+        缺失即列入缺陷补写。
+        补写统一由循环驱动：最多重试 Config.REPAIR_MAX_RETRIES 次，且累计消耗
+        token 超过 Config.REPAIR_TOKEN_BUDGET 即停止；耗尽后由监督者打印错误原因
+        （判定模型不可用），而非无限重试拖垮游戏。
+        _suppress_meta：内部参数——递归补写时不重复打印「思考耗时」，由外层合并输出。
         """
         if tools is None:
             tools = self.toolbox.schemas()
@@ -230,21 +239,28 @@ class BaseRound:
         elapsed = _time.time() - t0
         raw = "".join(parts)
         self.gm.last_tool_results = list(self.toolbox.results)
-        audit = self.supervisor.audit(raw, protected_npcs=protected_npcs, mode=mode,
-                                      require_event=require_event)
-        if require_choices and (getattr(self.toolbox, "manager", None) is None
-                                or not self.toolbox.manager.choices):
-            console.print("[indian_red]缺少选择块，正在要求 DM 补调 create_choice…[/indian_red]")
+        audit = self.supervisor.audit(raw, mode=mode,
+                                      require_event=require_event,
+                                      require_choices=require_choices)
+        # 统一补写循环：缺陷（事件/选择缺失）由监督者 audit 检出后，在此带
+        # 次数上限（REPAIR_MAX_RETRIES）与 token 预算（REPAIR_TOKEN_BUDGET）
+        # 反复向 DM 补写，直到补齐或耗尽。递归补写时不再触发新的补写循环，
+        # 由外层循环统一重检缺陷，避免递归失控。
+        retries = 0
+        while audit.defects:
+            tokens_spent = _usage_total(getattr(self.gm, "last_usage", None))
+            if retries >= Config.REPAIR_MAX_RETRIES or tokens_spent >= Config.REPAIR_TOKEN_BUDGET:
+                break
+            retries += 1
+            console.print(f"[indian_red]缺少{'、'.join(audit.defects)}块，"
+                          f"正在要求 DM 补写（第 {retries}/{Config.REPAIR_MAX_RETRIES} 次）…[/indian_red]")
             usage_before = getattr(self.gm, "last_usage", None) or {}
-            audit, _elapsed = self.dm_call(
-                "[系统要求] 你上一轮回复没有为玩家创建选择选项。"
-                "请立即调用 create_choice 工具创建 3 个选择选项"
-                "（choice_type=attack/ability_check/narrative，选项文本用纯描述语言），"
-                "然后输出 [事件] 区块收尾。不要重复调用其他工具（伤害/态度等已结算，勿重复落账）。",
-                tools=tools, status="DM 补充选择...",
-                protected_npcs=protected_npcs, mode=mode, tag=tag,
+            repair_audit, _elapsed = self.dm_call(
+                self._build_repair_prompt(audit.defects),
+                tools=tools, status="DM 补写...",
+                mode=mode, tag=tag,
                 settle_scope=settle_scope,
-                require_event=require_event, require_choices=False,
+                require_event=False, require_choices=False,
                 _suppress_meta=True,
             )
             elapsed += _elapsed
@@ -255,6 +271,13 @@ class BaseRound:
             }
             if any(merged.values()):
                 self.gm.last_usage = merged
+            audit = repair_audit
+            audit.defects = self.supervisor.detect_defects(
+                audit.text, require_event, require_choices)
+        if audit.defects:
+            self.supervisor.report_repair_exhausted(
+                audit.defects, retries,
+                _usage_total(getattr(self.gm, "last_usage", None)))
         if not self.gm.history:
             self.gm.set_history([])
         if not _suppress_meta:
@@ -277,6 +300,26 @@ class BaseRound:
         if self.toolbox is not None:
             self.toolbox._settle_scope = "dm"
         return audit, elapsed
+
+    @staticmethod
+    def _build_repair_prompt(defects: list[str]) -> str:
+        """根据缺陷类型拼装补写提示词（供 dm_call 补写循环复用）。"""
+        parts = []
+        if "选择" in defects:
+            parts.append(
+                "你上一轮回复没有为玩家创建选择选项。"
+                "请立即调用 create_choice 工具创建 3 个选择选项"
+                "（choice_type=attack/ability_check/narrative，选项文本用纯描述语言），"
+                "然后输出 [事件] 区块收尾。"
+            )
+        if "事件" in defects:
+            parts.append(
+                "你上一轮回复没有输出 [事件] 区块。"
+                "请用 3-5 句画面感语言描述当前正在发生的事情，"
+                "只输出 [事件] 区块（内容直接展示给玩家，不要写后台独白）。"
+            )
+        parts.append("不要重复调用其他工具（伤害/态度等已结算，勿重复落账）。")
+        return "[系统要求] " + " ".join(parts)
 
     # ── 玩家输入 ──
 

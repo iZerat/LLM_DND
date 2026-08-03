@@ -15,6 +15,7 @@
   },
   "hp": 10,
   "max_hp": 10,
+  "age": 30,
   "skills": ["stealth", "sleight_of_hand", "perception", "deception"],
   "equipment": ["匕首", "短剑", "皮甲"],
   "description": "脸上横着一道旧刀疤的半身人，总是一边啜着淡啤酒一边留意着酒馆里的每一个人。"

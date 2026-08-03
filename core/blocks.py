@@ -1,11 +1,11 @@
 """回合块类体系。所有终端输出的块都是 RoundBlock 的子类，统一 render 接口。
 
 数据隔离原则：
-- [环境] → Scene.environment
+- [环境] → Scene.environment 摘抄 地点/温度（时间短摘抄自 World.time）
 - [事件]/[副事件] → DM 文本（唯一的自由区）
 - [行动] → checker 本地掷骰结果
 - [变更] → 结构化变更记录（Actor 属性 变更 (旧值 >>> 新值)），由 ChangeBlock/MoneyChangeBlock 渲染
-- [状态] → world.active + character
+- [状态] → world.active + character（本地渲染，LLM 不再输出此区块）
 - [选择] → manager.choices（create_choice 工具）
 - [决定] → 玩家输入
 """
@@ -41,20 +41,29 @@ class RoundBlock:
             ))
 
 
-# ── 环境块 — 从 Scene.environment 渲染 ──
+# ── 环境块 — 从 Scene.environment + World.time 摘抄 地点/时间/温度 ──
 
 class EnvironmentBlock(RoundBlock):
     title = "环境"
     border_color = "steel_blue"
 
     @classmethod
-    def from_scene(cls, scene) -> EnvironmentBlock:
+    def from_scene(cls, scene, world=None) -> EnvironmentBlock:
         env = getattr(scene, "environment", None) or {}
         fields = []
-        for key in ("地点", "时间", "温度"):
-            v = env.get(key, "")
-            if v:
-                fields.append(f"{key}：{v}")
+        loc = env.get("地点", "") or getattr(scene, "location", "") or ""
+        if loc:
+            fields.append(f"地点：{loc}")
+        period = ""
+        if world is not None:
+            period = getattr(world, "time_short", lambda: "")()
+        if not period:
+            period = env.get("时间", "")
+        if period:
+            fields.append(f"时间：{period}")
+        temp = env.get("温度", "")
+        if temp:
+            fields.append(f"温度：{temp}")
         return cls(content="    ".join(fields))
 
 

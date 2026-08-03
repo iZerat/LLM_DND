@@ -20,6 +20,7 @@ class CombatRound(BaseRound):
         audit, elapsed = self.dm_call(
             self._prelude_prompt(player_input),
             tools=None, mode="full", tag="pre", require_event=True,
+            require_choices=True,
         )
         sections = parse_sections(audit.text)
         self.rendered_blocks = []
@@ -29,7 +30,7 @@ class CombatRound(BaseRound):
         m = getattr(self.regulator, "manager", None)
         scene = m.world._ensure_scene() if (m and m.world) else None
         if scene:
-            EnvironmentBlock.from_scene(scene).render()
+            EnvironmentBlock.from_scene(scene, world=m.world).render()
             self.rendered_blocks.append("环境")
 
         # [事件]

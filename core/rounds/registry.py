@@ -54,31 +54,37 @@ def _game_info(gm, args):
 
 def _game_scene(gm, args):
     from core.ui import current_scene, _filter_env_fields
+    from world.world import TIME_FIELD_KEYS
     scene = current_scene(gm)
     if scene is not None and (scene.environment or scene.location or scene.name):
         env = scene.environment or {}
-        parts = [f"{k}：{v}" for k, v in env.items() if v]
+        parts = []
         if scene.location and "地点" not in env:
             parts.append(f"地点：{scene.location}")
+        for k, v in env.items():
+            if v and k not in TIME_FIELD_KEYS:
+                parts.append(f"{k}：{v}")
         if not parts:
             parts.append(scene.name or "未知场景")
         scene_text = "\n".join(parts)
         console.print(Panel(
             scene_text,
-            title="[grey58]完整环境信息[/grey58]",
+            title="[grey58]场景[/grey58]",
             border_style="grey58",
             box=box.SQUARE,
         ))
     elif gm.last_scene:
         scene_text = _filter_env_fields(gm.last_scene, basic_only=False)
+        lines = [l for l in scene_text.split("\n")
+                 if not l.split("：")[0].strip() in TIME_FIELD_KEYS]
         console.print(Panel(
-            scene_text,
-            title="[grey58]完整环境信息[/grey58]",
+            "\n".join(lines) or "（无场景信息）",
+            title="[grey58]场景[/grey58]",
             border_style="grey58",
             box=box.SQUARE,
         ))
     else:
-        console.print("[grey50]尚无环境信息[/grey50]")
+        console.print("[grey50]尚无场景信息[/grey50]")
     return _GameCmdResult()
 
 

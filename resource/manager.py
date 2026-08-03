@@ -56,9 +56,6 @@ class ResourceManager:
         self.world = None  # set by game_loop
         self.resource_mode = RESOURCE_MODE_PACK
         self._target_npc: Optional[NPC] = None
-        # 本轮已被工具主动改过 HP 的对象（"玩家" 或 NPC 名称），
-        # 供 sync_status_block 判定「世界值 vs [状态] 声明值」谁生效。
-        self.changed_npcs: set[str] = set()
         # 攻击检定待落账登记（检定器掷骰判定后，交由 LLM 经调节器工具落账；
         # 调节器据此校验数值一致性，拒绝随意/重复结算——游戏数据只经调节器变更）。
         self.pending_attacks: dict[str, dict] = {}
@@ -573,15 +570,24 @@ class ResourceManager:
     def set_environment(self, fields: dict) -> ResourceResult:
         if not self.world:
             return ResourceResult.fail("世界状态未初始化")
+        from world.world import TIME_FIELD_KEYS
         scene = self.world._ensure_scene()
-        scene.environment.update({k: v for k, v in (fields or {}).items() if v})
-        loc = fields.get("地点", "") or fields.get("location", "")
-        time_val = fields.get("时间", "") or fields.get("time", "")
+        scene_fields = {}
+        time_fields = {}
+        for k, v in (fields or {}).items():
+            if not v:
+                continue
+            if k in TIME_FIELD_KEYS:
+                time_fields[k] = v
+            else:
+                scene_fields[k] = v
+        scene.environment.update(scene_fields)
+        loc = scene_fields.get("地点", "") or scene_fields.get("location", "")
         if loc:
             scene.location = loc
             self.world.location = loc
-        if time_val:
-            self.world.time = time_val
+        if time_fields:
+            self.world.set_time(time_fields)
         return ResourceResult.ok("环境已更新", visible=False)
 
     def create_object(self, name: str, description: str = "", tags: list = None) -> ResourceResult:
@@ -698,7 +704,7 @@ class ResourceManager:
     def spawn_npc_by_name(self, name: str, attitude_cn: str = "") -> tuple[Optional[NPC], str]:
         """按名称查表生成 NPC 实例——Actor 创建的唯一 spawn 入口。
 
-        create_npc 工具与 [状态] 同步登记都经此创建实例（不 add_active、不设 target）。
+        create_npc 工具经此创建实例（不 add_active、不设 target）。
         查表命中 → 返回 (npc, "")；未命中/生成失败 → (None, 提示)。绝不自造默认属性。
         """
         from world.npc_templates import npc_catalog
