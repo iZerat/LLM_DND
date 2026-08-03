@@ -119,7 +119,7 @@ class ResourceToolbox:
                           "choice_type": {"type": "string",
                                           "enum": ["attack", "ability_check", "narrative"],
                                           "description": "选项类型"},
-                          "label": {"type": "string", "description": "选项文本（如'拔出短剑正面迎战'）"},
+                          "label": {"type": "string", "description": "选项文本（如'拔出短剑正面迎战'），必须是中文纯描述，禁止英文整句与括号技术标注（检定类型/目标/DC 由系统渲染）"},
                           "ability": {"type": "string", "description": "所用属性: strength/dexterity/constitution/intelligence/wisdom/charisma"},
                           "dc": {"type": "integer", "minimum": 1,
                                  "description": "难度等级（ability_check 时使用，attack 时忽略）"},

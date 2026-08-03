@@ -42,6 +42,35 @@ _NARR_KIND_FIELD = {
 # 目标面板由本地系统从 WorldState 渲染，LLM 输出中残留的 [状态] 一律剥离且不落账。
 _STATUS_BLOCK_RE = re.compile(r"\n?\[状态\].*?(?=\n\[|\Z)", re.DOTALL)
 
+# 语言防线（§2.4）：检测 [事件]/[副事件] 中的英文整句泄漏（后台独白/出戏文本）。
+# 只对「连续 ≥4 个纯英文单词」的整句拦截，避免误杀英文人名/地名/术语
+# （如 NPC 名、HP/AC/DC、Emperor、warhammer-40k）。
+_EN_WORD_RE = re.compile(r"[A-Za-z]+(?:['’\-][A-Za-z]+)*")
+_EN_RUN_MIN = 4
+
+_NARR_BLOCK_RE = re.compile(
+    r"\[(?:事件|副事件)\]\s*(.*?)(?=\[(?:环境|场景|场景细节|事件|副事件|状态|选择|历史|时间)\]|\Z)",
+    re.DOTALL,
+)
+
+
+def _find_english_leaks(text: str) -> list[str]:
+    """扫描 [事件]/[副事件]，返回疑似英文整句的片段列表（≥4 个连续英文单词）。"""
+    leaks: list[str] = []
+    for content in _NARR_BLOCK_RE.findall(text):
+        run: list[str] = []
+        for tok in content.split():
+            core = re.sub(r"^[^A-Za-z]+|[^A-Za-z]+$", "", tok)
+            if core and _EN_WORD_RE.fullmatch(core):
+                run.append(tok)
+            else:
+                if len(run) >= _EN_RUN_MIN:
+                    leaks.append(" ".join(run))
+                run = []
+        if len(run) >= _EN_RUN_MIN:
+            leaks.append(" ".join(run))
+    return leaks
+
 
 class AuditResult:
     """监督者方向B 一轮审核的结果。
@@ -167,6 +196,18 @@ class Supervisor:
             text = _insert_reminder(text, reminder)
             self._record_reminder(reminder)
 
+        # 语言防线：检测 [事件]/[副事件] 中的英文整句泄漏（后台独白/出戏文本）。
+        # 命中只写回 LLM 历史让 DM 自纠，不插入屏幕文本（notices 不进终端）。
+        leaks = _find_english_leaks(text)
+        if leaks:
+            snippet = max(leaks, key=len)[:40]
+            reminder = (
+                "[系统提醒] 你的事件/副事件叙事中检测到英文整句（如「" + snippet + "」）。"
+                "事件块内容必须为中文、面向玩家，禁止后台独白或操作说明，请重写为中文叙事。"
+            )
+            result.notices.append(reminder)
+            self._record_reminder(reminder)
+
         # 块缺陷检测：只标记缺失，不做修复（修复重试由 dm_call 统一调度）。
         result.defects = self.detect_defects(text, require_event, require_choices)
 
@@ -188,12 +229,7 @@ class Supervisor:
         名称无法解析或数值声明形式不标准的一律跳过（避免误伤正常叙事）。
         """
         issues: list[str] = []
-        body = ""
-        for content in re.findall(
-            r"\[(?:事件|副事件)\]\s*(.*?)(?=\[(?:环境|场景|场景细节|事件|副事件|状态|选择|历史|时间)\]|\Z)",
-            response_text, re.DOTALL,
-        ):
-            body += content
+        body = "".join(_NARR_BLOCK_RE.findall(response_text))
         if not body.strip():
             return issues
         for m in _NARR_VALUE_RE.finditer(body):

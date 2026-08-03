@@ -220,7 +220,7 @@ class GameMaster:
 
     def _build_system_prompt(self) -> str:
         char_summary = self.character.summary()
-        format_rule = "\n\n数据变更（物品、金钱、HP、NPC）一律通过调用工具完成；工具失败时只继续叙事，不做数据变更。金钱统一用cp（1金=10000铜、1银=100铜）。\n每轮必须调用set_environment、create_choice（3个选项）。\n攻击伤害由d20_roll工具在掷骰后由系统自动结算，你无需再调用change_status重复扣血。\n叙事中写到的HP/AC/态度数字必须与真实数据一致，否则会被[系统提醒]打回修正。\n创建NPC/物品前先调用search_resource查询本地目录。\nset_target只能选择已在场的NPC；创建新目标NPC必须调用create_npc。\n选项文本用纯描述语言，禁止附带（攻击 对X）/（魅力威吓）/（魅力检定 DC 15）这类括号技术标注——检定类型/目标/DC 由系统渲染。"
+        format_rule = "\n\n数据变更（物品、金钱、HP、NPC）一律通过调用工具完成；工具失败时只继续叙事，不做数据变更。金钱统一用cp（1金=10000铜、1银=100铜）。\n每轮必须调用set_environment、create_choice（3个选项）。\n攻击伤害由d20_roll工具在掷骰后由系统自动结算，你无需再调用change_status重复扣血。\n叙事中写到的HP/AC/态度数字必须与真实数据一致，否则会被[系统提醒]打回修正。\n创建NPC/物品前先调用search_resource查询本地目录。\nset_target只能选择已在场的NPC；创建新目标NPC必须调用create_npc。\n选项文本用纯描述语言，禁止附带（攻击 对X）/（魅力威吓）/（魅力检定 DC 15）这类括号技术标注——检定类型/目标/DC 由系统渲染。\n事件/副事件文本必须是面向玩家的中文叙事，禁止英文整句与后台独白（如“I've set up the scene...”），英文专有名词用【】包裹。"
         template_note = ""
         if self.template and not self.history:
             t = load_opening_template(self.template)
@@ -256,6 +256,7 @@ class GameMaster:
                 player_input
                 + "\n\n[注意] 你只需输出叙事区块（[事件]，有检定时另加 [副事件]），内容直接展示给玩家，"
                 "不要写后台独白。"
+                "叙事必须为中文、面向玩家，禁止英文整句与出戏文本，"
                 "上方 [当前世界状态] 是系统发来的数据包，只读不写；任何数据的创建/消耗/修改都必须调用工具，"
                 "禁止通过叙事文字改动数据。角色对话用「」包裹，特殊名词用【】包裹。"
                 "金钱统一用cp（1金=10000铜、1银=100铜）。"
@@ -292,28 +293,6 @@ class GameMaster:
     def send_message_stream(self, player_input: str, tools=None, tool_executor=None, status_cb=None, system_override: str | None = None, round_num: int | None = None):
         """流式对话。round_num 传入时覆盖内部自增计数，使同一回合内多个段共享同一轮号。"""
         messages = self._build_messages(player_input, system_override=system_override)
-
-        # ---- debug: 让我（opencode）当 DM ----
-        if Config.DEBUG_DM:
-            import json as _json, time as _t
-            req = {
-                "messages": messages,
-                "tools": [t["function"]["name"] for t in (tools or [])],
-                "player_input": player_input,
-            }
-            req_file = Path("logs/debug_request.json")
-            req_file.parent.mkdir(parents=True, exist_ok=True)
-            req_file.write_text(_json.dumps(req, ensure_ascii=False, indent=2), encoding="utf-8")
-            resp_file = Path("logs/debug_response.txt")
-            while not resp_file.exists():
-                _t.sleep(0.5)
-            _t.sleep(0.3)
-            response = resp_file.read_text(encoding="utf-8").strip()
-            resp_file.unlink()
-            yield response
-            return
-        # ---- debug end ----
-
         self.last_tool_results = []
         self._used_tools = False
 
